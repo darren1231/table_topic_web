@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f5f0e8" />
+  <title>話題練習所｜Table Topics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="回到首頁">
+        <span class="brand-mark">話</span>
+        <span>話題練習所</span>
+      </a>
+      <div class="top-actions">
+        <button class="review-badge-button" id="reviewNavButton" type="button" title="今日複習">🧠 <span id="reviewNavLabel">複習</span> <b id="dueReviewCount">0</b></button>
+        <button class="backup-button" id="backupButton" type="button" title="匯出或匯入完整資料">⇅ <span>資料備份</span></button>
+        <button class="settings-button" id="settingsButton" type="button" title="AI 專案設定">⚙ <span id="activeProjectLabel">內建教練</span></button>
+        <button class="streak" id="streakButton" type="button" title="查看打卡日曆"><span>🔥</span> <b id="streakCount">0</b> 天</button>
+        <select id="languageSelect" aria-label="練習語言">
+          <option value="zh-TW">中文（繁體）</option>
+          <option value="en-US">English</option>
+          <option value="ja-JP">日本語</option>
+        </select>
+      </div>
+    </header>
+
+    <main id="practiceView" class="app-view active-view">
+      <section class="hero">
+        <p class="eyebrow" id="todayLabel"></p>
+        <h1>每天一個話題，<br><em>說得更像自己。</em></h1>
+        <p class="intro">不用準備，不求完美。選一個今天想聊的主題，讓 AI 陪你把想法說清楚。</p>
+        <div class="progress-wrap">
+          <div class="progress-meta"><span>今日練習</span><span id="progressText">0 / 3 題</span></div>
+          <div class="progress-track"><span id="progressBar"></span></div>
+        </div>
+      </section>
+
+      <div class="practice-mode-switch" role="group" aria-label="練習模式">
+        <button class="active" id="questionModeButton" type="button">問題練習</button>
+        <button id="manuscriptModeButton" type="button">自由講稿</button>
+      </div>
+
+      <section class="topic-panel" id="topicPanel">
+        <div class="section-heading">
+          <div><span class="step">01</span><h2>今天想聊什麼？</h2></div>
+          <button class="text-button" id="randomTopicButton">↻ 給我靈感</button>
+        </div>
+        <div class="topic-entry">
+          <input id="topicInput" maxlength="50" placeholder="例如：旅行、勇氣、最近學到的事⋯" autocomplete="off" />
+          <button class="primary" id="generateButton">產生題目 <span>→</span></button>
+        </div>
+        <div class="suggestions" id="suggestions"></div>
+      </section>
+
+      <section class="practice-panel hidden" id="practicePanel">
+        <div class="section-heading">
+          <div><span class="step">02</span><h2>開始即興回答</h2></div>
+          <span class="question-index" id="questionIndex">第 1 / 3 題</span>
+        </div>
+
+        <article class="question-card">
+          <div class="question-top"><span id="topicBadge">主題</span><button class="icon-button" id="regenerateButton" type="button" title="換一題">↻</button></div>
+          <h3 id="questionText"></h3>
+          <p>建議回答 1–2 分鐘。先說結論，再用一個故事或例子支持它。</p>
+        </article>
+
+        <div class="recorder">
+          <div class="timer" id="timer">00:00</div>
+          <div class="record-visual" id="recordVisual" aria-hidden="true"><span></span></div>
+          <div class="record-status" id="recordStatus">點一下開始錄音</div>
+          <div class="wave" id="wave" aria-hidden="true"></div>
+          <div class="record-actions">
+            <button class="record-control danger-control" id="restartRecordButton" type="button"><span>↻</span> 重新錄製</button>
+            <button class="record-control resume-control" id="resumeRecordButton" type="button"><span>●</span> 繼續錄製</button>
+            <button class="record-control pause-control" id="pauseRecordButton" type="button" disabled><span>Ⅱ</span> 暫停錄製</button>
+          </div>
+          <label class="transcription-mode-picker"><span>轉錄方式</span><select id="transcriptionModeQuick"><option value="browser">瀏覽器即時辨識</option><option value="api">API 高品質轉錄</option></select></label>
+          <div class="transcription-api-status" id="transcriptionApiStatus">目前使用瀏覽器即時辨識，不會呼叫 Audio API。</div>
+        </div>
+
+        <div class="transcript-wrap">
+          <label for="transcript">你的回答 <span>可直接修改逐字稿</span></label>
+          <textarea id="transcript" rows="7" placeholder="錄音後逐字稿會出現在這裡，也可以直接輸入你的回答⋯"></textarea>
+          <div class="textarea-footer"><span id="charCount">0 字</span><button class="secondary" id="analyzeButton">分析我的回答 ✦</button></div>
+        </div>
+      </section>
+
+      <section class="feedback-panel hidden" id="feedbackPanel">
+        <div class="section-heading">
+          <div><span class="step">03</span><h2>這次說得怎麼樣？</h2></div>
+          <span class="ai-label">✦ AI 教練回饋</span>
+        </div>
+        <div class="score-grid">
+          <div class="overall-score"><span id="overallScore">--</span><small>整體表現</small></div>
+          <div class="metric"><div><span>結構清晰</span><b id="structureScore">--</b></div><div class="mini-track"><i id="structureBar"></i></div></div>
+          <div class="metric"><div><span>內容具體</span><b id="detailScore">--</b></div><div class="mini-track"><i id="detailBar"></i></div></div>
+          <div class="metric"><div><span>表達流暢</span><b id="fluencyScore">--</b></div><div class="mini-track"><i id="fluencyBar"></i></div></div>
+        </div>
+        <div class="feedback-grid">
+          <article><span class="feedback-icon good">✓</span><div><h4>做得好的地方</h4><p id="strengthText"></p></div></article>
+          <article><span class="feedback-icon improve">↗</span><div><h4>下一次可以試試</h4><p id="improveText"></p></div></article>
+        </div>
+        <div class="coach-report" id="coachReport"></div>
+        <details class="raw-agent-response" id="rawAgentSection">
+          <summary>查看 Agent 的完整原始回覆</summary>
+          <div class="raw-response-toolbar"><span>以下是 API Agent 回傳、尚未經介面整理的內容</span><button type="button" id="copyRawResponseButton">複製</button></div>
+          <pre id="rawAgentResponse"></pre>
+        </details>
+        <div class="action-row">
+          <button class="secondary" id="retryButton">再答一次</button>
+          <button class="primary" id="nextButton">下一題 <span>→</span></button>
+        </div>
+      </section>
+
+      <section class="history-section">
+        <div class="section-heading"><div><span class="step">⌁</span><h2>最近的練習</h2></div><button class="text-button" id="clearHistoryButton">清除紀錄</button></div>
+        <div id="historyList" class="history-list"><p class="empty">完成第一題後，你的練習足跡會出現在這裡。</p></div>
+      </section>
+    </main>
+
+    <main id="calendarView" class="app-view hidden">
+      <section class="page-hero compact-hero"><button class="back-button" data-nav="practice">← <span>返回練習</span></button><p class="eyebrow">PRACTICE CALENDAR</p><h1>你的練習日曆</h1><p>每一次完成 AI 分析，都會成為一筆有效練習。</p></section>
+      <section class="dashboard-stats" id="calendarStats"></section>
+      <section class="calendar-panel">
+        <div class="calendar-toolbar"><button id="prevMonthButton" aria-label="上個月">←</button><h2 id="calendarMonthLabel"></h2><button id="nextMonthButton" aria-label="下個月">→</button></div>
+        <div class="language-tabs" id="calendarLanguageFilter"><button class="active" data-language="all">全部</button><button data-language="zh-TW">中文</button><button data-language="en-US">English</button></div>
+        <div class="calendar-weekdays"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+        <div class="calendar-grid" id="calendarGrid"></div>
+      </section>
+      <section class="day-detail-panel hidden" id="dayDetailPanel"><div class="section-heading"><div><span class="step">✓</span><h2 id="dayDetailTitle"></h2></div></div><div id="dayDetailContent"></div></section>
+    </main>
+
+    <main id="reviewView" class="app-view hidden">
+      <section class="page-hero compact-hero"><button class="back-button" data-nav="practice">← <span>返回練習</span></button><p class="eyebrow">SPACED REVIEW</p><h1>今日複習</h1><p>先回想更好的說法，再揭曉並評估自己的熟練程度。</p></section>
+      <section class="review-summary" id="reviewSummary"></section>
+      <div class="language-tabs" id="reviewLanguageFilter"><button class="active" data-language="all">全部</button><button data-language="zh-TW">中文</button><button data-language="en-US">English</button></div>
+      <section class="review-session" id="reviewSession"></section>
+      <section class="review-library"><div class="section-heading"><div><span class="step">⌁</span><h2>複習資料庫</h2></div><span id="libraryResultCount" class="library-result-count"></span></div>
+        <div class="library-toolbar">
+          <label class="library-search"><span>搜尋</span><input id="librarySearchInput" type="search" placeholder="搜尋主題、句子、文法或標籤"></label>
+          <label><span>狀態</span><select id="libraryStatusFilter"><option value="active">啟用中</option><option value="archived">已封存</option><option value="trashed">垃圾桶</option><option value="all">全部狀態</option></select></label>
+          <label><span>日期類型</span><select id="libraryDateType"><option value="createdAt">加入日期</option><option value="dueAt">下次複習日期</option><option value="lastReviewedAt">最後複習日期</option></select></label>
+          <label><span>開始日期</span><input id="libraryDateFrom" type="date"></label><label><span>結束日期</span><input id="libraryDateTo" type="date"></label>
+          <label><span>排序</span><select id="librarySortSelect"><option value="dueAsc">下次複習：由近到遠</option><option value="dueDesc">下次複習：由遠到近</option><option value="createdDesc">最新加入</option><option value="createdAsc">最早加入</option><option value="reviewedDesc">最近複習</option><option value="masteryDesc">熟練度最高</option></select></label>
+          <button class="text-button library-reset" id="libraryResetButton" type="button">清除篩選</button>
+        </div>
+        <div class="library-bulkbar" id="libraryBulkbar"><label><input id="librarySelectPage" type="checkbox"> 選取本頁</label><span id="librarySelectedCount">已選 0 張</span><button class="library-live-action" id="bulkActivateButton" type="button">啟用</button><button class="library-live-action" id="bulkArchiveButton" type="button">封存</button><input class="library-live-action" id="bulkDueDateInput" type="date" aria-label="批次設定下次複習日期"><button class="library-live-action" id="bulkDueButton" type="button">調整日期</button><button class="danger-text library-live-action" id="bulkTrashButton" type="button">移到垃圾桶</button><button class="library-trash-action hidden" id="bulkRestoreButton" type="button">復原</button><button class="danger-text library-trash-action hidden" id="bulkDeleteButton" type="button">永久刪除</button><button class="danger-text hidden" id="emptyTrashButton" type="button">清空垃圾桶</button></div>
+        <div id="reviewLibrary"></div><nav class="library-pagination" id="libraryPagination" aria-label="複習資料庫分頁"></nav>
+      </section>
+    </main>
+
+    <footer><span>每天開口一點點，就會更靠近理想中的表達。</span><span>資料只保存在你的瀏覽器</span></footer>
+  </div>
+  <nav class="mobile-nav" aria-label="主要導覽"><button class="active" data-nav="practice">◉<span>練習</span></button><button data-nav="calendar">▦<span>日曆</span></button><button data-nav="review">◫<span>複習</span><b id="mobileDueCount">0</b></button></nav>
+  <dialog class="app-dialog settings-dialog" id="settingsDialog">
+    <form method="dialog" class="dialog-card" id="settingsForm">
+      <div class="dialog-head"><div><p class="eyebrow">AI PROJECTS</p><h2>AI 專案設定</h2></div><button class="dialog-close" value="cancel" aria-label="關閉">×</button></div>
+      <p class="dialog-intro">每個專案可以使用不同的 Agent、模型與預設 Prompt。啟用後，產生題目和分析回答都會使用這個設定。</p>
+      <div class="project-toolbar"><select id="projectSelect" aria-label="選擇 AI 專案"></select><button type="button" class="secondary compact" id="newProjectButton">＋ 新專案</button><button type="button" class="text-button danger-text" id="deleteProjectButton">刪除</button></div>
+      <div class="settings-grid">
+        <label>專案名稱<input id="projectNameInput" maxlength="40" placeholder="例如：中文表達教練"></label>
+        <label>AI 服務商<select id="providerSelect"><option value="builtin">內建教練（免 API）</option><option value="openai">OpenAI</option><option value="anthropic">Claude / Anthropic</option><option value="compatible">OpenAI 相容端點／GitHub Models</option></select></label>
+        <label>模型<input id="modelInput" placeholder="例如：gpt-5.4-mini"></label>
+        <label>API Endpoint<input id="endpointInput" type="url" placeholder="https://api.openai.com/v1/responses"></label>
+        <label class="full-field">API Key<div class="secret-row"><input id="apiKeyInput" type="password" autocomplete="off" placeholder="只儲存在這台裝置"><button type="button" id="toggleKeyButton">顯示</button></div></label>
+        <div class="full-field transcription-settings">
+          <h3>語音轉文字</h3>
+          <div class="settings-grid inner-settings-grid">
+            <label>轉錄方式<select id="transcriptionModeSelect"><option value="browser">瀏覽器即時辨識（免費）</option><option value="api">API 高品質轉錄（自動標點）</option></select></label>
+            <label>Audio-to-Text 模型<input id="transcriptionModelInput" placeholder="gpt-4o-mini-transcribe"></label>
+            <label class="full-field">Transcription Endpoint<input id="transcriptionEndpointInput" type="url" placeholder="https://api.openai.com/v1/audio/transcriptions"></label>
+            <label class="full-field smart-correction-option"><input id="smartCorrectionInput" type="checkbox" checked> <span>轉錄後再使用 Agent 智慧校正、補標點與分段</span></label>
+          </div>
+          <p class="field-help">API 模式會在按下暫停時上傳本段音訊並自動補上標點。API Key 沿用此 AI 專案的設定。</p>
+        </div>
+        <label class="full-field">專案 Prompt<textarea id="promptInput" rows="7" placeholder="說明這個 Agent 的角色、評分標準、語氣與偏好⋯"></textarea></label>
+      </div>
+      <div class="security-note">🔒 API Key 只會保存在目前瀏覽器的 localStorage，但瀏覽器儲存仍有風險。共用裝置請勿保存正式金鑰；部分服務商可能不允許瀏覽器直接呼叫。</div>
+      <div class="dialog-actions"><button type="button" class="secondary" id="testConnectionButton">測試連線</button><button type="button" class="primary" id="saveProjectButton">儲存並啟用</button></div>
+    </form>
+  </dialog>
+  <dialog class="app-dialog history-dialog" id="historyDialog">
+    <div class="dialog-card history-detail"><div class="dialog-head"><div><p class="eyebrow">PRACTICE REPORT</p><h2 id="historyDetailTitle">練習報告</h2></div><button class="dialog-close" id="closeHistoryButton" aria-label="關閉">×</button></div><div id="historyDetailContent"></div></div>
+  </dialog>
+  <dialog class="app-dialog backup-dialog" id="backupDialog">
+    <div class="dialog-card backup-card">
+      <div class="dialog-head"><div><p class="eyebrow">DATA BACKUP</p><h2>匯出與匯入</h2></div><button class="dialog-close" id="closeBackupButton" type="button" aria-label="關閉">×</button></div>
+      <p class="dialog-intro">將練習紀錄、AI 回饋、日曆、複習卡、專案 Prompt 與語音設定備份成一個 JSON 檔案。</p>
+      <label class="backup-secret-option"><input id="includeApiKeysInput" type="checkbox"> <span><b>在備份中包含 API Key</b><small>只建議用於自己的私人裝置；備份檔將包含可讀取的金鑰。</small></span></label>
+      <section class="backup-section"><h3>匯出所有資料</h3><div class="backup-actions"><button class="primary" id="exportLocalButton" type="button">儲存到本機</button><button class="secondary drive-button" id="exportDriveButton" type="button">儲存到 Google Drive</button></div><p class="field-help" id="driveHelp">手機會開啟分享選單，請選擇 Google Drive；若裝置不支援，會先下載備份檔再開啟 Drive。</p></section>
+      <section class="backup-section"><h3>匯入備份</h3><p class="field-help">匯入會以備份內容取代目前資料。系統會先檢查檔案格式並要求確認。</p><button class="secondary" id="importBackupButton" type="button">選擇備份檔</button><input id="importBackupInput" type="file" accept="application/json,.json" hidden></section>
+      <div class="backup-summary" id="backupSummary"></div>
+    </div>
+  </dialog>
+  <dialog class="app-dialog library-edit-dialog" id="libraryEditDialog">
+    <form method="dialog" class="dialog-card library-edit-card" id="libraryEditForm">
+      <div class="dialog-head"><div><p class="eyebrow">REVIEW CARD</p><h2>編輯複習卡</h2></div><button class="dialog-close" value="cancel" aria-label="關閉">×</button></div>
+      <input id="libraryEditId" type="hidden">
+      <div class="settings-grid library-edit-grid"><label>標題<input id="libraryEditLabel" maxlength="100"></label><label>語言<select id="libraryEditLanguage"><option value="zh-TW">中文</option><option value="en-US">English</option></select></label><label class="full-field">主題<input id="libraryEditTopic" maxlength="100"></label><label class="full-field">標籤<input id="libraryEditTags" placeholder="以逗號分隔，例如：旅行、時態"></label><label class="full-field">原句<textarea id="libraryEditBefore" rows="4" required></textarea></label><label class="full-field">改善句<textarea id="libraryEditAfter" rows="4" required></textarea></label><label class="full-field">文法錯誤說明<textarea id="libraryEditGrammarIssue" rows="2"></textarea></label><label class="full-field">文法原因<textarea id="libraryEditGrammarExplanation" rows="3"></textarea></label><label class="full-field">文法規則<textarea id="libraryEditGrammarRule" rows="2"></textarea></label><label class="full-field">新例句<textarea id="libraryEditGrammarExample" rows="2"></textarea></label><label>狀態<select id="libraryEditStatus"><option value="active">啟用中</option><option value="archived">已封存</option></select></label><label>下次複習日期<input id="libraryEditDueAt" type="datetime-local" required></label></div>
+      <div class="dialog-actions"><button class="secondary" value="cancel">取消</button><button class="primary" id="libraryEditSaveButton" type="button">儲存修改</button></div>
+    </form>
+  </dialog>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="app.js" defer></script>
+</body>
+</html>

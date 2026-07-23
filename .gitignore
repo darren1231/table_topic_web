@@ -1,0 +1,22 @@
+# Local tooling and credentials
+.agents/
+.codex/
+.vercel/
+.wrangler/
+.openai/
+
+# Dependencies and generated output
+node_modules/
+dist/
+build/
+*.tar.gz
+
+# Local deployment mirrors and obsolete prototypes
+public-deploy/
+sites-app/
+.github-publish/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.log
