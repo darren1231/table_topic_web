@@ -113,7 +113,10 @@ function ensureDataSchema(){
   saved.scripts.forEach(script=>{script.status||='active';script.tags=Array.isArray(script.tags)?script.tags:[];script.paragraphs=Array.isArray(script.paragraphs)?script.paragraphs:[];script.fullReviews=Array.isArray(script.fullReviews)?script.fullReviews:[];script.paragraphs.forEach(paragraph=>{paragraph.versions=Array.isArray(paragraph.versions)?paragraph.versions:[];paragraph.analyses=Array.isArray(paragraph.analyses)?paragraph.analyses:[];});});
   persist();
 }
-function persist() { localStorage.setItem(CONFIG.storageKey, JSON.stringify(saved)); }
+function persist() {
+  localStorage.setItem(CONFIG.storageKey, JSON.stringify(saved));
+  window.tableTopicsCloud?.scheduleSync(saved);
+}
 function buildBackup(includeApiKeys=false){
   const projects=JSON.parse(JSON.stringify(aiSettings));
   if(!includeApiKeys)projects.projects?.forEach(project=>{project.apiKey='';});
