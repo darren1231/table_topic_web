@@ -20,6 +20,10 @@
   };
   const currentMode = () => localStorage.getItem(MODE_KEY) || 'local';
   const cloudEnabled = () => currentMode() === 'cloud' && Boolean(session);
+  const readLocalPayload = () => {
+    try { return JSON.parse(localStorage.getItem(DATA_KEY) || '{"history":[]}'); }
+    catch { return { history: [] }; }
+  };
 
   function updateUi() {
     const user = session?.user;
@@ -55,7 +59,7 @@
     else setStatus('目前未上傳任何資料。');
   }
 
-  async function push(payload = saved) {
+  async function push(payload = readLocalPayload()) {
     if (!cloudEnabled()) return;
     if (syncing) {
       syncAgain = JSON.parse(JSON.stringify(payload));
@@ -110,7 +114,7 @@
     localStorage.setItem(MODE_KEY, 'cloud');
     updateUi();
     const foundRemote = await pullRemote();
-    if (foundRemote === false) await push(saved);
+    if (foundRemote === false) await push();
     enablingCloud = false;
     updateUi();
   }
@@ -152,16 +156,21 @@
   byId('googleSignInButton').onclick = signIn;
   byId('enableCloudButton').onclick = enableCloud;
   byId('useLocalButton').onclick = useLocal;
-  byId('syncNowButton').onclick = () => push(saved);
+  byId('syncNowButton').onclick = () => push();
   byId('signOutButton').onclick = signOut;
 
   async function initialize() {
+    let authErrorMessage = '';
     if (sessionStorage.getItem('tableTopicsCloudNotice')) {
       setTimeout(() => toast(sessionStorage.getItem('tableTopicsCloudNotice')), 100);
       sessionStorage.removeItem('tableTopicsCloudNotice');
     }
     if (client) {
-      const { data } = await client.auth.getSession();
+      const callbackParams = new URLSearchParams(location.hash.replace(/^#/,''));
+      const callbackError = callbackParams.get('error_description') || callbackParams.get('error');
+      const { data, error } = await client.auth.getSession();
+      if (callbackError) authErrorMessage = `Google 登入失敗：${decodeURIComponent(callbackError.replace(/\+/g,' '))}`;
+      else if (error) authErrorMessage = `無法建立登入狀態：${error.message}`;
       session = data.session;
       client.auth.onAuthStateChange((event, nextSession) => {
         session = nextSession;
@@ -179,6 +188,7 @@
       });
     }
     updateUi();
+    if (authErrorMessage) setStatus(authErrorMessage, 'error');
   }
 
   initialize();
