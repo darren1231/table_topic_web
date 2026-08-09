@@ -20,8 +20,20 @@
   function updateUi() {
     const user = session?.user;
     const cloud = cloudEnabled();
-    byId('accountLabel').textContent = cloud ? (user.user_metadata?.full_name || user.email || '已同步') : '本機資料';
-    byId('accountAvatar').textContent = cloud ? '✓' : '☁';
+    const accountName = user?.user_metadata?.full_name || user?.email || 'Google 帳號';
+    const accountButton = byId('accountButton');
+    accountButton.dataset.mode = cloud ? 'cloud' : 'local';
+    accountButton.title = cloud ? `Google 雲端模式：${accountName}` : '目前為本機模式；按一下管理資料模式';
+    accountButton.setAttribute('aria-label', accountButton.title);
+    byId('accountModeLabel').textContent = cloud ? 'Google 雲端' : '本機模式';
+    byId('accountLabel').textContent = cloud ? accountName : '資料只在這台裝置';
+    const modeBanner = byId('currentModeBanner');
+    modeBanner.dataset.mode = cloud ? 'cloud' : 'local';
+    modeBanner.querySelector('.mode-banner-logo').textContent = cloud ? '☁' : '⌂';
+    byId('currentModeTitle').textContent = cloud ? 'Google 雲端同步' : '本機模式';
+    byId('currentModeDescription').textContent = cloud
+      ? `已連結 ${accountName}，資料會安全同步到其他裝置。`
+      : '資料只儲存在這台裝置，不會上傳雲端。';
     byId('storageModeFooter').textContent = cloud ? '已透過 Supabase 私密同步' : '資料只保存在你的瀏覽器';
     byId('cloudAccountStatus').textContent = user
       ? `已登入 ${user.email || 'Google 帳號'}，資料會在你的裝置間同步。`
