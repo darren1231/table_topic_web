@@ -18,6 +18,10 @@
         <span>表達練習室</span>
       </a>
       <div class="top-actions">
+        <button class="account-button" id="accountButton" type="button" data-mode="local" title="目前為本機模式；按一下管理資料模式" aria-label="目前為本機模式；按一下管理資料模式">
+          <span class="mode-logo" aria-hidden="true"><svg class="local-mode-logo" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><svg class="cloud-mode-logo" viewBox="0 0 24 24"><path d="M7 18h11a4 4 0 0 0 .5-7.97A6.5 6.5 0 0 0 6.1 8.4 4.8 4.8 0 0 0 7 18Z"/><path d="m9.5 13 2 2 4-4"/></svg></span>
+          <span class="mode-copy"><strong id="accountModeLabel">本機模式</strong><small id="accountLabel">資料只在這台裝置</small></span><span class="mode-dot" aria-hidden="true"></span>
+        </button>
         <button class="review-badge-button" id="reviewNavButton" type="button" title="今日複習">🧠 <span id="reviewNavLabel">複習</span> <b id="dueReviewCount">0</b></button>
         <button class="backup-button" id="backupButton" type="button" title="匯出或匯入完整資料">⇅ <span>資料備份</span></button>
         <button class="settings-button" id="settingsButton" type="button" title="AI 專案設定">⚙ <span id="activeProjectLabel">內建教練</span></button>
@@ -155,7 +159,7 @@
       </section>
     </main>
 
-    <footer><span>每天開口一點點，就會更靠近理想中的表達。</span><span>資料只保存在你的瀏覽器</span></footer>
+    <footer><span>每天開口一點點，就會更靠近理想中的表達。</span><span id="storageModeFooter">資料只保存在你的瀏覽器</span></footer>
   </div>
   <nav class="mobile-nav" aria-label="主要導覽"><button class="active" data-nav="practice">◉<span>練習</span></button><button data-nav="calendar">▦<span>日曆</span></button><button data-nav="review">◫<span>複習</span><b id="mobileDueCount">0</b></button></nav>
   <dialog class="app-dialog settings-dialog" id="settingsDialog">
@@ -188,6 +192,18 @@
   <dialog class="app-dialog history-dialog" id="historyDialog">
     <div class="dialog-card history-detail"><div class="dialog-head"><div><p class="eyebrow">PRACTICE REPORT</p><h2 id="historyDetailTitle">練習報告</h2></div><button class="dialog-close" id="closeHistoryButton" aria-label="關閉">×</button></div><div id="historyDetailContent"></div></div>
   </dialog>
+  <dialog class="app-dialog account-dialog" id="accountDialog">
+    <div class="dialog-card account-card">
+      <div class="dialog-head"><div><p class="eyebrow">DATA &amp; ACCOUNT</p><h2>選擇資料儲存方式</h2></div><button class="dialog-close" id="closeAccountButton" type="button" aria-label="關閉">×</button></div>
+      <p class="dialog-intro">你可以完全留在本機，或用 Google 登入後透過 Supabase，在手機、平板與電腦同步練習資料。</p>
+      <div class="current-mode-banner" id="currentModeBanner" data-mode="local"><span class="mode-banner-logo" aria-hidden="true">⌂</span><div><small>目前使用模式</small><strong id="currentModeTitle">本機模式</strong><p id="currentModeDescription">資料只儲存在這台裝置，不會上傳雲端。</p></div></div>
+      <div class="storage-options">
+        <article class="storage-option" id="localStorageOption"><span class="storage-icon">⌂</span><div><h3>僅限這台裝置</h3><p>不登入、不上傳。資料只存在目前瀏覽器，仍可手動匯出備份。</p></div><button class="secondary" id="useLocalButton" type="button">使用本機模式</button></article>
+        <article class="storage-option cloud-option" id="cloudStorageOption"><span class="storage-icon">☁</span><div><h3>Google 雲端同步</h3><p id="cloudAccountStatus">登入後，練習紀錄、講稿與複習卡會同步至你的私人空間。</p><small>為了安全，AI API Key 不會上傳。</small></div><button class="google-signin-button" id="googleSignInButton" type="button"><span>G</span> 使用 Google 登入</button><button class="primary hidden" id="enableCloudButton" type="button">啟用這個帳號的雲端同步</button><button class="secondary hidden" id="syncNowButton" type="button">立即同步</button><button class="text-button danger-text hidden" id="signOutButton" type="button">登出並改用本機</button></article>
+      </div>
+      <div class="sync-status" id="syncStatus" role="status"></div>
+    </div>
+  </dialog>
   <dialog class="app-dialog backup-dialog" id="backupDialog">
     <div class="dialog-card backup-card">
       <div class="dialog-head"><div><p class="eyebrow">DATA BACKUP</p><h2>匯出與匯入</h2></div><button class="dialog-close" id="closeBackupButton" type="button" aria-label="關閉">×</button></div>
@@ -207,6 +223,9 @@
     </form>
   </dialog>
   <div class="toast" id="toast" role="status"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+  <script src="supabase-config.js" defer></script>
+  <script src="cloud.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>
