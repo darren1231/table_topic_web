@@ -7,6 +7,10 @@
   let session = null;
   let syncing = false;
   let timer = null;
+  let syncAgain = null;
+  let enablingCloud = false;
+  let lastRemoteUpdatedAt = '';
+  let pollTimer = null;
 
   const byId = id => document.getElementById(id);
   const setStatus = (message, type = '') => {
@@ -35,10 +39,13 @@
       ? `已連結 ${accountName}，資料會安全同步到其他裝置。`
       : '資料只儲存在這台裝置，不會上傳雲端。';
     byId('storageModeFooter').textContent = cloud ? '已透過 Supabase 私密同步' : '資料只保存在你的瀏覽器';
-    byId('cloudAccountStatus').textContent = user
+    byId('cloudAccountStatus').textContent = cloud
       ? `已登入 ${user.email || 'Google 帳號'}，資料會在你的裝置間同步。`
-      : '登入後，練習紀錄、講稿與複習卡會同步至你的私人空間。';
+      : user
+        ? `已登入 ${user.email || 'Google 帳號'}，但目前仍是本機模式；請按下方按鈕啟用同步。`
+        : '登入後，練習紀錄、講稿與複習卡會同步至你的私人空間。';
     byId('googleSignInButton').classList.toggle('hidden', Boolean(user));
+    byId('enableCloudButton').classList.toggle('hidden', !user || cloud);
     byId('syncNowButton').classList.toggle('hidden', !user || currentMode() !== 'cloud');
     byId('signOutButton').classList.toggle('hidden', !user);
     byId('localStorageOption').classList.toggle('selected', !cloud);
@@ -49,39 +56,62 @@
   }
 
   async function push(payload = saved) {
-    if (!cloudEnabled() || syncing) return;
+    if (!cloudEnabled()) return;
+    if (syncing) {
+      syncAgain = JSON.parse(JSON.stringify(payload));
+      return;
+    }
     syncing = true;
     setStatus('正在同步…');
+    const updatedAt = new Date().toISOString();
     const { error } = await client.from('user_data').upsert({
       user_id: session.user.id,
       payload: JSON.parse(JSON.stringify(payload)),
-      updated_at: new Date().toISOString()
+      updated_at: updatedAt
     }, { onConflict: 'user_id' });
     syncing = false;
     if (error) setStatus(`同步失敗：${error.message}`, 'error');
-    else setStatus(`已同步 · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, 'success');
+    else {
+      lastRemoteUpdatedAt = updatedAt;
+      setStatus(`已同步 · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, 'success');
+    }
+    if (syncAgain) {
+      const nextPayload = syncAgain;
+      syncAgain = null;
+      await push(nextPayload);
+    }
+  }
+
+  async function pullRemote({ reload = true } = {}) {
+    if (!cloudEnabled()) return false;
+    const { data, error } = await client.from('user_data').select('payload, updated_at').eq('user_id', session.user.id).maybeSingle();
+    if (error) {
+      setStatus(`無法讀取雲端資料：${error.message}`, 'error');
+      return null;
+    }
+    if (!data?.payload || !Object.keys(data.payload).length) return false;
+    if (data.updated_at && lastRemoteUpdatedAt && data.updated_at <= lastRemoteUpdatedAt) return true;
+    lastRemoteUpdatedAt = data.updated_at || lastRemoteUpdatedAt;
+    const remote = JSON.stringify(data.payload);
+    const local = localStorage.getItem(DATA_KEY);
+    if (remote !== local) {
+      localStorage.setItem(DATA_KEY, remote);
+      if (reload) {
+        sessionStorage.setItem('tableTopicsCloudNotice', '已載入這個 Google 帳號的最新雲端資料');
+        location.reload();
+      }
+    }
+    return true;
   }
 
   async function enableCloud() {
+    if (!session || enablingCloud) return;
+    enablingCloud = true;
     localStorage.setItem(MODE_KEY, 'cloud');
-    const { data, error } = await client.from('user_data').select('payload').eq('user_id', session.user.id).maybeSingle();
-    if (error) {
-      setStatus(`無法讀取雲端資料：${error.message}`, 'error');
-      updateUi();
-      return;
-    }
-    if (data?.payload && Object.keys(data.payload).length) {
-      const remote = JSON.stringify(data.payload);
-      const local = localStorage.getItem(DATA_KEY);
-      if (remote !== local) {
-        localStorage.setItem(DATA_KEY, remote);
-        sessionStorage.setItem('tableTopicsCloudNotice', '已載入這個 Google 帳號的雲端資料');
-        location.reload();
-        return;
-      }
-    } else {
-      await push(saved);
-    }
+    updateUi();
+    const foundRemote = await pullRemote();
+    if (foundRemote === false) await push(saved);
+    enablingCloud = false;
     updateUi();
   }
 
@@ -120,6 +150,7 @@
   byId('accountButton').onclick = () => { updateUi(); byId('accountDialog').showModal(); };
   byId('closeAccountButton').onclick = () => byId('accountDialog').close();
   byId('googleSignInButton').onclick = signIn;
+  byId('enableCloudButton').onclick = enableCloud;
   byId('useLocalButton').onclick = useLocal;
   byId('syncNowButton').onclick = () => push(saved);
   byId('signOutButton').onclick = signOut;
@@ -132,8 +163,20 @@
     if (client) {
       const { data } = await client.auth.getSession();
       session = data.session;
-      client.auth.onAuthStateChange((_event, nextSession) => { session = nextSession; updateUi(); });
+      client.auth.onAuthStateChange((event, nextSession) => {
+        session = nextSession;
+        updateUi();
+        if (nextSession && currentMode() === 'cloud' && ['SIGNED_IN', 'INITIAL_SESSION'].includes(event)) {
+          setTimeout(enableCloud, 0);
+        }
+      });
       if (session && currentMode() === 'cloud') await enableCloud();
+      pollTimer = setInterval(() => {
+        if (cloudEnabled() && document.visibilityState === 'visible' && !syncing) pullRemote();
+      }, 15000);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && cloudEnabled() && !syncing) pullRemote();
+      });
     }
     updateUi();
   }
