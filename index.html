@@ -186,6 +186,7 @@
         <label class="full-field">專案 Prompt<textarea id="promptInput" rows="7" placeholder="說明這個 Agent 的角色、評分標準、語氣與偏好⋯"></textarea></label>
       </div>
       <div class="security-note">🔒 API Key 只會保存在目前瀏覽器的 localStorage，但瀏覽器儲存仍有風險。共用裝置請勿保存正式金鑰；部分服務商可能不允許瀏覽器直接呼叫。</div>
+      <div class="connection-test-status hidden" id="connectionTestStatus" role="status" aria-live="polite"><span id="connectionTestIcon" aria-hidden="true">⋯</span><div><strong id="connectionTestTitle"></strong><p id="connectionTestDetail"></p></div></div>
       <div class="dialog-actions"><button type="button" class="secondary" id="testConnectionButton">測試連線</button><button type="button" class="primary" id="saveProjectButton">儲存並啟用</button></div>
     </form>
   </dialog>
