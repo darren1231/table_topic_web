@@ -98,7 +98,7 @@ const questionTemplates = {
   ]
 };
 
-let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
+let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], currentHistoryId:null, retryParentId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
 let saved = JSON.parse(localStorage.getItem(CONFIG.storageKey) || '{"history":[]}');
 
 function shuffle(items) { return [...items].sort(() => Math.random() - .5); }
@@ -107,8 +107,8 @@ function todayKey(date = new Date()) { return localDateKey(date); }
 function makeId(prefix='id'){return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;}
 function inferLanguage(entry){const text=`${entry.question||''} ${entry.answer||''}`;const latin=(text.match(/[A-Za-z]/g)||[]).length;const cjk=(text.match(/[\u3400-\u9fff]/g)||[]).length;return latin>cjk*1.5?'en-US':cjk?'zh-TW':'unknown';}
 function ensureDataSchema(){
-  if(!saved||typeof saved!=='object')saved={history:[]};if(!Array.isArray(saved.history))saved.history=[];if(!Array.isArray(saved.reviewCards))saved.reviewCards=[];if(!Array.isArray(saved.reviewEvents))saved.reviewEvents=[];if(!Array.isArray(saved.scripts))saved.scripts=[];if(!Array.isArray(saved.apiUsage))saved.apiUsage=[];saved.version=5;
-  saved.history.forEach((x,i)=>{x.id ||= `legacy_${x.date||'date'}_${i}`;x.language ||= inferLanguage(x);x.completedAt ||= `${x.date||localDateKey()}T12:00:00`;});
+  if(!saved||typeof saved!=='object')saved={history:[]};if(!Array.isArray(saved.history))saved.history=[];if(!Array.isArray(saved.reviewCards))saved.reviewCards=[];if(!Array.isArray(saved.reviewEvents))saved.reviewEvents=[];if(!Array.isArray(saved.scripts))saved.scripts=[];if(!Array.isArray(saved.apiUsage))saved.apiUsage=[];saved.version=6;
+  saved.history.forEach((x,i)=>{x.id ||= `legacy_${x.date||'date'}_${i}`;x.language ||= inferLanguage(x);x.completedAt ||= `${x.date||localDateKey()}T12:00:00`;x.attemptNumber ||= x.parentAttemptId||x.retryOf?2:1;x.sessionId ||= x.parentAttemptId||x.retryOf||x.id;x.retryGoals=RetryLogic.normalizeRetryGoals(x.retryGoals||x.metrics?.retryGoals);});
   saved.reviewCards.forEach(card=>{card.status||='active';card.tags=Array.isArray(card.tags)?card.tags:[];card.updatedAt||=card.createdAt||new Date().toISOString();if(card.grammarIssue||card.grammarExplanation||card.language!=='en-US')return;const history=saved.history.find(item=>item.id===card.sourceHistoryId);const metrics=history?.metrics||{};const candidates=[...(Array.isArray(metrics.comparisons)?metrics.comparisons:[]),...(Array.isArray(metrics.grammarCorrections)?metrics.grammarCorrections:[])];const clean=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]/g,'');const match=candidates.find(item=>clean(item.before??item.original)===clean(card.before));if(!match)return;card.isGrammarCorrect=match.isGrammarCorrect??match.isCorrect;card.grammarIssue=match.grammarIssue||match.issue||'';card.grammarExplanation=match.grammarExplanation||match.explanation||'';card.grammarRule=match.grammarRule||match.rule||'';card.grammarExample=match.grammarExample||match.example||'';});
   saved.scripts.forEach(script=>{script.status||='active';script.tags=Array.isArray(script.tags)?script.tags:[];script.paragraphs=Array.isArray(script.paragraphs)?script.paragraphs:[];script.fullReviews=Array.isArray(script.fullReviews)?script.fullReviews:[];script.paragraphs.forEach(paragraph=>{paragraph.versions=Array.isArray(paragraph.versions)?paragraph.versions:[];paragraph.analyses=Array.isArray(paragraph.analyses)?paragraph.analyses:[];});});
   persist();
@@ -207,7 +207,12 @@ const localProvider = {
       ],
       rewritten:`在我看來，這個問題的答案不是單一選擇，而是需要從兩個面向理解。\n\n首先，我們必須正視它可能帶來的風險。任何強大的技術，如果缺乏完善管理，都可能造成難以承受的後果。這提醒我們，在追求進步時，責任與安全同樣重要。\n\n但另一方面，它也可能帶來新的機會。只要運用得當，它能解決現有問題，並為未來提供更多選擇。\n\n因此，真正重要的不是只看見希望或危險，而是學會在兩者之間做出成熟、負責任的判斷。`,
       scoreDetails:[{name:'立場清晰度',before:Math.max(55,base.structure-5),after:92},{name:'用詞準確度',before:Math.max(55,base.detail-8),after:90},{name:'結構完整度',before:base.structure,after:93},{name:'情感感染力',before:Math.max(55,base.fluency-7),after:91},{name:'總結有力',before:Math.max(55,base.structure-4),after:94}],
-      improvedOverall:92
+      improvedOverall:92,
+      retryGoals:[
+        {id:'opening',category:'structure',text:'在前兩句直接說出你的主要觀點。'},
+        {id:'example',category:'detail',text:'加入一個具體的人物、場景或親身經驗。'},
+        {id:'closing',category:'structure',text:'最後用一句話重新呼應主要觀點。'}
+      ]
     };
   }
 };
@@ -243,11 +248,23 @@ const aiProvider = {
     const parsed=extractJson(output); if(!Array.isArray(parsed)) throw new Error('題目格式不正確'); return parsed.slice(0,count);
   },
   async analyze(text) {
-    const project=getActiveProject(); if (project.provider==='builtin') return localProvider.analyze(text);
+    const project=getActiveProject(); if (project.provider==='builtin') return normalizeCoachResult(await localProvider.analyze(text),text);
     const grammarRequirement=state.language==='en-US'?`The learner is practicing English but may deliberately speak Chinese when they do not know an English expression. Never translate those Chinese words or sentences. Preserve Chinese segments as Chinese and preserve mixed Chinese-English sentences as mixed. Integrate sentence improvement and grammar correction into comparisons. comparisons MUST contain exactly one item for EVERY sentence in the learner's answer, in the original order, without skipping short or grammatically correct sentences. Correct and explain grammar only in the English portions. Each comparison must be {"label":"Sentence 1","before":"exact learner sentence","after":"a grammatically correct, more natural sentence with the same meaning while retaining any Chinese text","isGrammarCorrect":false,"grammarIssue":"identify the exact English error, say No English grammar error, or explain that the sentence contains a Chinese placeholder","grammarExplanation":"plain-language explanation of why it is wrong and why the improved sentence works","grammarRule":"the relevant English grammar rule","grammarExample":"one new short example using the same rule"}. Set isGrammarCorrect true when no English grammar correction is required. Return grammarCorrections as an empty array to avoid duplicate sections. Include Grammar accuracy as one scoreDetails category.`:`Return grammarCorrections as an empty array.`;
     const contentType=state.practiceMode==='manuscript'?'This is a free-form speech manuscript with no question. Evaluate it as a standalone manuscript and improve its expression without inventing a prompt or changing its intended meaning.':'This is an answer to an impromptu speaking question.';
-    const output=await callAgent(`${responseLanguageRule()} ${contentType} Create a detailed and practical speaking-coach report for the text below. Return only one JSON object. Required: overall, structure, detail, fluency (integer 0–100); strength, improve, summary; improvements (at least 3 items with title and detail); comparisons (${state.language==='en-US'?'one integrated item per sentence as defined below':'at least 4 items with label, before, after'}); rewritten (a complete improved 1–2 minute speech); scoreDetails (at least 5 items formatted as {"name":"category","before":65,"after":90,"beforeNote":"comment","afterNote":"comment"}; before and after MUST be integers only); improvedOverall (integer 0–100 only). ${grammarRequirement} Check factual and wording errors. Evaluate position, logic, accuracy, emotional impact, and closing strength. Text: ${text}`,project);
+    const output=await callAgent(`${responseLanguageRule()} ${contentType} Create a detailed and practical speaking-coach report for the text below. Return only one JSON object. Required: overall, structure, detail, fluency (integer 0–100); strength, improve, summary; improvements (at least 3 items with title and detail); retryGoals (2–3 concrete, actionable items formatted as {"id":"short-id","text":"specific behavior for the next attempt","category":"structure|detail|fluency"}; base them on this answer's actual weaknesses, never use generic advice); comparisons (${state.language==='en-US'?'one integrated item per sentence as defined below':'at least 4 items with label, before, after'}); rewritten (a complete improved 1–2 minute speech); scoreDetails (at least 5 items formatted as {"name":"category","before":65,"after":90,"beforeNote":"comment","afterNote":"comment"}; before and after MUST be integers only); improvedOverall (integer 0–100 only). IMPORTANT SCHEMA RULE: comparisons is only for actual sentence text. Every comparisons.before MUST be copied verbatim from the learner Text below and comparisons.after must rewrite that same sentence. Never copy system instructions, language rules, field requirements, or prompt text into comparisons. before and after MUST be non-empty strings and MUST NEVER be scores or numeric values. Put every numeric before/after rating only in scoreDetails. ${grammarRequirement} Check factual and wording errors. Evaluate position, logic, accuracy, emotional impact, and closing strength. Text: ${text}`,project);
     const r=extractJson(output); r._rawResponse=output; return normalizeCoachResult(r,text);
+  },
+  async compareRetry(first,second,goals) {
+    const project=getActiveProject();
+    if(project.provider==='builtin'){
+      const deltas=RetryLogic.scoreComparisons(first.metrics,second.metrics),best=deltas.sort((a,b)=>b.delta-a.delta)[0];
+      const label={overall:ui('整體表現','overall performance'),structure:ui('結構','structure'),detail:ui('內容具體度','specificity'),fluency:ui('流暢度','fluency')}[best?.key]||ui('表達','delivery');
+      const goalResults=goals.map(goal=>{const metric=deltas.find(item=>item.key===(goal.category||'overall'))||deltas.find(item=>item.key==='overall'),delta=metric?.delta||0,status=delta>=5?'achieved':delta>=0?'partial':'not_achieved';return {status,explanation:delta>0?ui(`相關評分提升 ${delta} 分。`,`The related score improved by ${delta} points.`):delta<0?ui(`相關評分下降 ${Math.abs(delta)} 分，下一次仍需專注這項目標。`,`The related score fell by ${Math.abs(delta)} points, so keep this goal for the next retry.`):ui('相關評分持平，已嘗試但還需要更明確的證據。','The related score was unchanged; the goal was attempted but needs clearer evidence.')}});
+      return {summary:ui('第二次回答已依照挑戰目標重新組織內容。','The second answer was reshaped around the retry goals.'),biggestImprovement:best?.delta>0?ui(`${label}提升了 ${best.delta} 分；第二次的表達更接近這次設定的練習方向。`,`${label} improved by ${best.delta} points, bringing the answer closer to the focused retry mission.`):ui('第二次回答完成了刻意練習；分數未必提高，但差異能幫助你決定下一次最值得專注的方向。','You completed a deliberate retry. Even without a score increase, the contrast identifies the best focus for next time.'),goalResults:RetryLogic.normalizeGoalResults(goalResults,goals)};
+    }
+    const output=await callAgent(`${responseLanguageRule()} Compare two answers to the SAME speaking question. Focus only on meaningful behavioral and content changes; do not calculate or repeat score differences. Evaluate every retry goal honestly. Return only JSON: {"summary":"concise comparison","biggestImprovement":"specific evidence-based change","goalResults":[{"goal":"exact goal text","status":"achieved|partial|not_achieved","explanation":"brief evidence"}]}. QUESTION: ${first.question}\nRETRY GOALS: ${JSON.stringify(goals)}\nATTEMPT 1 TRANSCRIPT: ${first.answer}\nATTEMPT 1 ANALYSIS: ${JSON.stringify({strength:first.metrics?.strength,improve:first.metrics?.improve,summary:first.metrics?.summary})}\nATTEMPT 2 TRANSCRIPT: ${second.answer}\nATTEMPT 2 ANALYSIS: ${JSON.stringify({strength:second.metrics?.strength,improve:second.metrics?.improve,summary:second.metrics?.summary})}`,project);
+    const result=extractJson(output);
+    return {summary:String(result.summary||''),biggestImprovement:String(result.biggestImprovement||result.biggest_improvement||''),goalResults:RetryLogic.normalizeGoalResults(result.goalResults||result.goal_results,goals)};
   }
 };
 
@@ -264,17 +281,22 @@ function parseScore(value, fallback=0) { if(typeof value==='number'&&Number.isFi
 function baseScoreForCategory(name,r) { const n=String(name||''); if(/結構|邏輯|總結|立場/.test(n))return r.structure; if(/內容|相關|具體|準確/.test(n))return r.detail; if(/語言|流暢|感染|表達/.test(n))return r.fluency; return r.overall; }
 function normalizeCoachResult(r,text='') {
   r.overall=parseScore(r.overall??r.overallScore??r.total_score,70); r.structure=parseScore(r.structure??r.structureScore,70); r.detail=parseScore(r.detail??r.detailScore??r.accuracy,70); r.fluency=parseScore(r.fluency??r.fluencyScore,70);
-  r.summary ||= r.strength; r.improvements = Array.isArray(r.improvements)?r.improvements:[]; r.comparisons=Array.isArray(r.comparisons)?r.comparisons:[]; r.rewritten ||= r.rewrittenSpeech||r.improved_answer||text;
+  r.summary ||= r.strength; r.improvements = Array.isArray(r.improvements)?r.improvements:[];
+  const partitionedComparisons=RetryLogic.partitionCoachComparisons(r.comparisons,text||undefined);
+  r.comparisons=partitionedComparisons.sentenceComparisons; r.rewritten ||= r.rewrittenSpeech||r.improved_answer||text;
+  const fallbackGoals=r.improvements.slice(0,3).map((item,index)=>({id:`improvement_${index+1}`,text:item.detail||item.title,category:''}));
+  r.retryGoals=RetryLogic.normalizeRetryGoals(r.retryGoals,fallbackGoals);
   const rawGrammar=Array.isArray(r.grammarCorrections)?r.grammarCorrections:(Array.isArray(r.grammar_corrections)?r.grammar_corrections:(Array.isArray(r.sentenceCorrections)?r.sentenceCorrections:[]));
   r.grammarCorrections=rawGrammar.map((item,index)=>({original:String(item.original??item.before??''),corrected:String(item.corrected??item.after??item.original??''),isCorrect:item.isCorrect===true||item.is_correct===true,issue:String(item.issue??item.error??''),explanation:String(item.explanation??item.reason??''),rule:String(item.rule??''),example:String(item.example??''),index})).filter(item=>item.original);
   if(r.grammarCorrections.length&&!r.comparisons.some(item=>item.grammarExplanation||item.grammarIssue)){const normalized=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]/g,'');r.comparisons=r.grammarCorrections.map((grammar,index)=>{const match=r.comparisons.find(item=>normalized(item.before)===normalized(grammar.original));return {label:match?.label||`Sentence ${index+1}`,before:grammar.original,after:match?.after||grammar.corrected,isGrammarCorrect:grammar.isCorrect,grammarIssue:grammar.issue,grammarExplanation:grammar.explanation,grammarRule:grammar.rule,grammarExample:grammar.example};});}
-  const rawScores=Array.isArray(r.scoreDetails)?r.scoreDetails:(Array.isArray(r.scores)?r.scores:[]);
+  const declaredScores=Array.isArray(r.scoreDetails)?r.scoreDetails:(Array.isArray(r.scores)?r.scores:[]);
+  const rawScores=declaredScores.length?declaredScores:partitionedComparisons.scoreComparisons;
   r.scoreDetails=rawScores.map((x,i)=>{const name=x.name||x.category||x.item||`評分項目 ${i+1}`;const base=baseScoreForCategory(name,r);const rawBefore=x.before??x.original??x.originalScore??x.score??x.before_score;const rawAfter=x.after??x.improved??x.improvedScore??x.after_score;const before=parseScore(rawBefore,base);const after=parseScore(rawAfter,Math.min(96,Math.max(before+18,82)));return{name,before,after,beforeNote:x.beforeNote||(typeof rawBefore==='string'&&!/^\s*\d/.test(rawBefore)?rawBefore:''),afterNote:x.afterNote||(typeof rawAfter==='string'&&!/^\s*\d/.test(rawAfter)?rawAfter:'')}});
   const averageAfter=r.scoreDetails.length?Math.round(r.scoreDetails.reduce((sum,x)=>sum+x.after,0)/r.scoreDetails.length):Math.min(96,r.overall+20);
   r.improvedOverall=parseScore(r.improvedOverall??r.improved_overall??r.afterOverall,averageAfter); return r;
 }
-function renderCoachReport(r) {
-  r=normalizeCoachResult(r);
+function renderCoachReport(r,sourceText) {
+  r=normalizeCoachResult(r,sourceText);
   const improvements=r.improvements.map(x=>`<article class="improvement-item"><h4>${escapeHtml(x.title||'改善重點')}</h4><p>${escapeHtml(x.detail||'')}</p></article>`).join('');
   const comparisons=r.comparisons.map((x,i)=>{const cardId=`${r._historyId||'pending'}:${i}`;const added=saved.reviewCards?.some(c=>c.id===cardId&&c.status!=='trashed');const hasGrammar=x.grammarIssue||x.grammarExplanation||x.grammarRule||x.grammarExample;return `<article class="comparison-card ${hasGrammar?(x.isGrammarCorrect?'grammar-correct':'grammar-fix'):''}"><div class="comparison-label"><span>${escapeHtml(x.label||'句子優化')}${hasGrammar?` · ${x.isGrammarCorrect?'✓ Grammar correct':'Grammar note'}`:''}</span><label class="review-toggle"><input type="checkbox" data-review-index="${i}" ${added?'checked':''}> <span>${ui('加入複習','Add to review')}</span></label></div><div class="sentence-before"><span class="sentence-tag">${ui('原句','Before')}</span><span>${escapeHtml(x.before||'')}</span></div><div class="sentence-after"><span class="sentence-tag">${ui('改後','After')}</span><span>${escapeHtml(x.after||'')}</span></div>${hasGrammar?`<dl class="grammar-explanation integrated-grammar">${x.grammarIssue?`<div><dt>Grammar status</dt><dd>${escapeHtml(x.grammarIssue)}</dd></div>`:''}${x.grammarExplanation?`<div><dt>Why</dt><dd>${escapeHtml(x.grammarExplanation)}</dd></div>`:''}${x.grammarRule?`<div><dt>Grammar rule</dt><dd>${escapeHtml(x.grammarRule)}</dd></div>`:''}${x.grammarExample?`<div><dt>Another example</dt><dd>${escapeHtml(x.grammarExample)}</dd></div>`:''}</dl>`:''}</article>`}).join('');
   const scores=r.scoreDetails.map(x=>`<tr><td>${escapeHtml(x.name||'項目')}</td><td class="score-old">${parseScore(x.before,r.overall)}${x.beforeNote?`<span class="score-note" title="${escapeHtml(x.beforeNote)}">原稿說明</span>`:''}</td><td class="score-arrow">→</td><td class="score-new">${parseScore(x.after,r.improvedOverall)}${x.afterNote?`<span class="score-note" title="${escapeHtml(x.afterNote)}">改後說明</span>`:''}</td></tr>`).join('');
@@ -301,7 +323,7 @@ function openHistoryDetail(index) {
   m._historyId=x.id;
   $('#historyDetailTitle').textContent=`${x.topic} · ${x.date}`;
   $('#historyDetailContent').innerHTML=`<p class="report-question">${escapeHtml(x.question)}</p><div class="report-scores">${[['整體',x.score],['結構',m.structure],['具體',m.detail],['流暢',m.fluency]].map(([n,v])=>`<div class="report-score"><b>${v??'--'}</b><span>${n}</span></div>`).join('')}</div><h3>你的回答</h3><div class="report-answer">${escapeHtml(x.answer||'舊紀錄沒有保存逐字稿')}</div><div id="historyCoachReport" class="coach-report"></div>`;
-  if(m.summary||m.rewritten) { const old=$('#coachReport'); const target=$('#historyCoachReport'); const originalId=old.id; old.id='coachReportCurrent'; target.id='coachReport'; renderCoachReport(m); target.id='historyCoachReport'; old.id=originalId; bindReviewToggles(target,m); } else $('#historyCoachReport').innerHTML=`<div class="report-feedback"><article><h4>✓ 做得好的地方</h4><p>${escapeHtml(m.strength||'舊紀錄沒有保存這項回饋')}</p></article><article><h4>↗ 改善方式</h4><p>${escapeHtml(m.improve||'舊紀錄沒有保存這項回饋')}</p></article></div>`;
+  if(m.summary||m.rewritten) { const old=$('#coachReport'); const target=$('#historyCoachReport'); const originalId=old.id; old.id='coachReportCurrent'; target.id='coachReport'; renderCoachReport(m,x.answer||''); target.id='historyCoachReport'; old.id=originalId; bindReviewToggles(target,m); } else $('#historyCoachReport').innerHTML=`<div class="report-feedback"><article><h4>✓ 做得好的地方</h4><p>${escapeHtml(m.strength||'舊紀錄沒有保存這項回饋')}</p></article><article><h4>↗ 改善方式</h4><p>${escapeHtml(m.improve||'舊紀錄沒有保存這項回饋')}</p></article></div>`;
   if(m._rawResponse) $('#historyCoachReport').insertAdjacentHTML('beforeend',`<details class="raw-agent-response"><summary>查看 Agent 的完整原始回覆</summary><pre>${escapeHtml(m._rawResponse)}</pre></details>`);
   $('#historyDialog').showModal();
 }
@@ -386,6 +408,9 @@ async function generatePractice() {
 }
 
 function showQuestion() {
+  state.retryParentId=null;
+  $('#retryMission').classList.add('hidden');
+  $('#retryComparison').classList.add('hidden');
   resetRecorderForQuestion();
   $('#questionText').textContent = state.questions[state.index];
   $('#topicBadge').textContent = state.topic;
@@ -486,6 +511,40 @@ function updateRecorderControls() {
 }
 function updateCharCount() { const n=$('#transcript').value.trim().length; $('#charCount').textContent = state.language==='en-US'?`${n} characters`:`${n} 字`; }
 
+function renderRetryMission(parent){
+  const goals=RetryLogic.normalizeRetryGoals(parent?.retryGoals||parent?.metrics?.retryGoals),mission=$('#retryMission');
+  mission.classList.toggle('hidden',!goals.length);
+  $('#retryGoalList').innerHTML=goals.map(goal=>`<li>${escapeHtml(goal.text)}</li>`).join('');
+}
+function renderRetryGoalsPreview(record){
+  const goals=RetryLogic.normalizeRetryGoals(record?.retryGoals||record?.metrics?.retryGoals),panel=$('#retryGoalsPreview');
+  panel.classList.toggle('hidden',!goals.length||record?.attemptNumber>1);
+  panel.innerHTML=goals.length?`<h3>🎯 ${ui('第二次挑戰','Retry mission')}</h3><ol>${goals.map(goal=>`<li>${escapeHtml(goal.text)}</li>`).join('')}</ol>`:'';
+}
+function retryAttempt(){
+  if(state.practiceMode==='manuscript'){state.retryParentId=null;resetRecording();$('#feedbackPanel').classList.add('hidden');return;}
+  const parent=saved.history.find(item=>item.id===state.currentHistoryId);
+  if(!parent)return toast(ui('找不到上一次回答，請重新完成一題','The previous answer is unavailable. Complete the question again.'));
+  state.retryParentId=parent.id;
+  state.questions[state.index]=parent.question;
+  $('#questionText').textContent=parent.question;
+  resetRecorderForQuestion();
+  renderRetryMission(parent);
+  $('#feedbackPanel').classList.add('hidden');
+  $('#practicePanel').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function renderRetryComparison(first,second){
+  const panel=$('#retryComparison');
+  if(!first){panel.classList.add('hidden');return;}
+  const labels={overall:ui('整體表現','Overall'),structure:ui('結構清晰','Structure'),detail:ui('內容具體','Specificity'),fluency:ui('表達流暢','Fluency')};
+  const rows=RetryLogic.scoreComparisons(first.metrics,second.metrics).map(row=>`<tr><td>${labels[row.key]}</td><td>${row.before}</td><td>${row.after}</td><td class="score-delta ${row.direction}">${RetryLogic.deltaLabel(row.delta)}</td></tr>`).join('');
+  const comparison=second.retryComparison,goals=RetryLogic.normalizeRetryGoals(first.retryGoals||first.metrics?.retryGoals);
+  const statusIcon={achieved:'✅',partial:'⚠️',not_achieved:'❌'};
+  const goalResults=comparison?.goalResults?.length?comparison.goalResults:goals.map(goal=>({goal:goal.text,status:'partial',explanation:''}));
+  panel.innerHTML=`<section><h3>${ui('第一次 vs 第二次','Attempt 1 vs Attempt 2')}</h3>${rows?`<div class="score-comparison"><table class="attempt-score-table"><thead><tr><th>${ui('評分項目','Category')}</th><th>${ui('第一次','Before')}</th><th>${ui('第二次','After')}</th><th>${ui('變化','Change')}</th></tr></thead><tbody>${rows}</tbody></table></div>`:`<p class="comparison-unavailable">${ui('第一次的評分資料不完整，無法顯示分數比較。','The first attempt has incomplete scores, so score comparison is unavailable.')}</p>`}</section><section class="coach-section"><h3>🎯 ${ui('第二次挑戰完成度','Retry goal results')}</h3><ul class="goal-results">${goalResults.map(result=>`<li>${statusIcon[result.status]||'⚠️'} ${escapeHtml(result.goal)}${result.explanation?`<small>${escapeHtml(result.explanation)}</small>`:''}</li>`).join('')}</ul></section><section class="coach-section"><h3>${ui('這次最大的進步','Biggest improvement')}</h3>${comparison?`<p class="biggest-improvement">${escapeHtml(comparison.biggestImprovement||comparison.summary||'')}</p>`:`<p class="comparison-unavailable">${ui('質化比較暫時無法使用；第二次的完整回饋仍保留在上方。','Qualitative comparison is temporarily unavailable. Your complete Attempt 2 feedback remains available above.')}</p>`}</section>`;
+  panel.classList.remove('hidden');
+}
+
 async function analyzeAnswer() {
   const text = $('#transcript').value.trim();
   if(state.isTranscribing){toast(ui('請等待 API 完成轉錄','Please wait for API transcription to finish'));return;}
@@ -493,16 +552,31 @@ async function analyzeAnswer() {
   if (text.length < 15) { toast('回答再多一點，至少 15 個字才能分析'); return; }
   if (state.isRecording) stopRecording();
   $('#analyzeButton').textContent = ui('分析中⋯','Analyzing…'); $('#analyzeButton').disabled = true;
+  const retryParent=state.retryParentId?saved.history.find(item=>item.id===state.retryParentId):null;
   let result; try { result = await aiProvider.analyze(text); } catch(e) { toast(`${ui('Agent 分析失敗','Agent analysis failed')}: ${e.message}`); $('#analyzeButton').textContent=analysisButtonLabel(); $('#analyzeButton').disabled=false; return; }
   $('#analyzeButton').textContent = analysisButtonLabel(); $('#analyzeButton').disabled = false;
   $('#overallScore').textContent = result.overall;
   ['structure','detail','fluency'].forEach(key => { $(`#${key}Score`).textContent = result[key]; $(`#${key}Bar`).style.width = `${result[key]}%`; });
   $('#strengthText').textContent = result.strength; $('#improveText').textContent = result.improve;
   const historyId=makeId('practice');state.currentHistoryId=historyId;result._historyId=historyId;
-  saved.history.unshift({ id:historyId, date:localDateKey(), completedAt:new Date().toISOString(), mode:state.practiceMode, language:state.language, topic:state.topic, question:state.questions[state.index], answer:text, score:result.overall, metrics:result });
+  let historyRecord={ id:historyId, date:localDateKey(), completedAt:new Date().toISOString(), mode:state.practiceMode, language:state.language, topic:state.topic, question:state.questions[state.index], answer:text, score:result.overall, metrics:result, retryGoals:result.retryGoals };
+  historyRecord=RetryLogic.associateAttempt(historyRecord,retryParent);
+  saved.history.unshift(historyRecord);
   persist();
-  renderCoachReport(result);
+  renderCoachReport(result,text);
   $('#rawAgentResponse').textContent=result._rawResponse||ui('目前使用內建教練，沒有外部 API 原始回覆。','The built-in coach is active, so there is no external API response.');
+  $('#retryMission').classList.add('hidden');
+  renderRetryGoalsPreview(historyRecord);
+  $('#retryComparison').classList.add('hidden');
+  if(retryParent){
+    renderRetryComparison(retryParent,historyRecord);
+    $('#feedbackPanel').classList.remove('hidden');
+    $('#feedbackPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const comparisonOutcome=await RetryLogic.generateComparisonSafely(historyRecord,()=>aiProvider.compareRetry(retryParent,historyRecord,historyRecord.retryGoals));
+    Object.assign(historyRecord,comparisonOutcome.attempt);persist();renderRetryComparison(retryParent,historyRecord);
+    if(comparisonOutcome.error)toast(ui('第二次回饋已完成，但前後比較暫時無法產生','Attempt 2 feedback is ready, but the comparison is temporarily unavailable'));
+  }
+  $('#retryButton').textContent=historyRecord.attemptNumber>1?ui('再練一次','Practice again'):ui('再答一次','Try again');
   $('#feedbackPanel').classList.remove('hidden'); $('#feedbackPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   renderHistory(); updateStats(); renderCalendar(); updateReviewBadge();
 }
@@ -597,7 +671,7 @@ function init() {
   $('#languageSelect').onchange = e => { state.language = e.target.value; localStorage.setItem(UI_LANGUAGE_KEY,state.language); if(state.isRecording)pauseRecording(); updateTodayLabel(); renderSuggestions(); updateStats(); renderHistory(); renderCalendar();renderReviewPage();applyUiLanguage(); toast(ui('練習語言已切換','Practice language changed')); };
   $('#resumeRecordButton').onclick = resumeRecording; $('#pauseRecordButton').onclick = pauseRecording; $('#restartRecordButton').onclick = resetRecording;
   $('#transcript').oninput = updateCharCount; $('#analyzeButton').onclick = analyzeAnswer; updateRecorderControls();
-  $('#retryButton').onclick = () => { $('#feedbackPanel').classList.add('hidden'); $('#transcript').value = ''; updateCharCount(); $('#practicePanel').scrollIntoView({behavior:'smooth'}); };
+  $('#retryButton').onclick = retryAttempt;
   $('#nextButton').onclick = nextQuestion;
   $('#regenerateButton').onclick = async e => { e.preventDefault(); const button=$('#regenerateButton'); const card=$('.question-card'); if(button.disabled)return; button.disabled=true;card.classList.add('is-loading');pauseRecording();try{const newQuestion=(await aiProvider.generateQuestions(state.topic,state.language,1))[0];state.questions[state.index]=newQuestion;showQuestion();$('#feedbackPanel').classList.add('hidden');requestAnimationFrame(()=>$('#practicePanel').scrollIntoView({behavior:'smooth',block:'start'}));toast('已換一個新題目，錄音已重置');}catch(err){toast(`換題失敗：${err.message}`);}finally{button.disabled=false;card.classList.remove('is-loading');} };
   $('#copyRawResponseButton').onclick=async()=>{try{await navigator.clipboard.writeText($('#rawAgentResponse').textContent);toast('已複製 Agent 原始回覆');}catch{toast('複製失敗，請手動選取文字');}};
