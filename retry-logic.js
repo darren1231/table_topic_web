@@ -1,0 +1,87 @@
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  root.RetryLogic = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  const SCORE_KEYS = ['overall', 'structure', 'detail', 'fluency'];
+
+  function normalizeRetryGoals(goals, fallback = []) {
+    const source = Array.isArray(goals) && goals.length ? goals : fallback;
+    return source.slice(0, 3).map((goal, index) => ({
+      id: String(goal?.id || `goal_${index + 1}`),
+      text: String(goal?.text || goal?.detail || goal || '').trim(),
+      category: goal?.category ? String(goal.category) : undefined
+    })).filter(goal => goal.text);
+  }
+
+  function firstArray(source, keys) {
+    for (const key of keys) if (Array.isArray(source?.[key])) return source[key];
+    return [];
+  }
+
+  function normalizeCoachSections(result = {}) {
+    const improvementSource = firstArray(result, ['improvements', 'suggestions', 'recommendations', 'actionItems', 'action_items']);
+    const comparisonSource = firstArray(result, ['comparisons', 'sentenceComparisons', 'sentence_comparisons', 'beforeAfter', 'before_after']);
+    return {
+      improvements: improvementSource.map((item, index) => typeof item === 'string'
+        ? { title: `Goal ${index + 1}`, detail: item }
+        : { ...item, title: String(item?.title || item?.label || item?.name || `Goal ${index + 1}`), detail: String(item?.detail || item?.text || item?.suggestion || item?.explanation || '') }),
+      comparisons: comparisonSource.map((item, index) => ({
+        ...item,
+        label: String(item?.label || item?.title || `Sentence ${index + 1}`),
+        before: String(item?.before || item?.original || item?.source || item?.originalSentence || ''),
+        after: String(item?.after || item?.improved || item?.rewrite || item?.improvedSentence || '')
+      })).filter(item => item.before || item.after),
+      rewritten: String(result.rewritten || result.rewrittenSpeech || result.improved_answer || result.improvedAnswer || result.fullRewrite || '')
+    };
+  }
+
+  function associateAttempt(record, parent) {
+    if (!parent) return { ...record, attemptNumber: 1, sessionId: record.sessionId || record.id };
+    return {
+      ...record,
+      attemptNumber: Math.max(2, Number(parent.attemptNumber || 1) + 1),
+      parentAttemptId: parent.id,
+      retryOf: parent.id,
+      sessionId: parent.sessionId || parent.id,
+      question: parent.question,
+      retryGoals: normalizeRetryGoals(parent.retryGoals || parent.metrics?.retryGoals)
+    };
+  }
+
+  function scoreComparisons(firstMetrics = {}, secondMetrics = {}) {
+    return SCORE_KEYS.map(key => {
+      const before = Number(firstMetrics[key]);
+      const after = Number(secondMetrics[key]);
+      if (!Number.isFinite(before) || !Number.isFinite(after)) return null;
+      const delta = Math.round(after) - Math.round(before);
+      return { key, before: Math.round(before), after: Math.round(after), delta, direction: delta > 0 ? 'up' : delta < 0 ? 'down' : 'same' };
+    }).filter(Boolean);
+  }
+
+  function deltaLabel(delta) {
+    return delta > 0 ? `↑${delta}` : delta < 0 ? `↓${Math.abs(delta)}` : '→0';
+  }
+
+  function normalizeGoalResults(results, goals) {
+    const allowed = new Set(['achieved', 'partial', 'not_achieved']);
+    return normalizeRetryGoals(goals).map((goal, index) => {
+      const result = Array.isArray(results) ? results[index] : null;
+      return {
+        goal: goal.text,
+        status: allowed.has(result?.status) ? result.status : 'partial',
+        explanation: String(result?.explanation || '').trim()
+      };
+    });
+  }
+
+  async function generateComparisonSafely(secondAttempt, generate) {
+    try {
+      return { attempt: { ...secondAttempt, retryComparison: await generate() }, error: null };
+    } catch (error) {
+      return { attempt: { ...secondAttempt, retryComparisonError: String(error?.message || error) }, error };
+    }
+  }
+
+  return { SCORE_KEYS, normalizeRetryGoals, normalizeCoachSections, associateAttempt, scoreComparisons, deltaLabel, normalizeGoalResults, generateComparisonSafely };
+});

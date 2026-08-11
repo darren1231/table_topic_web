@@ -75,6 +75,13 @@
           <p>建議回答 1–2 分鐘。先說結論，再用一個故事或例子支持它。</p>
         </article>
 
+        <section class="retry-mission hidden" id="retryMission" aria-live="polite">
+          <span class="retry-kicker">🎯 第二次挑戰</span>
+          <h3>這次只專注在這三件事：</h3>
+          <ul id="retryGoalList"></ul>
+          <p>準備好後，開始第二次回答。同一題，用更清楚的方法再說一次。</p>
+        </section>
+
         <div class="recorder">
           <div class="timer" id="timer">00:00</div>
           <div class="record-visual" id="recordVisual" aria-hidden="true"><span></span></div>
@@ -112,6 +119,8 @@
           <article><span class="feedback-icon improve">↗</span><div><h4>下一次可以試試</h4><p id="improveText"></p></div></article>
         </div>
         <div class="coach-report" id="coachReport"></div>
+        <section class="retry-goals-preview hidden" id="retryGoalsPreview"></section>
+        <section class="retry-comparison hidden" id="retryComparison" aria-live="polite"></section>
         <details class="raw-agent-response" id="rawAgentSection">
           <summary>查看 Agent 的完整原始回覆</summary>
           <div class="raw-response-toolbar"><span>以下是 API Agent 回傳、尚未經介面整理的內容</span><button type="button" id="copyRawResponseButton">複製</button></div>
@@ -244,6 +253,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
   <script src="supabase-config.js" defer></script>
   <script src="cloud.js" defer></script>
+  <script src="retry-logic.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>
