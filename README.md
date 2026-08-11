@@ -31,6 +31,12 @@ python -m http.server 8000
 
 練習資料與使用者自行設定的 API Key 儲存在瀏覽器 `localStorage`。請勿在共用裝置儲存正式 API Key，也不要把任何金鑰提交到 GitHub。
 
+### Retry 學習迴圈
+
+第一次分析會在既有的教練回覆中一併產生 2–3 個具體的 `retryGoals`，因此不會為目標增加額外 AI 呼叫。使用者再答同一題時，第二筆歷史紀錄以 `parentAttemptId` / `retryOf` 指向前一次回答，並以 `sessionId` 保留同一練習脈絡；舊紀錄會視為獨立的第一次回答。
+
+第二次回答仍先執行完整的一般分析。分數差異由前端以兩次既有的 `overall`、`structure`、`detail`、`fluency` 分數計算；外部 Agent 只增加一次質化比較呼叫，用來判斷目標完成度與最有意義的改變。若這個比較呼叫失敗，第二次的一般回饋仍會保存並顯示。Supabase 同步的是整份 JSON payload，因此這項向後相容的資料擴充不需要 SQL migration。
+
 ## 設定 Google 登入與 Supabase 同步
 
 以下設定需要同時操作 **Supabase Dashboard**、**Google Cloud Console** 與本專案。建議先用本機網址完成測試，再加入正式網址。
