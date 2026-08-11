@@ -58,14 +58,25 @@
     return /^\s*\d{1,3}(?:\s*(?:%|\/\s*100))?\s*$/.test(String(value ?? ''));
   }
 
-  function partitionCoachComparisons(comparisons) {
+  function comparableText(value) {
+    return String(value ?? '').toLocaleLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+  }
+
+  function isGroundedInTranscript(before, transcript) {
+    if (typeof transcript !== 'string') return true;
+    const source = comparableText(transcript);
+    const candidate = comparableText(before);
+    return candidate.length >= 2 && source.includes(candidate);
+  }
+
+  function partitionCoachComparisons(comparisons, transcript) {
     return (Array.isArray(comparisons) ? comparisons : []).reduce((result, item) => {
       if (!item || typeof item !== 'object') return result;
       const before = item.before ?? item.original;
       const after = item.after ?? item.improved ?? item.corrected;
       if (isScoreValue(before) && isScoreValue(after)) {
         result.scoreComparisons.push({ ...item, name: item.name || item.category || item.label });
-      } else if (String(before ?? '').trim() && String(after ?? '').trim()) {
+      } else if (String(before ?? '').trim() && String(after ?? '').trim() && isGroundedInTranscript(before, transcript)) {
         result.sentenceComparisons.push({ ...item, before: String(before), after: String(after) });
       }
       return result;
@@ -80,5 +91,5 @@
     }
   }
 
-  return { SCORE_KEYS, normalizeRetryGoals, associateAttempt, scoreComparisons, deltaLabel, normalizeGoalResults, isScoreValue, partitionCoachComparisons, generateComparisonSafely };
+  return { SCORE_KEYS, normalizeRetryGoals, associateAttempt, scoreComparisons, deltaLabel, normalizeGoalResults, isScoreValue, comparableText, isGroundedInTranscript, partitionCoachComparisons, generateComparisonSafely };
 });

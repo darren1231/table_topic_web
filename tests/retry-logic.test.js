@@ -83,3 +83,24 @@ test('sentences containing numbers are not mistaken for score rows', () => {
   assert.equal(result.sentenceComparisons.length, 1);
   assert.equal(result.scoreComparisons.length, 0);
 });
+
+test('sentence comparisons must be grounded in the learner transcript', () => {
+  const transcript = '仰望西湖的美景，讓我體悟到古人所寫的詩是多麼有意境。想到卻是一場國外旅行。';
+  const result = RetryLogic.partitionCoachComparisons([
+    { label: '開頭介紹', before: '所有題目、評論與回饋欄位都必須使用繁體中文。', after: '最難忘的一次旅行就是到了大陸。' },
+    { label: '景色描述', before: '仰望西湖的美景，讓我體悟到古人所寫的詩是多麼有意境。', after: '我站在西湖邊，湖面平靜如鏡。' },
+    { label: '情感強度', before: '想到卻是一場國外旅行。', after: '這次出乎意料的旅行，讓我更加熱愛探索世界。' }
+  ], transcript);
+  assert.deepEqual(result.sentenceComparisons.map(item => item.label), ['景色描述', '情感強度']);
+});
+
+test('grounding ignores harmless punctuation and whitespace differences', () => {
+  assert.equal(RetryLogic.isGroundedInTranscript('我站在西湖邊 湖面平靜如鏡', '我站在西湖邊，湖面平靜如鏡。'), true);
+  assert.equal(RetryLogic.isGroundedInTranscript('系統要求使用繁體中文', '我站在西湖邊，湖面平靜如鏡。'), false);
+});
+
+test('current and historical reports pass their transcript into comparison validation', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  assert.match(app, /renderCoachReport\(result,text\)/);
+  assert.match(app, /renderCoachReport\(m,x\.answer\|\|''\)/);
+});
