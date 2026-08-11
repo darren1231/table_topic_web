@@ -14,6 +14,28 @@
     })).filter(goal => goal.text);
   }
 
+  function firstArray(source, keys) {
+    for (const key of keys) if (Array.isArray(source?.[key])) return source[key];
+    return [];
+  }
+
+  function normalizeCoachSections(result = {}) {
+    const improvementSource = firstArray(result, ['improvements', 'suggestions', 'recommendations', 'actionItems', 'action_items']);
+    const comparisonSource = firstArray(result, ['comparisons', 'sentenceComparisons', 'sentence_comparisons', 'beforeAfter', 'before_after']);
+    return {
+      improvements: improvementSource.map((item, index) => typeof item === 'string'
+        ? { title: `Goal ${index + 1}`, detail: item }
+        : { ...item, title: String(item?.title || item?.label || item?.name || `Goal ${index + 1}`), detail: String(item?.detail || item?.text || item?.suggestion || item?.explanation || '') }),
+      comparisons: comparisonSource.map((item, index) => ({
+        ...item,
+        label: String(item?.label || item?.title || `Sentence ${index + 1}`),
+        before: String(item?.before || item?.original || item?.source || item?.originalSentence || ''),
+        after: String(item?.after || item?.improved || item?.rewrite || item?.improvedSentence || '')
+      })).filter(item => item.before || item.after),
+      rewritten: String(result.rewritten || result.rewrittenSpeech || result.improved_answer || result.improvedAnswer || result.fullRewrite || '')
+    };
+  }
+
   function associateAttempt(record, parent) {
     if (!parent) return { ...record, attemptNumber: 1, sessionId: record.sessionId || record.id };
     return {
@@ -61,5 +83,5 @@
     }
   }
 
-  return { SCORE_KEYS, normalizeRetryGoals, associateAttempt, scoreComparisons, deltaLabel, normalizeGoalResults, generateComparisonSafely };
+  return { SCORE_KEYS, normalizeRetryGoals, normalizeCoachSections, associateAttempt, scoreComparisons, deltaLabel, normalizeGoalResults, generateComparisonSafely };
 });

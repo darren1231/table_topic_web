@@ -44,6 +44,18 @@ test('goal results preserve every retry goal and normalize unknown statuses', ()
   assert.deepEqual(results.map(result => result.status), ['achieved', 'partial', 'partial']);
 });
 
+test('normal coach advice and before/after sections survive common Agent field variants', () => {
+  const sections = RetryLogic.normalizeCoachSections({
+    suggestions: [{ label: 'Opening', suggestion: 'State the answer first.' }],
+    sentenceComparisons: [{ title: 'Sentence 1', original: 'A long opening.', improved: 'My answer is yes.' }],
+    improvedAnswer: 'My answer is yes. Here is why.'
+  });
+  assert.deepEqual(sections.improvements[0], { label: 'Opening', suggestion: 'State the answer first.', title: 'Opening', detail: 'State the answer first.' });
+  assert.equal(sections.comparisons[0].before, 'A long opening.');
+  assert.equal(sections.comparisons[0].after, 'My answer is yes.');
+  assert.equal(sections.rewritten, 'My answer is yes. Here is why.');
+});
+
 test('comparison failure preserves the normal Attempt 2 record', async () => {
   const second = { id: 'a2', metrics: { overall: 82 }, answer: 'Normal feedback remains.' };
   const outcome = await RetryLogic.generateComparisonSafely(second, async () => { throw new Error('offline'); });
