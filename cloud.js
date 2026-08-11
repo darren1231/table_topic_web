@@ -1,6 +1,7 @@
 (() => {
   const MODE_KEY = 'tableTopicsStorageMode';
   const DATA_KEY = 'tableTopicsPractice.v1';
+  const APPLIED_REMOTE_KEY = 'tableTopicsAppliedRemote';
   const config = window.SUPABASE_CONFIG || {};
   const configured = Boolean(config.url && config.anonKey && window.supabase?.createClient);
   const client = configured ? window.supabase.createClient(config.url, config.anonKey) : null;
@@ -23,6 +24,12 @@
   const readLocalPayload = () => {
     try { return JSON.parse(localStorage.getItem(DATA_KEY) || '{"history":[]}'); }
     catch { return { history: [] }; }
+  };
+  const remoteSignature = (updatedAt, payload) => {
+    if (updatedAt) return updatedAt;
+    let hash = 0;
+    for (let index = 0; index < payload.length; index += 1) hash = (hash * 31 + payload.charCodeAt(index)) | 0;
+    return `${payload.length}:${hash}`;
   };
 
   function updateUi() {
@@ -118,8 +125,20 @@
     const remote = JSON.stringify(data.payload);
     const local = localStorage.getItem(DATA_KEY);
     if (remote !== local) {
+      // app.js migrates older payloads during startup. Previously that made the
+      // freshly loaded local value differ from the still-unmigrated cloud value,
+      // so every auth/visibility refresh caused another location.reload(). This
+      // is especially disruptive on mobile, where visibility changes are common.
+      const signature = remoteSignature(data.updated_at, remote);
+      const alreadyApplied = sessionStorage.getItem(APPLIED_REMOTE_KEY) === signature;
+      if (alreadyApplied) {
+        sessionStorage.removeItem(APPLIED_REMOTE_KEY);
+        await push(readLocalPayload());
+        return true;
+      }
       localStorage.setItem(DATA_KEY, remote);
       if (reload) {
+        sessionStorage.setItem(APPLIED_REMOTE_KEY, signature);
         sessionStorage.setItem('tableTopicsCloudNotice', '已載入這個 Google 帳號的最新雲端資料');
         location.reload();
       }
