@@ -491,6 +491,50 @@ function updateRecorderControls() {
 }
 function updateCharCount() { const n=$('#transcript').value.trim().length; $('#charCount').textContent = state.language==='en-US'?`${n} characters`:`${n} 字`; }
 
+const SPEECH_AUDIO_MAX_BYTES=25*1024*1024;
+const SPEECH_AUDIO_TYPES=new Set(['audio/webm','audio/mp4','audio/mpeg','audio/wav','audio/x-wav','audio/ogg','audio/m4a','audio/x-m4a']);
+let speechAudio={file:null,url:'',durationSeconds:0};
+function readableSpeechError(error){
+  const message=String(error?.message||error||'');
+  if(/401|unauthor|api.?key/i.test(message))return ui('轉錄授權失敗，請檢查 AI 專案的 API Key。','Transcription authorization failed. Check the project API key.');
+  if(/413|too large|size/i.test(message))return ui('音檔過大，請上傳 25 MB 以下的檔案。','The audio file is too large. Upload a file under 25 MB.');
+  if(/format|media|codec|415/i.test(message))return ui('音檔格式不支援，請改用 WebM、MP4/M4A、MP3、WAV 或 OGG。','Unsupported audio format. Use WebM, MP4/M4A, MP3, WAV, or OGG.');
+  return `${ui('無法完成轉錄，請檢查網路或 API 設定後重試。','Transcription could not be completed. Check your connection and API settings, then retry.')} (${message})`;
+}
+function setSpeechStatus(message,type=''){const el=$('#speechAnalysisStatus');el.textContent=message;el.className=`analysis-status ${type}`.trim();}
+function loadAudioDuration(file){return new Promise((resolve,reject)=>{const audio=document.createElement('audio'),url=URL.createObjectURL(file);audio.preload='metadata';audio.onloadedmetadata=()=>{const duration=Number(audio.duration)||0;URL.revokeObjectURL(url);resolve(duration);};audio.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('format'));};audio.src=url;});}
+async function selectSpeechAudio(file){
+  if(!file)return;
+  const extension=file.name.split('.').pop().toLowerCase(),validExtension=['webm','mp4','m4a','mp3','wav','ogg'].includes(extension);
+  if(!SPEECH_AUDIO_TYPES.has(file.type)&&!validExtension){toast(ui('不支援此音檔格式，請選擇 WebM、MP4/M4A、MP3、WAV 或 OGG。','Unsupported format. Choose WebM, MP4/M4A, MP3, WAV, or OGG.'));$('#speechAudioInput').value='';return;}
+  if(file.size>SPEECH_AUDIO_MAX_BYTES){toast(ui('音檔超過 25 MB，請壓縮或裁切後再上傳。','The audio exceeds 25 MB. Compress or trim it before uploading.'));$('#speechAudioInput').value='';return;}
+  try{const duration=await loadAudioDuration(file);if(speechAudio.url)URL.revokeObjectURL(speechAudio.url);speechAudio={file,url:URL.createObjectURL(file),durationSeconds:duration};$('#speechAudioName').textContent=`${file.name} · ${SpeechAnalysis.formatDuration(duration)}`;}catch{toast(ui('無法讀取音檔，檔案可能損壞或格式不支援。','The audio could not be read. It may be damaged or unsupported.'));}
+}
+async function transcribeForSpeechAnalysis(file){
+  const project=getActiveProject();
+  if(!project.apiKey||!project.transcriptionEndpoint||!project.transcriptionModel)throw new Error(ui('尚未設定 Audio-to-Text API，請先到 AI 練習設定完成設定。','Audio-to-Text is not configured. Configure it in AI practice settings.'));
+  const form=new FormData();form.append('file',file,file.name||'speech.webm');form.append('model',project.transcriptionModel);
+  form.append('prompt','Produce a verbatim transcript. Preserve ah, um, uh, er, erm, 嗯, 呃, 額, 痾, 啊, repeated words, and false starts. Never polish, summarize, translate, or remove fillers.');
+  const startedAt=Date.now(),response=await fetch(project.transcriptionEndpoint,{method:'POST',headers:{Authorization:`Bearer ${project.apiKey}`},body:form}),data=await response.json().catch(()=>({}));
+  const error=data?.error?.message||data?.message||`HTTP ${response.status}`;recordApiUsage({...project,model:project.transcriptionModel},{usage:data?.usage,status:response.ok?'success':'error',error:response.ok?'':error,kind:'transcription',startedAt});
+  if(!response.ok)throw new Error(error);const text=String(data.text||data.transcript||data.output_text||'').trim();if(!text)throw new Error('empty transcript');return text;
+}
+function renderSpeechAnalysis(result){
+  const all={...result.vocalFillers,...result.possibleCrutchWords,...result.repeatedWords},breakdown=Object.entries(all).sort((a,b)=>b[1]-a[1]),vocal=Object.values(result.vocalFillers).reduce((a,b)=>a+b,0),crutch=Object.values(result.possibleCrutchWords).reduce((a,b)=>a+b,0),perMinute=result.durationSeconds?result.totalFillerCount/(result.durationSeconds/60):0;
+  const player=speechAudio.url?`<audio class="speech-player" id="speechAnalysisPlayer" controls src="${speechAudio.url}"></audio>`:'';
+  $('#speechAnalysisResult').innerHTML=`<div class="analysis-summary"><article><strong>${SpeechAnalysis.formatDuration(result.durationSeconds)}</strong><span>演講時間</span></article><article><strong>${result.wordCount}</strong><span>總字詞數</span></article><article><strong>${result.speechRate}</strong><span>${result.speechRateUnit}</span></article><article><strong>${result.totalFillerCount}</strong><span>Filler 總次數</span></article></div>${player}<div class="analysis-detail-grid"><article class="analysis-detail-card"><h3>Ah-Counter Breakdown</h3><div class="analysis-meta"><span>語助音 ${vocal}</span><span>可能的慣用贅詞 ${crutch}</span><span>平均 ${perMinute.toFixed(1)} 次/分鐘</span></div><ul class="analysis-breakdown">${breakdown.length?breakdown.map(([term,count])=>`<li><span>${escapeHtml(term)}</span><b>${count} 次</b></li>`).join(''):'<li>沒有偵測到 filler words</li>'}</ul><h3>友善回饋</h3><ul class="feedback-list">${result.feedback.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></article><article class="analysis-detail-card"><h3>發生位置</h3><div class="occurrence-list">${result.occurrences.length?result.occurrences.map(x=>`<div class="occurrence"><button type="button" data-seek="${x.timestampSeconds}">${SpeechAnalysis.formatDuration(x.timestampSeconds)}</button><q>${escapeHtml(x.original)}</q><span>${escapeHtml(x.context)}</span></div>`).join(''):'<p class="empty">這段演講沒有偵測到 filler，做得很好！</p>'}</div></article></div>`;
+  $('#speechAnalysisResult').classList.remove('hidden');$('#retrySpeechAnalysisButton').classList.add('hidden');
+  $('#speechAnalysisResult').querySelectorAll('[data-seek]').forEach(button=>button.onclick=()=>{const player=$('#speechAnalysisPlayer');if(player){player.currentTime=Number(button.dataset.seek)||0;player.play().catch(()=>{});}});
+}
+async function runSpeechAnalysis(){
+  const panel=$('#speechAnalysisPanel'),button=$('#speechAnalysisButton');panel.classList.remove('hidden');$('#speechAnalysisResult').classList.add('hidden');$('#retrySpeechAnalysisButton').classList.add('hidden');button.disabled=true;
+  try{setSpeechStatus(ui('正在準備音檔','Preparing audio'));let transcript=$('#transcript').value.trim();const duration=speechAudio.file?speechAudio.durationSeconds:state.seconds;
+    if(!duration)throw new Error(ui('請先錄製或上傳可讀取時間的演講音檔。','Record or upload an audio file with a readable duration first.'));
+    if(!transcript){if(!speechAudio.file)throw new Error(ui('目前沒有逐字稿；請使用 API 轉錄模式，或上傳音檔。','No transcript is available. Use API transcription mode or upload audio.'));setSpeechStatus(ui('正在轉錄','Transcribing'));transcript=await transcribeForSpeechAnalysis(speechAudio.file);$('#transcript').value=transcript;updateCharCount();}
+    setSpeechStatus(ui('正在分析演講','Analyzing speech'));await new Promise(resolve=>setTimeout(resolve,30));renderSpeechAnalysis(SpeechAnalysis.analyzeSpeech({transcript,durationSeconds:duration}));setSpeechStatus(ui('分析完成','Analysis complete'));
+  }catch(error){setSpeechStatus(error.message.includes('請先')||error.message.includes('No transcript')?error.message:readableSpeechError(error),'error');$('#retrySpeechAnalysisButton').classList.remove('hidden');}finally{button.disabled=false;panel.scrollIntoView({behavior:'smooth',block:'start'});}
+}
+
 async function analyzeAnswer() {
   const text = $('#transcript').value.trim();
   if(state.isTranscribing){toast(ui('請等待 API 完成轉錄','Please wait for API transcription to finish'));return;}
@@ -628,6 +672,7 @@ function init() {
   $('#languageSelect').onchange = e => changePracticeLanguage(e.target.value,{announce:true});
   $('#resumeRecordButton').onclick = resumeRecording; $('#pauseRecordButton').onclick = pauseRecording; $('#restartRecordButton').onclick = resetRecording;
   $('#transcript').oninput = updateCharCount; $('#analyzeButton').onclick = analyzeAnswer; updateRecorderControls();
+  $('#speechAudioInput').onchange=e=>selectSpeechAudio(e.target.files?.[0]);$('#speechAnalysisButton').onclick=runSpeechAnalysis;$('#retrySpeechAnalysisButton').onclick=runSpeechAnalysis;$('#closeSpeechAnalysisButton').onclick=()=>$('#speechAnalysisPanel').classList.add('hidden');
   $('#retryButton').onclick = () => { $('#feedbackPanel').classList.add('hidden'); $('#transcript').value = ''; updateCharCount(); $('#practicePanel').scrollIntoView({behavior:'smooth'}); };
   $('#nextButton').onclick = nextQuestion;
   $('#regenerateButton').onclick = async e => { e.preventDefault(); const button=$('#regenerateButton'); const card=$('.question-card'); if(button.disabled)return; button.disabled=true;card.classList.add('is-loading');pauseRecording();try{const newQuestion=(await aiProvider.generateQuestions(state.topic,state.language,1))[0];state.questions[state.index]=newQuestion;showQuestion();$('#feedbackPanel').classList.add('hidden');requestAnimationFrame(()=>$('#practicePanel').scrollIntoView({behavior:'smooth',block:'start'}));toast('已換一個新題目，錄音已重置');}catch(err){toast(`換題失敗：${err.message}`);}finally{button.disabled=false;card.classList.remove('is-loading');} };
