@@ -191,7 +191,7 @@
     isEnabled: cloudEnabled
   };
 
-  byId('accountButton').onclick = () => { updateUi(); byId('accountDialog').showModal(); };
+  byId('accountButton').onclick = () => { byId('settingsDialog').close(); updateUi(); byId('accountDialog').showModal(); };
   byId('closeAccountButton').onclick = () => byId('accountDialog').close();
   byId('googleSignInButton').onclick = signIn;
   byId('enableCloudButton').onclick = enableCloud;
