@@ -36,6 +36,7 @@ Object.assign(EN_TRANSLATIONS,{'講稿':'Manuscript','講稿模式':'Manuscript 
 Object.assign(EN_TRANSLATIONS,{'今天想練什麼？':'What would you like to practice?','選一種最適合現在的練習，踏出今天的一小步。':'Choose the practice that fits this moment and take one small step today.','即興回答':'Impromptu answers','每天三題，把腦中的想法說得更清楚。':'Three questions a day to express your ideas more clearly.','英文口說':'English speaking','用日常題目，練習更自然地用英文表達。':'Practice expressing yourself naturally in English with everyday prompts.','演講練習':'Speech practice','整理講稿、反覆演練，讓上台更有把握。':'Shape and rehearse your speech so you can present with confidence.','趁記憶正好，把值得保留的說法練熟。':'Strengthen useful expressions while they are fresh.','題到期':'due','返回首頁':'Back home','首頁':'Home'});
 Object.assign(EN_TRANSLATIONS,{'即興問答':'Impromptu Q&A','設定':'Settings','資料與費用':'Data and costs','管理儲存方式、完整備份與 API 使用費用。':'Manage storage, full backups, and API usage costs.','儲存方式':'Storage','目前為本機模式':'Currently local','API 費用':'API costs','AI 練習設定':'AI practice settings','選擇產生題目與分析回饋時使用的教練。':'Choose the coach used to generate questions and analyze feedback.'});
 Object.assign(EN_TRANSLATIONS,{'設定選單':'Settings menu','資料儲存方式':'Data storage','資料匯入與匯出':'Import and export data','備份、還原或移轉所有資料':'Back up, restore, or move all data','查看使用紀錄與估算費用':'View usage history and estimated costs'});
+Object.assign(EN_TRANSLATIONS,{'演講健檢':'Speech checkup','收起健檢':'Hide checkup','這份報告只依錄音時間與逐字稿計算，不會更動或取代 AI 教練分析。':'This report uses only recording time and the transcript. It does not change or replace the AI coach analysis.'});
 function applyUiLanguage() {
   const english=state.language==='en-US'; const reverse=Object.fromEntries(Object.entries(EN_TRANSLATIONS).map(([a,b])=>[b,a])); const dict=english?EN_TRANSLATIONS:reverse;
   const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT); let node;
@@ -101,7 +102,7 @@ const questionTemplates = {
   ]
 };
 
-let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
+let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, recordingElapsedSeconds:0, recordingRunStartedAt:null, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', transcriptTimeline:[], voiceIntervals:[], activeSpeechStartedAt:null, pendingSpeechInterval:null, mediaRecorder:null, mediaStream:null, audioActivity:null, audioChunks:[], currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
 let saved = JSON.parse(localStorage.getItem(CONFIG.storageKey) || '{"history":[]}');
 
 function shuffle(items) { return [...items].sort(() => Math.random() - .5); }
@@ -146,6 +147,14 @@ function initBackup(){
 }
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2200); }
 function formatTimer(seconds) { return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`; }
+function currentRecordingSeconds(){const elapsed=Number(state.recordingElapsedSeconds)||0;return state.recordingRunStartedAt===null?elapsed:elapsed+(performance.now()-state.recordingRunStartedAt)/1000;}
+function startRecordingClock(){state.recordingRunStartedAt=performance.now();clearInterval(state.timerId);const update=()=>{state.seconds=Math.floor(currentRecordingSeconds());$('#timer').textContent=formatTimer(state.seconds);};update();state.timerId=setInterval(update,250);}
+function stopRecordingClock(){if(state.recordingRunStartedAt!==null){state.recordingElapsedSeconds=currentRecordingSeconds();state.recordingRunStartedAt=null;}clearInterval(state.timerId);state.timerId=null;state.seconds=Math.max(0,Math.round(state.recordingElapsedSeconds));$('#timer').textContent=formatTimer(state.seconds);}
+function resetSpeechTiming(){stopAudioActivityMonitor();state.recordingElapsedSeconds=0;state.recordingRunStartedAt=null;state.seconds=0;state.transcriptTimeline=[];state.voiceIntervals=[];state.activeSpeechStartedAt=null;state.pendingSpeechInterval=null;}
+function pushVoiceInterval(startSeconds,endSeconds){const start=Math.max(0,Number(startSeconds)||0),end=Math.max(start,Number(endSeconds)||0);if(end-start<.15)return null;const interval={startSeconds:start,endSeconds:end};state.voiceIntervals.push(interval);return interval;}
+function closeActiveSpeechInterval(){if(state.activeSpeechStartedAt===null)return null;const interval=pushVoiceInterval(state.activeSpeechStartedAt,currentRecordingSeconds());state.activeSpeechStartedAt=null;if(interval)state.pendingSpeechInterval=interval;return interval;}
+function captureBrowserTimelineSegment(value){const text=String(value||'').trim();if(!text)return;const endSeconds=currentRecordingSeconds(),previous=state.transcriptTimeline.at(-1);let pending=state.pendingSpeechInterval;if(!pending&&state.activeSpeechStartedAt!==null){pending=pushVoiceInterval(state.activeSpeechStartedAt,endSeconds);state.activeSpeechStartedAt=null;}let startSeconds=pending?.startSeconds??previous?.endSeconds??Math.max(0,endSeconds-2),segmentEnd=pending?.endSeconds??endSeconds;if(segmentEnd<=startSeconds)segmentEnd=Math.max(endSeconds,startSeconds+.25);state.transcriptTimeline.push({text,startSeconds,endSeconds:segmentEnd,source:'browser'});state.pendingSpeechInterval=null;}
+function captureApiTimeline(data,rawText,timing={}){const offset=Math.max(0,Number(timing.offsetSeconds)||0);const entries=Array.isArray(data?.words)&&data.words.length?data.words:Array.isArray(data?.segments)?data.segments:[];entries.forEach(item=>{const text=String(item?.word??item?.text??'').trim(),start=Number(item?.start),end=Number(item?.end);if(!text||!Number.isFinite(start)||!Number.isFinite(end)||end<=start)return;state.transcriptTimeline.push({text,startSeconds:offset+start,endSeconds:offset+end,source:Array.isArray(data?.words)&&data.words.length?'api-word':'api-segment'});});if(!entries.length&&rawText&&timing.durationSeconds>0){state.transcriptTimeline.push({text:rawText,startSeconds:offset,endSeconds:offset+timing.durationSeconds,source:'api-duration',approximate:true});}}
 
 function renderSuggestions() {
   $('#suggestions').innerHTML = CONFIG.languages[state.language].topics.slice(0, 5).map(t => `<button type="button">${t}</button>`).join('');
@@ -401,8 +410,9 @@ function showQuestion() {
 
 function resetRecorderForQuestion() {
   if (state.recognition) { try { state.recognition.abort(); } catch {} }
-  state.discardAudio=true;if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){try{state.mediaRecorder.stop();}catch{}}stopMediaStream();state.audioChunks=[];
+  state.discardAudio=true;if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){try{state.mediaRecorder.stop();}catch{}}stopMediaStream();state.audioChunks=[];resetSpeechTiming();
   state.isRecording=false; state.isPaused=false; clearInterval(state.timerId); state.timerId=null; state.seconds=0; state.recognition=null;
+  hideSpeechCheckup(true);
   $('#timer').textContent='00:00'; if($('#transcript')) $('#transcript').value=''; updateRecorderControls();
   $('#recordStatus').textContent=ui('點一下「繼續錄製」開始','Tap “Continue recording” to start');
 }
@@ -414,12 +424,15 @@ function setupRecognition() {
   recognition.lang = CONFIG.languages[state.language].locale; recognition.continuous = true; recognition.interimResults = true;
   let lastInterim = '';
   recognition.onstart = () => { lastInterim=''; };
+  recognition.onspeechstart=()=>{if(state.activeSpeechStartedAt===null)state.activeSpeechStartedAt=currentRecordingSeconds();state.pendingSpeechInterval=null;};
+  recognition.onspeechend=()=>closeActiveSpeechInterval();
   recognition.onresult = event => {
-    let interim = '';
+    let interim = '',finalText='';
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) state.browserFinalText += event.results[i][0].transcript;
+      if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
       else interim += event.results[i][0].transcript;
     }
+    if(finalText){state.browserFinalText+=finalText;captureBrowserTimelineSegment(finalText);}
     lastInterim=interim;$('#transcript').value = state.browserFinalText + interim; updateCharCount();
   };
   recognition.onerror = e => {
@@ -429,7 +442,8 @@ function setupRecognition() {
   };
   recognition.onend = () => {
     if(state.recognition!==recognition)return;
-    if(lastInterim){state.browserFinalText+=lastInterim;lastInterim='';$('#transcript').value=state.browserFinalText;updateCharCount();}
+    closeActiveSpeechInterval();
+    if(lastInterim){state.browserFinalText+=lastInterim;captureBrowserTimelineSegment(lastInterim);lastInterim='';$('#transcript').value=state.browserFinalText;updateCharCount();}else state.pendingSpeechInterval=null;
     if (!state.isRecording) return;
     $('#recordStatus').textContent=ui('正在保持錄音連線⋯','Keeping the recording active…');
     clearTimeout(state.recognitionRestartTimer);state.recognitionRestartTimer=setTimeout(() => {if(!state.isRecording||activeTranscriptionMode()!=='browser')return;try{const next=setupRecognition();if(!next)throw new Error('unsupported');state.recognition=next;next.start();$('#recordStatus').textContent=ui('正在聽你說話⋯','Listening…');}catch{pauseRecording();toast(ui('錄音已暫停，請再按一次繼續','Recording paused. Tap Continue again.'));}},180);
@@ -439,13 +453,33 @@ function setupRecognition() {
 
 function activeTranscriptionMode(){return getActiveProject()?.transcriptionMode||'browser';}
 let transcriptionQueue=Promise.resolve();
-function queueAudioTranscription(blob,project){const run=()=>transcribeAudioBlobV2(blob,project);transcriptionQueue=transcriptionQueue.then(run,run);return transcriptionQueue;}
+function queueAudioTranscription(blob,project,timing){const run=()=>transcribeAudioBlobV2(blob,project,timing);transcriptionQueue=transcriptionQueue.then(run,run);return transcriptionQueue;}
+function stopAudioActivityMonitor(){const activity=state.audioActivity;if(!activity)return;clearInterval(activity.timer);const end=activity.silenceStartedAt??currentRecordingSeconds();if(activity.voiceStartedAt!==null)pushVoiceInterval(activity.voiceStartedAt,end);try{activity.source.disconnect();activity.analyser.disconnect();}catch{}activity.context.close().catch(()=>{});state.audioActivity=null;}
+function startAudioActivityMonitor(stream){stopAudioActivityMonitor();const AudioContext=window.AudioContext||window.webkitAudioContext;if(!AudioContext)return;try{const context=new AudioContext(),source=context.createMediaStreamSource(stream),analyser=context.createAnalyser();analyser.fftSize=1024;analyser.smoothingTimeConstant=.2;source.connect(analyser);const samples=new Uint8Array(analyser.fftSize),activity={context,source,analyser,samples,timer:null,voiceCandidateAt:null,voiceStartedAt:null,silenceStartedAt:null};context.resume?.().catch(()=>{});activity.timer=setInterval(()=>{if(state.audioActivity!==activity)return;analyser.getByteTimeDomainData(samples);let sum=0;for(const sample of samples){const normalized=(sample-128)/128;sum+=normalized*normalized;}const rms=Math.sqrt(sum/samples.length),now=currentRecordingSeconds();if(rms>.025){activity.silenceStartedAt=null;if(activity.voiceStartedAt===null){activity.voiceCandidateAt??=now;if(now-activity.voiceCandidateAt>=.15)activity.voiceStartedAt=activity.voiceCandidateAt;}}else{activity.voiceCandidateAt=null;if(activity.voiceStartedAt!==null){activity.silenceStartedAt??=now;if(now-activity.silenceStartedAt>=.45){pushVoiceInterval(activity.voiceStartedAt,activity.silenceStartedAt);activity.voiceStartedAt=null;activity.silenceStartedAt=null;}}}},100);state.audioActivity=activity;}catch{state.audioActivity=null;}}
 async function startApiRecording(){
   const project=getActiveProject();if(!project.apiKey||!project.transcriptionEndpoint||!project.transcriptionModel){toast(ui('請先在 AI 專案設定完成 Audio-to-Text API','Configure the Audio-to-Text API in AI project settings first'));return false;}
   if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){toast(ui('這個瀏覽器不支援音訊錄製','This browser does not support audio recording'));return false;}
-  try{state.discardAudio=false;const chunks=[];state.audioChunks=chunks;const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});state.mediaStream=stream;const preferred=['audio/webm;codecs=opus','audio/mp4','audio/webm'];const mimeType=preferred.find(t=>MediaRecorder.isTypeSupported?.(t))||'';const recorder=new MediaRecorder(stream,mimeType?{mimeType}:undefined);state.mediaRecorder=recorder;recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};recorder.onstop=async()=>{const captured=[...chunks],type=recorder.mimeType||captured[0]?.type||'audio/webm',discard=state.discardAudio;stream.getTracks().forEach(track=>track.stop());if(state.mediaStream===stream)state.mediaStream=null;if(discard||!captured.length){if(discard)state.discardAudio=false;return;}const unexpectedlyEnded=state.isRecording&&activeTranscriptionMode()==='api';if(unexpectedlyEnded){$('#recordStatus').textContent=ui('錄音連線已自動重接，正在保存上一段⋯','Recording reconnected automatically; saving the previous segment…');const restarted=await startApiRecording();if(!restarted){state.isRecording=false;clearInterval(state.timerId);state.timerId=null;state.isPaused=true;updateRecorderControls();}}await queueAudioTranscription(new Blob(captured,{type}),project);if(unexpectedlyEnded&&state.isRecording)$('#recordStatus').textContent=ui('已接續錄音，上一段已安全轉錄','Recording continues; the previous segment was transcribed safely.');};recorder.start(500);return true;}catch(e){stopMediaStream();toast(`${ui('無法啟動麥克風','Could not start microphone')}: ${e.message}`);return false;}
+  try{
+    state.discardAudio=false;
+    const chunks=[],timelineOffset=currentRecordingSeconds();state.audioChunks=chunks;
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    state.mediaStream=stream;startAudioActivityMonitor(stream);
+    const preferred=['audio/webm;codecs=opus','audio/mp4','audio/webm'],mimeType=preferred.find(t=>MediaRecorder.isTypeSupported?.(t))||'',recorder=new MediaRecorder(stream,mimeType?{mimeType}:undefined);
+    state.mediaRecorder=recorder;
+    recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};
+    recorder.onstop=async()=>{
+      const captured=[...chunks],type=recorder.mimeType||captured[0]?.type||'audio/webm',discard=state.discardAudio,segmentEnd=currentRecordingSeconds(),timing={offsetSeconds:timelineOffset,durationSeconds:Math.max(.1,segmentEnd-timelineOffset)};
+      stopAudioActivityMonitor();stream.getTracks().forEach(track=>track.stop());if(state.mediaStream===stream)state.mediaStream=null;
+      if(discard||!captured.length){if(discard)state.discardAudio=false;return;}
+      const unexpectedlyEnded=state.isRecording&&activeTranscriptionMode()==='api';
+      if(unexpectedlyEnded){$('#recordStatus').textContent=ui('錄音連線已自動重接，正在保存上一段⋯','Recording reconnected automatically; saving the previous segment…');const restarted=await startApiRecording();if(!restarted){state.isRecording=false;stopRecordingClock();state.isPaused=true;updateRecorderControls();}}
+      await queueAudioTranscription(new Blob(captured,{type}),project,timing);
+      if(unexpectedlyEnded&&state.isRecording)$('#recordStatus').textContent=ui('已接續錄音，上一段已安全轉錄','Recording continues; the previous segment was transcribed safely.');
+    };
+    recorder.start(500);return true;
+  }catch(e){stopMediaStream();toast(`${ui('無法啟動麥克風','Could not start microphone')}: ${e.message}`);return false;}
 }
-function stopMediaStream(){state.mediaStream?.getTracks().forEach(track=>track.stop());state.mediaStream=null;}
+function stopMediaStream(){stopAudioActivityMonitor();state.mediaStream?.getTracks().forEach(track=>track.stop());state.mediaStream=null;}
 async function transcribeAudioBlob(blob,project){
   state.isTranscribing=true;updateRecorderControls();$('#recordStatus').textContent=ui('正在透過 API 轉錄並補上標點⋯','Transcribing and adding punctuation with the API…');
   try{const type=blob.type||'audio/webm';const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const form=new FormData();form.append('file',blob,`recording.${ext}`);form.append('model',project.transcriptionModel);form.append('prompt','Add natural punctuation and paragraph breaks. Preserve every spoken language exactly as spoken. Never translate. Chinese speech must remain Chinese, English speech must remain English, and mixed-language speech must remain mixed.');const response=await fetch(project.transcriptionEndpoint,{method:'POST',headers:{Authorization:`Bearer ${project.apiKey}`},body:form});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message||data?.message||`API ${response.status}`);const text=String(data.text||data.transcript||data.output_text||'').trim();if(!text)throw new Error(ui('API 沒有回傳逐字稿','The API returned no transcript'));const previous=$('#transcript').value.trim();$('#transcript').value=previous?`${previous}\n${text}`:text;updateCharCount();$('#recordStatus').textContent=ui('API 轉錄完成，可繼續錄製','API transcription complete. You can continue recording.');}catch(e){toast(`${ui('API 轉錄失敗','API transcription failed')}: ${e.message}`);$('#recordStatus').textContent=ui('轉錄失敗，可保留目前文字或重新錄製','Transcription failed. Keep the current text or record again.');}finally{state.isTranscribing=false;state.audioChunks=[];updateRecorderControls();}
@@ -454,20 +488,21 @@ async function polishTranscriptWithAgent(rawText,project){
   if(project.smartCorrection===false)return rawText;
   try{const instruction=`This is a raw multilingual speech-to-text transcript. Return only the cleaned transcript. Add natural punctuation and paragraph breaks and correct only obvious recognition errors or repeated fragments. Preserve the language of every phrase exactly: never translate Chinese into English or English into Chinese. If the speaker switches languages within a sentence, keep that mixed-language structure. Do not add ideas, remove meaning, summarize, or change the speaker's style.\n\nRAW TRANSCRIPT:\n${rawText}`;const polished=(await callAgent(instruction,project)).trim();if(!polished)return rawText;const rawCjk=(rawText.match(/[\u3400-\u9fff]/g)||[]).length,polishedCjk=(polished.match(/[\u3400-\u9fff]/g)||[]).length,rawLatin=(rawText.match(/[A-Za-z]/g)||[]).length,polishedLatin=(polished.match(/[A-Za-z]/g)||[]).length;if((rawCjk>3&&polishedCjk<rawCjk*.8)||(rawLatin>8&&polishedLatin<rawLatin*.8)){toast(ui('偵測到 Agent 可能改變原語言，已保留 Audio API 原始逐字稿','The Agent may have changed the spoken language, so the original Audio API transcript was kept.'));return rawText;}return polished;}catch(e){toast(`${ui('Agent 智慧校正失敗，保留原始轉錄','Agent cleanup failed; keeping the raw transcript')}: ${e.message}`);return rawText;}
 }
-async function transcribeAudioBlobV2(blob,project){
+async function transcribeAudioBlobV2(blob,project,timing={}){
   state.isTranscribing=true;updateRecorderControls();setTranscriptionApiStatus(ui(`正在呼叫 Audio API：${project.transcriptionModel}`,`Calling Audio API: ${project.transcriptionModel}`),'calling');$('#recordStatus').textContent=ui('第一階段：正在進行 Audio-to-Text⋯','Stage 1: Audio-to-Text in progress…');
-  try{const type=blob.type||'audio/webm';const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const form=new FormData();form.append('file',blob,`recording.${ext}`);form.append('model',project.transcriptionModel);form.append('prompt','Use natural punctuation and preserve all spoken content. Automatically detect each spoken language. Never translate. Keep Chinese as Chinese, English as English, and preserve mixed Chinese-English sentences.');const startedAt=Date.now();const response=await fetch(project.transcriptionEndpoint,{method:'POST',headers:{Authorization:`Bearer ${project.apiKey}`},body:form});const data=await response.json().catch(()=>({}));const transcriptionError=data?.error?.message||data?.message||`HTTP ${response.status}`;recordApiUsage({...project,model:project.transcriptionModel},{usage:data?.usage,status:response.ok?'success':'error',error:response.ok?'':transcriptionError,kind:'transcription',startedAt});if(!response.ok)throw new Error(transcriptionError);const rawText=String(data.text||data.transcript||data.output_text||'').trim();if(!rawText)throw new Error(ui('Audio API 沒有回傳逐字稿','Audio API returned no transcript'));let finalText=rawText;if(project.smartCorrection!==false){$('#recordStatus').textContent=ui('第二階段：Agent 正在校正文字與標點⋯','Stage 2: Agent is correcting text and punctuation…');setTranscriptionApiStatus(ui(`Audio API 成功，正在使用 Agent 智慧校正⋯`,`Audio API succeeded; Agent cleanup in progress…`),'calling');finalText=await polishTranscriptWithAgent(rawText,project);}const previous=$('#transcript').value.trim();$('#transcript').value=previous?`${previous}\n${finalText}`:finalText;updateCharCount();const time=new Intl.DateTimeFormat(state.language==='en-US'?'en-US':'zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date());setTranscriptionApiStatus(ui(`✓ Audio API 已成功調用 · ${project.transcriptionModel} · ${time} · ${((Date.now()-startedAt)/1000).toFixed(1)} 秒`,`✓ Audio API called successfully · ${project.transcriptionModel} · ${time} · ${((Date.now()-startedAt)/1000).toFixed(1)}s`),'success');$('#recordStatus').textContent=ui('智慧轉錄完成，可繼續錄製','Smart transcription complete. You can continue recording.');}catch(e){setTranscriptionApiStatus(`${ui('Audio API 調用失敗','Audio API call failed')}: ${e.message}`,'error');toast(`${ui('Audio-to-Text 失敗','Audio-to-Text failed')}: ${e.message}`);$('#recordStatus').textContent=ui('轉錄失敗，請檢查 Endpoint、模型與 API Key','Transcription failed. Check endpoint, model, and API key.');}finally{state.isTranscribing=false;state.audioChunks=[];updateRecorderControls();}
+  try{const type=blob.type||'audio/webm';const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const form=new FormData();form.append('file',blob,`recording.${ext}`);form.append('model',project.transcriptionModel);form.append('prompt','Use natural punctuation and preserve all spoken content. Automatically detect each spoken language. Never translate. Keep Chinese as Chinese, English as English, and preserve mixed Chinese-English sentences.');const startedAt=Date.now();const response=await fetch(project.transcriptionEndpoint,{method:'POST',headers:{Authorization:`Bearer ${project.apiKey}`},body:form});const data=await response.json().catch(()=>({}));const transcriptionError=data?.error?.message||data?.message||`HTTP ${response.status}`;recordApiUsage({...project,model:project.transcriptionModel},{usage:data?.usage,status:response.ok?'success':'error',error:response.ok?'':transcriptionError,kind:'transcription',startedAt});if(!response.ok)throw new Error(transcriptionError);const rawText=String(data.text||data.transcript||data.output_text||'').trim();if(!rawText)throw new Error(ui('Audio API 沒有回傳逐字稿','Audio API returned no transcript'));captureApiTimeline(data,rawText,timing);let finalText=rawText;if(project.smartCorrection!==false){$('#recordStatus').textContent=ui('第二階段：Agent 正在校正文字與標點⋯','Stage 2: Agent is correcting text and punctuation…');setTranscriptionApiStatus(ui(`Audio API 成功，正在使用 Agent 智慧校正⋯`,`Audio API succeeded; Agent cleanup in progress…`),'calling');finalText=await polishTranscriptWithAgent(rawText,project);}const previous=$('#transcript').value.trim();$('#transcript').value=previous?`${previous}\n${finalText}`:finalText;updateCharCount();const time=new Intl.DateTimeFormat(state.language==='en-US'?'en-US':'zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date());setTranscriptionApiStatus(ui(`✓ Audio API 已成功調用 · ${project.transcriptionModel} · ${time} · ${((Date.now()-startedAt)/1000).toFixed(1)} 秒`,`✓ Audio API called successfully · ${project.transcriptionModel} · ${time} · ${((Date.now()-startedAt)/1000).toFixed(1)}s`),'success');$('#recordStatus').textContent=ui('智慧轉錄完成，可繼續錄製','Smart transcription complete. You can continue recording.');}catch(e){setTranscriptionApiStatus(`${ui('Audio API 調用失敗','Audio API call failed')}: ${e.message}`,'error');toast(`${ui('Audio-to-Text 失敗','Audio-to-Text failed')}: ${e.message}`);$('#recordStatus').textContent=ui('轉錄失敗，請檢查 Endpoint、模型與 API Key','Transcription failed. Check endpoint, model, and API key.');}finally{state.isTranscribing=false;state.audioChunks=[];updateRecorderControls();}
 }
 async function startRecording() {
   if (state.isRecording||state.isTranscribing) return;
+  hideSpeechCheckup(true);
   const mode=activeTranscriptionMode();
   if(mode==='api'){const started=await startApiRecording();if(!started)return;}else{state.browserFinalText=$('#transcript').value;state.recognition = setupRecognition();if (!state.recognition) { toast(ui('這個瀏覽器不支援即時辨識，請改用 API 高品質轉錄','Live recognition is unavailable. Try API transcription.')); return; }try{state.recognition.start();}catch{return pauseRecording();}}
   const scrollPosition=window.scrollY; state.isRecording = true; state.isPaused = false; updateRecorderControls(); $('#recordStatus').textContent = mode==='api'?ui('正在錄製音訊，暫停後會自動轉錄','Recording audio. It will transcribe when paused.'):ui('正在聽你說話⋯','Listening…');
-  state.timerId = setInterval(() => { state.seconds++; $('#timer').textContent = formatTimer(state.seconds); }, 1000);requestAnimationFrame(()=>window.scrollTo({top:scrollPosition,behavior:'auto'}));
+  startRecordingClock();requestAnimationFrame(()=>window.scrollTo({top:scrollPosition,behavior:'auto'}));
 }
 function pauseRecording() {
   if (!state.isRecording) return;
-  const mode=activeTranscriptionMode();state.isRecording = false; clearInterval(state.timerId);clearTimeout(state.recognitionRestartTimer);state.recognitionRestartTimer=null; state.timerId = null;state.isPaused = true;updateRecorderControls();
+  const mode=activeTranscriptionMode();closeActiveSpeechInterval();stopRecordingClock();state.isRecording = false;clearTimeout(state.recognitionRestartTimer);state.recognitionRestartTimer=null;state.isPaused = true;updateRecorderControls();
   if(mode==='api'&&state.mediaRecorder?.state!=='inactive'){state.isTranscribing=true;updateRecorderControls();state.mediaRecorder.stop();$('#recordStatus').textContent=ui('正在準備 API 轉錄⋯','Preparing API transcription…');}
   else{if (state.recognition) { try { state.recognition.stop(); } catch {} }$('#recordStatus').textContent = ui('已暫停，可繼續錄製或重新開始','Paused. Continue recording or start over.');}
 }
@@ -476,8 +511,9 @@ function resumeRecording() { startRecording(); }
 function resetRecording() {
   clearTimeout(state.recognitionRestartTimer);state.recognitionRestartTimer=null;
   if (state.recognition) { try { state.recognition.abort(); } catch {} }
-  state.discardAudio=true;if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){try{state.mediaRecorder.stop();}catch{}}stopMediaStream();state.audioChunks=[];
+  state.discardAudio=true;if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){try{state.mediaRecorder.stop();}catch{}}stopMediaStream();state.audioChunks=[];resetSpeechTiming();
   state.isRecording = false; state.isPaused = false; state.browserFinalText=''; clearInterval(state.timerId); state.timerId = null; state.seconds = 0;
+  hideSpeechCheckup(true);
   $('#timer').textContent = '00:00'; $('#transcript').value = ''; updateCharCount(); updateRecorderControls();
   $('#recordStatus').textContent = ui('內容已清除，點「繼續錄製」重新開始','Cleared. Tap “Continue recording” to start again.'); toast(ui('錄音與逐字稿已清除','Recording and transcript cleared'));
 }
@@ -490,6 +526,24 @@ function updateRecorderControls() {
   $('#restartRecordButton').disabled=state.isTranscribing;
 }
 function updateCharCount() { const n=$('#transcript').value.trim().length; $('#charCount').textContent = state.language==='en-US'?`${n} characters`:`${n} 字`; }
+
+function hideSpeechCheckup(clear=false){
+  $('#speechCheckupPanel')?.classList.add('hidden');
+  if(clear)$('#speechCheckupReport')?.replaceChildren();
+}
+
+function runSpeechCheckup(){
+  if(state.isTranscribing){toast(ui('請等待 API 完成轉錄','Please wait for API transcription to finish'));return;}
+  if(state.isRecording){const apiMode=activeTranscriptionMode()==='api';pauseRecording();if(apiMode){toast(ui('正在轉錄，完成後再按一次「演講健檢」','Transcribing now. Tap “Speech checkup” again when it finishes.'));return;}setTimeout(runSpeechCheckup,180);return;}
+  const transcript=$('#transcript').value.trim();
+  if(!transcript){toast(ui('請先錄音或輸入逐字稿','Record or enter a transcript first'));$('#transcript').focus();return;}
+  if(!window.SpeechEvaluation||!window.SpeechCheckupUI){toast(ui('演講健檢暫時無法載入','Speech checkup could not be loaded'));return;}
+  const durationSeconds=Math.max(0,Number(state.recordingElapsedSeconds)||Number(state.seconds)||0);
+  const evaluation=window.SpeechEvaluation.build(transcript,{language:state.language,durationSeconds,timeline:state.transcriptTimeline,voiceIntervals:state.voiceIntervals});
+  window.SpeechCheckupUI.render({evaluation,transcript,transcriptElement:$('#transcript'),container:$('#speechCheckupReport'),language:state.language,sourceId:'current'});
+  $('#speechCheckupPanel').classList.remove('hidden');
+  $('#speechCheckupPanel').scrollIntoView({behavior:'smooth',block:'start'});
+}
 
 async function analyzeAnswer() {
   const text = $('#transcript').value.trim();
@@ -627,8 +681,8 @@ function init() {
   $('#randomTopicButton').onclick = () => { const topics = CONFIG.languages[state.language].topics; $('#topicInput').value = topics[Math.floor(Math.random() * topics.length)]; };
   $('#languageSelect').onchange = e => changePracticeLanguage(e.target.value,{announce:true});
   $('#resumeRecordButton').onclick = resumeRecording; $('#pauseRecordButton').onclick = pauseRecording; $('#restartRecordButton').onclick = resetRecording;
-  $('#transcript').oninput = updateCharCount; $('#analyzeButton').onclick = analyzeAnswer; updateRecorderControls();
-  $('#retryButton').onclick = () => { $('#feedbackPanel').classList.add('hidden'); $('#transcript').value = ''; updateCharCount(); $('#practicePanel').scrollIntoView({behavior:'smooth'}); };
+  $('#transcript').oninput = () => { updateCharCount(); hideSpeechCheckup(true); }; $('#speechCheckupButton').onclick=runSpeechCheckup; $('#closeSpeechCheckupButton').onclick=()=>hideSpeechCheckup(); $('#analyzeButton').onclick = analyzeAnswer; updateRecorderControls();
+  $('#retryButton').onclick = () => { $('#feedbackPanel').classList.add('hidden'); resetRecorderForQuestion(); updateCharCount(); $('#practicePanel').scrollIntoView({behavior:'smooth'}); };
   $('#nextButton').onclick = nextQuestion;
   $('#regenerateButton').onclick = async e => { e.preventDefault(); const button=$('#regenerateButton'); const card=$('.question-card'); if(button.disabled)return; button.disabled=true;card.classList.add('is-loading');pauseRecording();try{const newQuestion=(await aiProvider.generateQuestions(state.topic,state.language,1))[0];state.questions[state.index]=newQuestion;showQuestion();$('#feedbackPanel').classList.add('hidden');requestAnimationFrame(()=>$('#practicePanel').scrollIntoView({behavior:'smooth',block:'start'}));toast('已換一個新題目，錄音已重置');}catch(err){toast(`換題失敗：${err.message}`);}finally{button.disabled=false;card.classList.remove('is-loading');} };
   $('#copyRawResponseButton').onclick=async()=>{try{await navigator.clipboard.writeText($('#rawAgentResponse').textContent);toast('已複製 Agent 原始回覆');}catch{toast('複製失敗，請手動選取文字');}};
