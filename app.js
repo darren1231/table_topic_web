@@ -36,6 +36,7 @@ Object.assign(EN_TRANSLATIONS,{'講稿':'Manuscript','講稿模式':'Manuscript 
 Object.assign(EN_TRANSLATIONS,{'今天想練什麼？':'What would you like to practice?','選一種最適合現在的練習，踏出今天的一小步。':'Choose the practice that fits this moment and take one small step today.','即興回答':'Impromptu answers','每天三題，把腦中的想法說得更清楚。':'Three questions a day to express your ideas more clearly.','英文口說':'English speaking','用日常題目，練習更自然地用英文表達。':'Practice expressing yourself naturally in English with everyday prompts.','演講練習':'Speech practice','整理講稿、反覆演練，讓上台更有把握。':'Shape and rehearse your speech so you can present with confidence.','趁記憶正好，把值得保留的說法練熟。':'Strengthen useful expressions while they are fresh.','題到期':'due','返回首頁':'Back home','首頁':'Home'});
 Object.assign(EN_TRANSLATIONS,{'即興問答':'Impromptu Q&A','設定':'Settings','資料與費用':'Data and costs','管理儲存方式、完整備份與 API 使用費用。':'Manage storage, full backups, and API usage costs.','儲存方式':'Storage','目前為本機模式':'Currently local','API 費用':'API costs','AI 練習設定':'AI practice settings','選擇產生題目與分析回饋時使用的教練。':'Choose the coach used to generate questions and analyze feedback.'});
 Object.assign(EN_TRANSLATIONS,{'設定選單':'Settings menu','資料儲存方式':'Data storage','資料匯入與匯出':'Import and export data','備份、還原或移轉所有資料':'Back up, restore, or move all data','查看使用紀錄與估算費用':'View usage history and estimated costs'});
+Object.assign(EN_TRANSLATIONS,{'演講健檢':'Speech checkup','收起健檢':'Hide checkup','這份報告只依錄音時間與逐字稿計算，不會更動或取代 AI 教練分析。':'This report uses only recording time and the transcript. It does not change or replace the AI coach analysis.'});
 function applyUiLanguage() {
   const english=state.language==='en-US'; const reverse=Object.fromEntries(Object.entries(EN_TRANSLATIONS).map(([a,b])=>[b,a])); const dict=english?EN_TRANSLATIONS:reverse;
   const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT); let node;
@@ -178,35 +179,6 @@ function renderHistory() {
 }
 
 function escapeHtml(value) { const el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
-function speechTimeLabel(seconds,estimated=false){if(seconds===null||seconds===undefined||seconds==='')return ui('無時間','No time');const numeric=Number(seconds);if(!Number.isFinite(numeric))return ui('無時間','No time');return `${estimated?'≈':''}${formatTimer(Math.max(0,Math.round(numeric)))}`;}
-function speechStatusLabel(status){return status==='strong'?ui('清楚','Clear'):status==='missing'?ui('缺少','Missing'):ui('可加強','Developing');}
-function annotatedSpeechHtml(text,occurrences,prefix){let cursor=0,html='';(occurrences||[]).slice().sort((a,b)=>a.index-b.index).forEach(item=>{if(item.index<cursor)return;html+=escapeHtml(text.slice(cursor,item.index));html+=`<mark id="${prefix}-${item.id}" data-speech-mark="${item.id}" tabindex="0">${escapeHtml(text.slice(item.index,item.end))}</mark>`;cursor=item.end;});return `${html}${escapeHtml(text.slice(cursor))}`;}
-function jumpToSpeechPosition(occurrence,context,prefix){if(!occurrence)return;if(context==='current'){const textarea=$('#transcript');textarea.focus({preventScroll:true});textarea.setSelectionRange(occurrence.index,occurrence.end);const ratio=textarea.value.length?occurrence.index/textarea.value.length:0;textarea.scrollTop=Math.max(0,(textarea.scrollHeight-textarea.clientHeight)*ratio);textarea.scrollIntoView({behavior:'smooth',block:'center'});return;}const mark=document.getElementById(`${prefix}-${occurrence.id}`),transcript=document.getElementById(`${prefix}-transcript`),target=mark||transcript;if(!target)return;const details=target.closest('details');if(details)details.open=true;target.scrollIntoView({behavior:'smooth',block:'center'});target.classList.remove('speech-mark-flash');requestAnimationFrame(()=>target.classList.add('speech-mark-flash'));setTimeout(()=>target.classList.remove('speech-mark-flash'),1600);mark?.focus({preventScroll:true});}
-function renderSpeechEvaluation(evaluation,transcript,container,context='current'){
-  if(!container)return;
-  if(!evaluation){container.innerHTML='';return;}
-  const prefix=`speech-${String(context).replace(/[^a-z0-9_-]/gi,'-')}`;
-  const occurrences=evaluation.fillers?.occurrences||[],occurrenceMap=new Map(occurrences.map(item=>[item.id,item]));
-  const paceInCharacters=evaluation.paceUnit==='characters';
-  const totalCountLabel=paceInCharacters?ui('總字數','Total characters'):ui('總字數','Total words');
-  const paceLabel=paceInCharacters?ui('每分鐘語速（中文按字）','Characters per minute'):ui('每分鐘語速 WPM','Words per minute');
-  const fastPaceUnit=paceInCharacters?ui('字／分','chars/min'):'WPM';
-  const fillerGroups=(evaluation.fillers?.groups||[]).map(group=>`<button type="button" class="filler-chip" data-speech-jump="${escapeHtml(group.occurrenceIds[0])}"><span>${escapeHtml(group.word)}</span><b>× ${group.count}</b></button>`).join('');
-  const fillerPositions=occurrences.map(item=>{const position=[...String(transcript||'').slice(0,item.index)].length+1;return `<button type="button" class="filler-position" data-speech-jump="${item.id}"><span>${escapeHtml(item.displayWord)}</span><small>${speechTimeLabel(item.timeSeconds,item.timeEstimated)} · ${ui(`第 ${position} 字`,`character ${position}`)}</small></button>`;}).join('');
-  const pauses=(evaluation.longPauses||[]).map(item=>`<li><span>${speechTimeLabel(item.startSeconds)}–${speechTimeLabel(item.endSeconds)}</span><b>${item.durationSeconds.toFixed(1)} ${ui('秒','sec')}</b></li>`).join('');
-  const fast=(evaluation.fastSegments||[]).map((item,index)=>`<button type="button" class="pace-fragment" data-speech-offset="${Number.isFinite(item.startOffset)?item.startOffset:''}" data-speech-end="${Number.isFinite(item.endOffset)?item.endOffset:''}" data-fast-index="${index}"><span>${speechTimeLabel(item.startSeconds)}–${speechTimeLabel(item.endSeconds)}</span><b>${item.wpm} ${fastPaceUnit}</b><small>${escapeHtml(item.text.slice(0,80))}${item.text.length>80?'…':''}</small></button>`).join('');
-  const structure=[['opening',ui('開場','Opening')],['body',ui('主體','Body')],['closing',ui('結尾','Closing')]].map(([key,label])=>{const item=evaluation.structure?.[key]||{status:'developing',reason:''};return `<article class="structure-result status-${item.status}"><header><span>${label}</span><b>${speechStatusLabel(item.status)}</b></header><p>${escapeHtml(item.reason)}</p></article>`;}).join('');
-  const duration=evaluation.durationSeconds>0?formatTimer(Math.round(evaluation.durationSeconds)):'--';
-  const wpm=Number.isFinite(evaluation.wpm)?evaluation.wpm:'--';
-  const timingNote=evaluation.timingStatus==='timestamped'
-    ?ui('停頓與快語片段依錄音／轉錄時間軸判斷。','Pauses and fast fragments use the recording or transcription timeline.')
-    :evaluation.durationSeconds>0
-      ?ui('本次只有總錄音時間；贅詞時間為估算，無法可靠判斷局部過快片段。','Only total duration is available. Filler times are estimates, so local fast fragments cannot be judged reliably.')
-      :ui('這次是手動輸入，沒有錄音時間；系統不會虛構 WPM 或停頓。','This was typed without recording time, so WPM and pauses are not invented.');
-  container.innerHTML=`<section class="speech-evaluation-card"><header class="speech-evaluation-head"><div><p class="eyebrow">SPEECH CHECKUP</p><h3>${ui('演說健檢','Speech Checkup')}</h3></div><span>${ui('依逐字稿與錄音計算','Calculated from transcript and recording')}</span></header><div class="speech-metric-grid"><article><span>◷</span><b>${duration}</b><small>${ui('演講時間','Duration')}</small></article><article><span>字</span><b>${evaluation.wordCount}</b><small>${totalCountLabel}</small></article><article><span>↗</span><b>${wpm}</b><small>${paceLabel}</small></article><article><span>…</span><b>${evaluation.fillers?.total||0}</b><small>${ui('疑似贅詞','Potential fillers')}</small></article></div><div class="speech-detail-grid"><section class="speech-detail-section"><div class="speech-detail-title"><div><span>01</span><h4>${ui('贅詞分布','Filler distribution')}</h4></div><small>${ui('點擊可跳到逐字稿','Click to jump to transcript')}</small></div>${fillerGroups?`<div class="filler-chip-list">${fillerGroups}</div><div class="filler-position-list">${fillerPositions}</div>`:`<p class="evaluation-empty">${ui('沒有偵測到指定贅詞。','No configured filler words detected.')}</p>`}</section><section class="speech-detail-section"><div class="speech-detail-title"><div><span>02</span><h4>${ui('節奏與停頓','Pace and pauses')}</h4></div></div><div class="pace-columns"><div><h5>${ui('過長停頓（≥ 2 秒）','Long pauses (≥ 2 sec)')}</h5>${pauses?`<ul class="pause-list">${pauses}</ul>`:`<p class="evaluation-empty">${ui('沒有偵測到過長停頓。','No long pauses detected.')}</p>`}</div><div><h5>${ui(`過快片段（>${evaluation.fastThresholdWpm} ${fastPaceUnit}）`,`Fast fragments (>${evaluation.fastThresholdWpm} ${fastPaceUnit})`)}</h5>${fast?`<div class="fast-fragment-list">${fast}</div>`:`<p class="evaluation-empty">${evaluation.timingStatus==='timestamped'?ui('沒有偵測到過快片段。','No fast fragments detected.'):ui('需要逐句時間戳才能可靠判斷。','Sentence timestamps are required for a reliable result.')}</p>`}</div></div><p class="timing-note">ⓘ ${timingNote}</p></section></div><section class="speech-structure-section"><div class="speech-detail-title"><div><span>03</span><h4>${ui('開場、主體、結尾','Opening, body, and closing')}</h4></div></div><div class="structure-grid">${structure}</div></section><aside class="next-focus"><span>${ui('下一次只改善一件事','Improve only one thing next time')}</span><h4>${escapeHtml(evaluation.nextFocus?.title||'')}</h4><p>${escapeHtml(evaluation.nextFocus?.action||'')}</p></aside><details class="evaluated-transcript"><summary>${ui('查看有標記的逐字稿','View marked transcript')}</summary><div class="evaluated-transcript-text" id="${prefix}-transcript">${annotatedSpeechHtml(transcript,occurrences,prefix)}</div></details></section>`;
-  container.onclick=event=>{const jump=event.target.closest('[data-speech-jump]');if(jump){jumpToSpeechPosition(occurrenceMap.get(jump.dataset.speechJump),context,prefix);return;}const marked=event.target.closest('[data-speech-mark]');if(marked){jumpToSpeechPosition(occurrenceMap.get(marked.dataset.speechMark),context,prefix);return;}const pace=event.target.closest('[data-speech-offset]');if(pace&&pace.dataset.speechOffset!==''){jumpToSpeechPosition({id:`pace-${pace.dataset.fastIndex}`,index:Number(pace.dataset.speechOffset),end:Number(pace.dataset.speechEnd)||Number(pace.dataset.speechOffset)},context,prefix);}};
-  container.onkeydown=event=>{if((event.key==='Enter'||event.key===' ')&&event.target.matches('[data-speech-mark]')){event.preventDefault();jumpToSpeechPosition(occurrenceMap.get(event.target.dataset.speechMark),context,prefix);}};
-}
 function basicEnglishGrammarReview(text){
   return (text.match(/[^.!?]+[.!?]?/g)||[text]).map(part=>part.trim()).filter(Boolean).map(original=>{let corrected=original;const issues=[];const replace=(pattern,value,rule)=>{const next=corrected.replace(pattern,value);if(next!==corrected){corrected=next;issues.push(rule);}};replace(/\bi\b/g,'I','The pronoun “I” is always capitalized.');replace(/\bI am agree\b/gi,'I agree','“Agree” is a verb, so it does not take “am.”');replace(/\bpeople is\b/gi,'people are','“People” is plural and takes “are.”');replace(/\b(did not|didn’t|didn't) went\b/gi,'$1 go','After “did,” use the base form of the verb.');replace(/\bmore better\b/gi,'better','Do not use “more” with the comparative form “better.”');return {original,corrected,isCorrect:issues.length===0,issue:issues.length?issues.join(' '):'No obvious grammar error was detected by the built-in check.',explanation:issues.length?'The corrected sentence follows the standard form shown above.':'The sentence is grammatically acceptable. An AI Agent can provide a deeper, context-aware explanation.',rule:issues[0]||'Keep the subject, verb tense, and sentence structure consistent.',example:corrected};});
 }
@@ -287,7 +259,7 @@ const aiProvider = {
     const project=getActiveProject(); if (project.provider==='builtin') return localProvider.analyze(text);
     const grammarRequirement=state.language==='en-US'?`The learner is practicing English but may deliberately speak Chinese when they do not know an English expression. Never translate those Chinese words or sentences. Preserve Chinese segments as Chinese and preserve mixed Chinese-English sentences as mixed. Integrate sentence improvement and grammar correction into comparisons. comparisons MUST contain exactly one item for EVERY sentence in the learner's answer, in the original order, without skipping short or grammatically correct sentences. Correct and explain grammar only in the English portions. Each comparison must be {"label":"Sentence 1","before":"exact learner sentence","after":"a grammatically correct, more natural sentence with the same meaning while retaining any Chinese text","isGrammarCorrect":false,"grammarIssue":"identify the exact English error, say No English grammar error, or explain that the sentence contains a Chinese placeholder","grammarExplanation":"plain-language explanation of why it is wrong and why the improved sentence works","grammarRule":"the relevant English grammar rule","grammarExample":"one new short example using the same rule"}. Set isGrammarCorrect true when no English grammar correction is required. Return grammarCorrections as an empty array to avoid duplicate sections. Include Grammar accuracy as one scoreDetails category.`:`Return grammarCorrections as an empty array.`;
     const contentType=state.practiceMode==='manuscript'?'This is a free-form speech manuscript with no question. Evaluate it as a standalone manuscript and improve its expression without inventing a prompt or changing its intended meaning.':'This is an answer to an impromptu speaking question.';
-    const output=await callAgent(`${responseLanguageRule()} ${contentType} Create a detailed and practical speaking-coach report for the text below. Return only one JSON object. Required: overall, structure, detail, fluency (integer 0–100); strength, improve, summary; improvements (at least 3 items with title and detail); comparisons (${state.language==='en-US'?'one integrated item per sentence as defined below':'at least 4 items with label, before, after'}); rewritten (a complete improved 1–2 minute speech); scoreDetails (at least 5 items formatted as {"name":"category","before":65,"after":90,"beforeNote":"comment","afterNote":"comment"}; before and after MUST be integers only); improvedOverall (integer 0–100 only); speechStructure formatted as {"opening":{"status":"strong|developing|missing","reason":"evidence from the transcript"},"body":{"status":"strong|developing|missing","reason":"evidence from the transcript"},"closing":{"status":"strong|developing|missing","reason":"evidence from the transcript"}}; nextFocus formatted as {"title":"one improvement only","action":"one specific measurable action for the next attempt"}. ${grammarRequirement} Check factual and wording errors. Evaluate position, logic, accuracy, emotional impact, and closing strength. Text: ${text}`,project);
+    const output=await callAgent(`${responseLanguageRule()} ${contentType} Create a detailed and practical speaking-coach report for the text below. Return only one JSON object. Required: overall, structure, detail, fluency (integer 0–100); strength, improve, summary; improvements (at least 3 items with title and detail); comparisons (${state.language==='en-US'?'one integrated item per sentence as defined below':'at least 4 items with label, before, after'}); rewritten (a complete improved 1–2 minute speech); scoreDetails (at least 5 items formatted as {"name":"category","before":65,"after":90,"beforeNote":"comment","afterNote":"comment"}; before and after MUST be integers only); improvedOverall (integer 0–100 only). ${grammarRequirement} Check factual and wording errors. Evaluate position, logic, accuracy, emotional impact, and closing strength. Text: ${text}`,project);
     const r=extractJson(output); r._rawResponse=output; return normalizeCoachResult(r,text);
   }
 };
@@ -341,9 +313,7 @@ function openHistoryDetail(index) {
   const x=saved.history[index]; if(!x) return; const m=x.metrics||{};
   m._historyId=x.id;
   $('#historyDetailTitle').textContent=`${x.topic} · ${x.date}`;
-  $('#historyDetailContent').innerHTML=`<p class="report-question">${escapeHtml(x.question)}</p><div class="report-scores">${[['整體',x.score],['結構',m.structure],['具體',m.detail],['流暢',m.fluency]].map(([n,v])=>`<div class="report-score"><b>${v??'--'}</b><span>${n}</span></div>`).join('')}</div><h3>你的回答</h3><div class="report-answer">${escapeHtml(x.answer||'舊紀錄沒有保存逐字稿')}</div><div id="historySpeechEvaluation" class="speech-evaluation"></div><div id="historyCoachReport" class="coach-report"></div>`;
-  const speechEvaluation=m.speechEvaluation||(x.answer?window.SpeechEvaluation?.build(x.answer,{language:x.language||state.language,durationSeconds:x.durationSeconds||0,aiStructure:m.speechStructure,aiNextFocus:m.nextFocus}):null);
-  renderSpeechEvaluation(speechEvaluation,x.answer||'',$('#historySpeechEvaluation'),`history-${x.id}`);
+  $('#historyDetailContent').innerHTML=`<p class="report-question">${escapeHtml(x.question)}</p><div class="report-scores">${[['整體',x.score],['結構',m.structure],['具體',m.detail],['流暢',m.fluency]].map(([n,v])=>`<div class="report-score"><b>${v??'--'}</b><span>${n}</span></div>`).join('')}</div><h3>你的回答</h3><div class="report-answer">${escapeHtml(x.answer||'舊紀錄沒有保存逐字稿')}</div><div id="historyCoachReport" class="coach-report"></div>`;
   if(m.summary||m.rewritten) { const old=$('#coachReport'); const target=$('#historyCoachReport'); const originalId=old.id; old.id='coachReportCurrent'; target.id='coachReport'; renderCoachReport(m); target.id='historyCoachReport'; old.id=originalId; bindReviewToggles(target,m); } else $('#historyCoachReport').innerHTML=`<div class="report-feedback"><article><h4>✓ 做得好的地方</h4><p>${escapeHtml(m.strength||'舊紀錄沒有保存這項回饋')}</p></article><article><h4>↗ 改善方式</h4><p>${escapeHtml(m.improve||'舊紀錄沒有保存這項回饋')}</p></article></div>`;
   if(m._rawResponse) $('#historyCoachReport').insertAdjacentHTML('beforeend',`<details class="raw-agent-response"><summary>查看 Agent 的完整原始回覆</summary><pre>${escapeHtml(m._rawResponse)}</pre></details>`);
   $('#historyDialog').showModal();
@@ -442,6 +412,7 @@ function resetRecorderForQuestion() {
   if (state.recognition) { try { state.recognition.abort(); } catch {} }
   state.discardAudio=true;if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){try{state.mediaRecorder.stop();}catch{}}stopMediaStream();state.audioChunks=[];resetSpeechTiming();
   state.isRecording=false; state.isPaused=false; clearInterval(state.timerId); state.timerId=null; state.seconds=0; state.recognition=null;
+  hideSpeechCheckup(true);
   $('#timer').textContent='00:00'; if($('#transcript')) $('#transcript').value=''; updateRecorderControls();
   $('#recordStatus').textContent=ui('點一下「繼續錄製」開始','Tap “Continue recording” to start');
 }
@@ -523,6 +494,7 @@ async function transcribeAudioBlobV2(blob,project,timing={}){
 }
 async function startRecording() {
   if (state.isRecording||state.isTranscribing) return;
+  hideSpeechCheckup(true);
   const mode=activeTranscriptionMode();
   if(mode==='api'){const started=await startApiRecording();if(!started)return;}else{state.browserFinalText=$('#transcript').value;state.recognition = setupRecognition();if (!state.recognition) { toast(ui('這個瀏覽器不支援即時辨識，請改用 API 高品質轉錄','Live recognition is unavailable. Try API transcription.')); return; }try{state.recognition.start();}catch{return pauseRecording();}}
   const scrollPosition=window.scrollY; state.isRecording = true; state.isPaused = false; updateRecorderControls(); $('#recordStatus').textContent = mode==='api'?ui('正在錄製音訊，暫停後會自動轉錄','Recording audio. It will transcribe when paused.'):ui('正在聽你說話⋯','Listening…');
@@ -541,6 +513,7 @@ function resetRecording() {
   if (state.recognition) { try { state.recognition.abort(); } catch {} }
   state.discardAudio=true;if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){try{state.mediaRecorder.stop();}catch{}}stopMediaStream();state.audioChunks=[];resetSpeechTiming();
   state.isRecording = false; state.isPaused = false; state.browserFinalText=''; clearInterval(state.timerId); state.timerId = null; state.seconds = 0;
+  hideSpeechCheckup(true);
   $('#timer').textContent = '00:00'; $('#transcript').value = ''; updateCharCount(); updateRecorderControls();
   $('#recordStatus').textContent = ui('內容已清除，點「繼續錄製」重新開始','Cleared. Tap “Continue recording” to start again.'); toast(ui('錄音與逐字稿已清除','Recording and transcript cleared'));
 }
@@ -554,26 +527,40 @@ function updateRecorderControls() {
 }
 function updateCharCount() { const n=$('#transcript').value.trim().length; $('#charCount').textContent = state.language==='en-US'?`${n} characters`:`${n} 字`; }
 
+function hideSpeechCheckup(clear=false){
+  $('#speechCheckupPanel')?.classList.add('hidden');
+  if(clear)$('#speechCheckupReport')?.replaceChildren();
+}
+
+function runSpeechCheckup(){
+  if(state.isTranscribing){toast(ui('請等待 API 完成轉錄','Please wait for API transcription to finish'));return;}
+  if(state.isRecording){const apiMode=activeTranscriptionMode()==='api';pauseRecording();if(apiMode){toast(ui('正在轉錄，完成後再按一次「演講健檢」','Transcribing now. Tap “Speech checkup” again when it finishes.'));return;}setTimeout(runSpeechCheckup,180);return;}
+  const transcript=$('#transcript').value.trim();
+  if(!transcript){toast(ui('請先錄音或輸入逐字稿','Record or enter a transcript first'));$('#transcript').focus();return;}
+  if(!window.SpeechEvaluation||!window.SpeechCheckupUI){toast(ui('演講健檢暫時無法載入','Speech checkup could not be loaded'));return;}
+  const durationSeconds=Math.max(0,Number(state.recordingElapsedSeconds)||Number(state.seconds)||0);
+  const evaluation=window.SpeechEvaluation.build(transcript,{language:state.language,durationSeconds,timeline:state.transcriptTimeline,voiceIntervals:state.voiceIntervals});
+  window.SpeechCheckupUI.render({evaluation,transcript,transcriptElement:$('#transcript'),container:$('#speechCheckupReport'),language:state.language,sourceId:'current'});
+  $('#speechCheckupPanel').classList.remove('hidden');
+  $('#speechCheckupPanel').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
 async function analyzeAnswer() {
   const text = $('#transcript').value.trim();
   if(state.isTranscribing){toast(ui('請等待 API 完成轉錄','Please wait for API transcription to finish'));return;}
   if(state.isRecording&&activeTranscriptionMode()==='api'){pauseRecording();toast(ui('正在轉錄，完成後請再按一次分析','Transcribing now. Tap Analyze again when it finishes.'));return;}
   if (text.length < 15) { toast('回答再多一點，至少 15 個字才能分析'); return; }
-  $('#transcript').value=text;updateCharCount();
   if (state.isRecording) stopRecording();
   $('#analyzeButton').textContent = ui('分析中⋯','Analyzing…'); $('#analyzeButton').disabled = true;
   let result; try { result = await aiProvider.analyze(text); } catch(e) { toast(`${ui('Agent 分析失敗','Agent analysis failed')}: ${e.message}`); $('#analyzeButton').textContent=analysisButtonLabel(); $('#analyzeButton').disabled=false; return; }
   $('#analyzeButton').textContent = analysisButtonLabel(); $('#analyzeButton').disabled = false;
-  const durationSeconds=Math.max(0,Number(state.recordingElapsedSeconds)||Number(state.seconds)||0);
-  result.speechEvaluation=window.SpeechEvaluation?.build(text,{language:state.language,durationSeconds,timeline:state.transcriptTimeline,voiceIntervals:state.voiceIntervals,aiStructure:result.speechStructure,aiNextFocus:result.nextFocus})||null;
   $('#overallScore').textContent = result.overall;
   ['structure','detail','fluency'].forEach(key => { $(`#${key}Score`).textContent = result[key]; $(`#${key}Bar`).style.width = `${result[key]}%`; });
   $('#strengthText').textContent = result.strength; $('#improveText').textContent = result.improve;
   const historyId=makeId('practice');state.currentHistoryId=historyId;result._historyId=historyId;
-  saved.history.unshift({ id:historyId, date:localDateKey(), completedAt:new Date().toISOString(), mode:state.practiceMode, language:state.language, topic:state.topic, question:state.questions[state.index], answer:text, durationSeconds, score:result.overall, metrics:result });
+  saved.history.unshift({ id:historyId, date:localDateKey(), completedAt:new Date().toISOString(), mode:state.practiceMode, language:state.language, topic:state.topic, question:state.questions[state.index], answer:text, score:result.overall, metrics:result });
   persist();
   renderCoachReport(result);
-  renderSpeechEvaluation(result.speechEvaluation,text,$('#speechEvaluation'),'current');
   $('#rawAgentResponse').textContent=result._rawResponse||ui('目前使用內建教練，沒有外部 API 原始回覆。','The built-in coach is active, so there is no external API response.');
   $('#feedbackPanel').classList.remove('hidden'); $('#feedbackPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   renderHistory(); updateStats(); renderCalendar(); updateReviewBadge();
@@ -694,7 +681,7 @@ function init() {
   $('#randomTopicButton').onclick = () => { const topics = CONFIG.languages[state.language].topics; $('#topicInput').value = topics[Math.floor(Math.random() * topics.length)]; };
   $('#languageSelect').onchange = e => changePracticeLanguage(e.target.value,{announce:true});
   $('#resumeRecordButton').onclick = resumeRecording; $('#pauseRecordButton').onclick = pauseRecording; $('#restartRecordButton').onclick = resetRecording;
-  $('#transcript').oninput = updateCharCount; $('#analyzeButton').onclick = analyzeAnswer; updateRecorderControls();
+  $('#transcript').oninput = () => { updateCharCount(); hideSpeechCheckup(true); }; $('#speechCheckupButton').onclick=runSpeechCheckup; $('#closeSpeechCheckupButton').onclick=()=>hideSpeechCheckup(); $('#analyzeButton').onclick = analyzeAnswer; updateRecorderControls();
   $('#retryButton').onclick = () => { $('#feedbackPanel').classList.add('hidden'); resetRecorderForQuestion(); updateCharCount(); $('#practicePanel').scrollIntoView({behavior:'smooth'}); };
   $('#nextButton').onclick = nextQuestion;
   $('#regenerateButton').onclick = async e => { e.preventDefault(); const button=$('#regenerateButton'); const card=$('.question-card'); if(button.disabled)return; button.disabled=true;card.classList.add('is-loading');pauseRecording();try{const newQuestion=(await aiProvider.generateQuestions(state.topic,state.language,1))[0];state.questions[state.index]=newQuestion;showQuestion();$('#feedbackPanel').classList.add('hidden');requestAnimationFrame(()=>$('#practicePanel').scrollIntoView({behavior:'smooth',block:'start'}));toast('已換一個新題目，錄音已重置');}catch(err){toast(`換題失敗：${err.message}`);}finally{button.disabled=false;card.classList.remove('is-loading');} };

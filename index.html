@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="speech-checkup.css" />
 </head>
 <body>
   <div class="shell">
@@ -123,8 +124,17 @@
         <div class="transcript-wrap">
           <label for="transcript">你的回答 <span>可直接修改逐字稿</span></label>
           <textarea id="transcript" rows="7" placeholder="錄音後逐字稿會出現在這裡，也可以直接輸入你的回答⋯"></textarea>
-          <div class="textarea-footer"><span id="charCount">0 字</span><button class="secondary" id="analyzeButton">分析我的回答 ✦</button></div>
+          <div class="textarea-footer"><span id="charCount">0 字</span><div class="transcript-analysis-actions"><button class="secondary speech-checkup-trigger" id="speechCheckupButton" type="button">演講健檢 ◷</button><button class="secondary" id="analyzeButton">分析我的回答 ✦</button></div></div>
         </div>
+      </section>
+
+      <section class="speech-checkup-panel hidden" id="speechCheckupPanel">
+        <div class="section-heading">
+          <div><span class="step">◷</span><h2>演講健檢</h2></div>
+          <button class="text-button" id="closeSpeechCheckupButton" type="button">收起健檢</button>
+        </div>
+        <p class="speech-checkup-panel__intro">這份報告只依錄音時間與逐字稿計算，不會更動或取代 AI 教練分析。</p>
+        <div id="speechCheckupReport"></div>
       </section>
 
       <section class="feedback-panel hidden" id="feedbackPanel">
@@ -142,7 +152,6 @@
           <article><span class="feedback-icon good">✓</span><div><h4>做得好的地方</h4><p id="strengthText"></p></div></article>
           <article><span class="feedback-icon improve">↗</span><div><h4>下一次可以試試</h4><p id="improveText"></p></div></article>
         </div>
-        <div id="speechEvaluation" class="speech-evaluation"></div>
         <div class="coach-report" id="coachReport"></div>
         <details class="raw-agent-response" id="rawAgentSection">
           <summary>查看 Agent 的完整原始回覆</summary>
@@ -285,6 +294,7 @@
   <script src="supabase-config.js" defer></script>
   <script src="cloud.js" defer></script>
   <script src="evaluation.js" defer></script>
+  <script src="speech-checkup-ui.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

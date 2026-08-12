@@ -5,7 +5,6 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function createSpeechEvaluation() {
   "use strict";
 
-  const STATUS_VALUES = new Set(["strong", "developing", "missing"]);
   const FILLER_PATTERN = /嗯+|呃+|然後|就是|其實|那個|\bum+\b|\buh+\b|\byou know\b|\bi mean\b/giu;
 
   function clamp(value, min, max) {
@@ -276,33 +275,7 @@
     );
   }
 
-  function normalizeStatus(status) {
-    const value = String(status || "").toLocaleLowerCase();
-    if (STATUS_VALUES.has(value)) return value;
-    if (/完整|清楚|有力|strong|good|clear/.test(value)) return "strong";
-    if (/缺少|沒有|missing|absent|weak/.test(value)) return "missing";
-    return "developing";
-  }
-
-  function normalizeAiStructure(aiStructure) {
-    if (!aiStructure || typeof aiStructure !== "object") return null;
-    const keys = ["opening", "body", "closing"];
-    const result = {};
-    for (const key of keys) {
-      const item = aiStructure[key];
-      if (!item) return null;
-      result[key] = {
-        status: normalizeStatus(typeof item === "string" ? item : item.status),
-        reason: String(typeof item === "string" ? item : item.reason || item.detail || "").trim(),
-      };
-    }
-    return result;
-  }
-
-  function inferStructure(text, language = "zh-TW", aiStructure) {
-    const normalizedAi = normalizeAiStructure(aiStructure);
-    if (normalizedAi && Object.values(normalizedAi).every((item) => item.reason)) return normalizedAi;
-
+  function inferStructure(text, language = "zh-TW") {
     const sentences = splitSentences(text);
     const openingText = sentences[0] || String(text || "").slice(0, 80);
     const closingText = sentences.at(-1) || openingText;
@@ -378,17 +351,7 @@
     return { opening, body, closing };
   }
 
-  function normalizeAiFocus(aiFocus, isEnglish) {
-    if (!aiFocus) return null;
-    if (typeof aiFocus === "string") {
-      return { title: isEnglish ? "One focus for next time" : "下一次只練這一件事", action: aiFocus };
-    }
-    const title = String(aiFocus.title || aiFocus.focus || "").trim();
-    const action = String(aiFocus.action || aiFocus.detail || aiFocus.suggestion || "").trim();
-    return action ? { title: title || (isEnglish ? "One focus for next time" : "下一次只練這一件事"), action } : null;
-  }
-
-  function chooseNextFocus(evaluation, aiFocus) {
+  function chooseNextFocus(evaluation) {
     const isEnglish = evaluation.language === "en-US";
     const fillerRate = evaluation.durationSeconds > 0
       ? evaluation.fillers.total / (evaluation.durationSeconds / 60)
@@ -444,8 +407,6 @@
           : "錄音前先寫下下一段的第一個關鍵字；停頓時先呼吸、說出關鍵字，再繼續。",
       };
     }
-    const normalizedAi = normalizeAiFocus(aiFocus, isEnglish);
-    if (normalizedAi) return normalizedAi;
     return {
       title: isEnglish ? "Add one concrete scene" : "只補一個具體場景",
       action: isEnglish
@@ -473,7 +434,7 @@
       fillers,
       longPauses: findLongPauses(timeline, options.voiceIntervals, durationSeconds, options.longPauseSeconds || 2),
       fastSegments: findFastSegments(timeline, language, fastThresholdWpm),
-      structure: inferStructure(transcript, language, options.aiStructure),
+      structure: inferStructure(transcript, language),
       timingStatus: timeline.some((item) => !item.approximate)
         ? "timestamped"
         : durationSeconds > 0
@@ -481,7 +442,7 @@
           : "none",
       transcriptLength: transcript.length,
     };
-    evaluation.nextFocus = chooseNextFocus(evaluation, options.aiNextFocus);
+    evaluation.nextFocus = chooseNextFocus(evaluation);
     return evaluation;
   }
 
