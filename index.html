@@ -25,6 +25,7 @@
             <button type="button" role="menuitem" id="openAiSettingsButton"><span class="settings-menu-icon">✦</span><span><strong>AI 練習設定</strong><small id="activeProjectLabel">內建教練</small></span><i>›</i></button>
             <button class="settings-storage-item" id="accountButton" type="button" role="menuitem" data-mode="local"><span class="settings-menu-icon">⌂</span><span><strong id="accountModeLabel">資料儲存方式</strong><small id="accountLabel">目前為本機模式</small></span><i>›</i></button>
             <button type="button" role="menuitem" id="backupButton"><span class="settings-menu-icon">⇅</span><span><strong>資料匯入與匯出</strong><small>備份、還原或移轉所有資料</small></span><i>›</i></button>
+            <button type="button" role="menuitem" id="scoreTrendsButton"><span class="settings-menu-icon">↗</span><span><strong>成績趨勢</strong><small>回顧每次練習的成長軌跡</small></span><i>›</i></button>
             <button type="button" role="menuitem" id="apiUsageButton"><span class="settings-menu-icon">＄</span><span><strong>API 費用</strong><small>查看使用紀錄與估算費用</small></span><b id="headerApiCost">US$0.0000</b></button>
           </div>
         </div>
@@ -188,6 +189,14 @@
         <div class="library-bulkbar" id="libraryBulkbar"><label><input id="librarySelectPage" type="checkbox"> 選取本頁</label><span id="librarySelectedCount">已選 0 張</span><button class="library-live-action" id="bulkActivateButton" type="button">啟用</button><button class="library-live-action" id="bulkArchiveButton" type="button">封存</button><input class="library-live-action" id="bulkDueDateInput" type="date" aria-label="批次設定下次複習日期"><button class="library-live-action" id="bulkDueButton" type="button">調整日期</button><button class="danger-text library-live-action" id="bulkTrashButton" type="button">移到垃圾桶</button><button class="library-trash-action hidden" id="bulkRestoreButton" type="button">復原</button><button class="danger-text library-trash-action hidden" id="bulkDeleteButton" type="button">永久刪除</button><button class="danger-text hidden" id="emptyTrashButton" type="button">清空垃圾桶</button></div>
         <div id="reviewLibrary"></div><nav class="library-pagination" id="libraryPagination" aria-label="複習資料庫分頁"></nav>
       </section>
+    </main>
+
+    <main id="trendsView" class="app-view hidden">
+      <section class="page-hero compact-hero"><button class="back-button" data-nav="home">← <span>返回首頁</span></button><p class="eyebrow">SCORE JOURNEY</p><h1>看見你的成長軌跡</h1><p>每一次練習都算數。回顧分數變化，找到穩定進步的方向。</p></section>
+      <section class="trend-toolbar" aria-label="成績趨勢篩選"><div class="language-tabs" id="trendLanguageFilter"><button class="active" data-language="all">全部</button><button data-language="zh-TW">中文</button><button data-language="en-US">English</button></div><label><span>顯示期間</span><select id="trendPeriod"><option value="10">最近 10 次</option><option value="30">最近 30 次</option><option value="all">全部紀錄</option></select></label></section>
+      <section class="trend-summary" id="trendSummary"></section>
+      <section class="trend-chart-card"><div class="trend-chart-head"><div><p class="eyebrow">OVERALL SCORE</p><h2>整體表現趨勢</h2></div><div class="trend-legend"><span><i class="legend-overall"></i>整體分數</span><span><i class="legend-average"></i>平均分數</span></div></div><div id="scoreTrendChart" class="trend-chart" role="img" aria-label="練習整體分數趨勢圖"></div></section>
+      <section class="trend-chart-card metric-trend-card"><div class="trend-chart-head"><div><p class="eyebrow">SKILL BREAKDOWN</p><h2>能力分項變化</h2></div><div class="trend-legend"><span><i class="legend-structure"></i>結構清晰</span><span><i class="legend-detail"></i>內容具體</span><span><i class="legend-fluency"></i>表達流暢</span></div></div><div id="metricTrendChart" class="trend-chart" role="img" aria-label="練習能力分項趨勢圖"></div></section>
     </main>
 
     <footer><span>每天開口一點點，就會更靠近理想中的表達。</span><span id="storageModeFooter">資料只保存在你的瀏覽器</span></footer>
