@@ -1,0 +1,1 @@
+{"scripts":{"test":"node --test speech-analysis.test.js","lint":"node --check app.js && node --check speech-analysis.js && node --check cloud.js","typecheck":"node --check app.js && node --check speech-analysis.js"}}
