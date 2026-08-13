@@ -15,13 +15,29 @@
 
 ## 本機執行
 
-這是純前端網站，可直接開啟 `index.html`，或在專案目錄執行：
+這是純前端網站。由於語系 JSON 透過 `fetch` 載入，請在專案目錄啟動本機伺服器（不要用 `file://` 直接開啟）：
 
 ```powershell
 python -m http.server 8000
 ```
 
 然後開啟 <http://localhost:8000>。
+
+## 新增或修改語言
+
+所有可翻譯的靜態介面文字、placeholder、內建主題與題目模板都集中在 `locales/`。`zh-TW.json` 是預設及 fallback 語系；每個語系檔案使用相同的 message key，因此新增語言時不需要修改畫面中的判斷邏輯。
+
+1. 複製 `locales/zh-TW.json`，以 BCP 47 language tag 命名（例如 `fr-FR.json`）。
+2. 保留所有 JSON key 與題目模板中的 `{topic}`，只翻譯 value。
+3. 在 `i18n.js` 的 `supportedLocales` 與 `index.html` 的語言選單加入新語系。
+4. 在 `app.js` 的 `CONFIG.languages` 加入語系；topics 會直接由 JSON catalog 取得。
+5. 執行語系完整性檢查：
+
+   ```bash
+   node scripts/check-i18n.mjs
+   ```
+
+尚未翻譯的 message 可以暫時省略，介面會安全地回退至繁體中文；正式發布前建議補齊全部 key。
 
 ## 部署
 
