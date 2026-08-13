@@ -4,9 +4,9 @@ const CONFIG = {
   dailyGoal: 3,
   storageKey: 'tableTopicsPractice.v1',
   languages: {
-    'zh-TW': { locale: 'zh-TW', topics: ['旅行', '勇氣', '選擇', '成長', '友情', '失敗', '創意', '習慣'] },
-    'en-US': { locale: 'en-US', topics: ['travel', 'courage', 'choices', 'growth', 'friendship', 'failure', 'creativity', 'habits'] },
-    'ja-JP': { locale: 'ja-JP', topics: ['旅行', '勇気', '選択', '成長', '友情', '失敗', '創造力', '習慣'] }
+    'zh-TW': { locale: 'zh-TW', get topics() { return I18n.topics('zh-TW'); } },
+    'en-US': { locale: 'en-US', get topics() { return I18n.topics('en-US'); } },
+    'ja-JP': { locale: 'ja-JP', get topics() { return I18n.topics('ja-JP'); } }
   }
 };
 
@@ -16,35 +16,12 @@ const DEFAULT_PROMPT = '你是一位專業、溫暖且具體的即興表達教�
 const DEFAULT_PROMPT_EN = 'You are a professional, warm, and specific impromptu-speaking coach. Create thoughtful but accessible questions. Score structure, specificity, and fluency; identify strengths and give immediately actionable improvements. Always respond in the practice language.';
 let aiSettings = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || 'null') || { activeId:'builtin', projects:[{id:'builtin',name:'內建教練',provider:'builtin',model:'',endpoint:'',apiKey:'',prompt:DEFAULT_PROMPT}] };
 
-const EN_TRANSLATIONS = {
-  '表達練習室':'Table Topics Studio','內建教練':'Built-in Coach','天':'days','中文（繁體）':'Chinese (Traditional)','今天想聊什麼？':'What would you like to discuss?','↻ 給我靈感':'↻ Inspire me','產生題目':'Generate questions','開始即興回答':'Start your impromptu answer','主題':'Topic','建議回答 1–2 分鐘。先說結論，再用一個故事或例子支持它。':'Aim for 1–2 minutes. Lead with your point, then support it with a story or example.','點一下開始錄音':'Tap Continue to start recording','重新錄製':'Start over','繼續錄製':'Continue recording','暫停錄製':'Pause recording','你的回答':'Your answer','可直接修改逐字稿':'You can edit the transcript','分析我的回答 ✦':'Analyze my answer ✦','這次說得怎麼樣？':'How did you do?','✦ AI 教練回饋':'✦ AI coach feedback','整體表現':'Overall','結構清晰':'Clear structure','內容具體':'Specific content','表達流暢':'Fluency','做得好的地方':'What worked well','下一次可以試試':'Try this next time','再答一次':'Try again','下一題':'Next question','最近的練習':'Recent practice','清除紀錄':'Clear history','每天開口一點點，就會更靠近理想中的表達。':'Speak a little every day and become the communicator you want to be.','資料只保存在你的瀏覽器':'Data stays in your browser','查看 Agent 的完整原始回覆':'View the complete raw Agent response','以下是 API Agent 回傳、尚未經介面整理的內容':'This is the complete API response before UI formatting.','複製':'Copy','AI 專案設定':'AI project settings','每個專案可以使用不同的 Agent、模型與預設 Prompt。啟用後，產生題目和分析回答都會使用這個設定。':'Each project can use its own Agent, model, and prompt. The active project is used for questions and feedback.','＋ 新專案':'＋ New project','刪除':'Delete','專案名稱':'Project name','AI 服務商':'AI provider','內建教練（免 API）':'Built-in coach (no API)','模型':'Model','專案 Prompt':'Project prompt','測試連線':'Test connection','儲存並啟用':'Save and activate','顯示':'Show','關閉':'Close','練習報告':'Practice report','教練總評':'Coach overview','逐點改進':'Step-by-step improvements','原句與優化句對照':'Before and after','改進後的完整 1–2 分鐘稿':'Improved 1–2 minute speech','分項評分':'Score breakdown','評分項目':'Category','原稿':'Original','改進後':'Improved','改進稿':'Improved','原句':'Before','改後':'After'
-};
-const PLACEHOLDER_EN = {'例如：旅行、勇氣、最近學到的事⋯':'For example: travel, courage, something I learned…','錄音後逐字稿會出現在這裡，也可以直接輸入你的回答⋯':'Your transcript will appear here, or you can type your answer.','例如：中文表達教練':'For example: English speaking coach','只儲存在這台裝置':'Stored only on this device','說明這個 Agent 的角色、評分標準、語氣與偏好⋯':'Describe the Agent role, scoring criteria, tone, and preferences…'};
-Object.assign(PLACEHOLDER_EN,{'搜尋主題、句子、文法或標籤':'Search topics, sentences, grammar, or tags','以逗號分隔，例如：旅行、時態':'Comma-separated, e.g. travel, verb tense'});
-Object.assign(PLACEHOLDER_EN,{'搜尋講稿':'Search manuscripts','自然、正式、有感染力…':'Natural, formal, engaging…','以逗號分隔':'Comma-separated'});
-Object.assign(PLACEHOLDER_EN,{'直接錄音或在這裡輸入講稿內容⋯':'Record or type your manuscript here…'});
-Object.assign(EN_TRANSLATIONS,{
-  '每天一個話題，':'One topic a day,','說得更像自己。':'sound more like yourself.','不用準備，不求完美。選一個今天想聊的主題，讓 AI 陪你把想法說清楚。':'No preparation. No perfection required. Pick a topic and let AI help you express your ideas clearly.','今日練習':'Today’s practice','完成第一題後，你的練習足跡會出現在這裡。':'Your practice history will appear here after your first answer.','內容已清除，點「繼續錄製」重新開始':'Cleared. Tap “Continue recording” to start again.','已暫停，可繼續錄製或重新開始':'Paused. Continue recording or start over.','正在聽你說話⋯':'Listening…','原稿說明':'Original note','改後說明':'Improved note','API Key 只會保存在目前瀏覽器的 localStorage，但瀏覽器儲存仍有風險。共用裝置請勿保存正式金鑰；部分服務商可能不允許瀏覽器直接呼叫。':'Your API key is stored only in this browser’s localStorage. Browser storage still carries risk—do not save production keys on shared devices. Some providers may block direct browser requests.','複習':'Review','返回練習':'Back to practice','你的練習日曆':'Your practice calendar','每一次完成 AI 分析，都會成為一筆有效練習。':'Every completed AI analysis counts as one practice.','全部':'All','中文':'Chinese','一':'Mon','二':'Tue','三':'Wed','四':'Thu','五':'Fri','六':'Sat','日':'Sun','今日複習':'Today’s review','先回想更好的說法，再揭曉並評估自己的熟練程度。':'Recall a better expression first, then reveal and rate your mastery.','複習資料庫':'Review library','練習':'Practice','日曆':'Calendar'
-});
-Object.assign(EN_TRANSLATIONS,{'轉錄方式':'Transcription method','瀏覽器即時辨識':'Browser live recognition','API 高品質轉錄':'High-quality API transcription','瀏覽器即時辨識（免費）':'Browser live recognition (free)','API 高品質轉錄（自動標點）':'API transcription (automatic punctuation)','語音轉文字':'Speech to text','API 模式會在按下暫停時上傳本段音訊並自動補上標點。API Key 沿用此 AI 專案的設定。':'API mode uploads each segment when you pause and adds punctuation automatically. It uses this AI project’s API key.'});
-Object.assign(EN_TRANSLATIONS,{'轉錄後再使用 Agent 智慧校正、補標點與分段':'Use the Agent after transcription to correct text, add punctuation, and create paragraphs','目前使用瀏覽器即時辨識，不會呼叫 Audio API。':'Browser live recognition is active. The Audio API will not be called.'});
-Object.assign(EN_TRANSLATIONS,{'資料備份':'Data backup','匯出或匯入完整資料':'Export or import all data','匯出與匯入':'Export and import','將練習紀錄、AI 回饋、日曆、複習卡、專案 Prompt 與語音設定備份成一個 JSON 檔案。':'Back up practice history, AI feedback, calendar data, review cards, project prompts, and speech settings in one JSON file.','在備份中包含 API Key':'Include API keys in the backup','只建議用於自己的私人裝置；備份檔將包含可讀取的金鑰。':'Recommended only for your private devices. The backup file will contain readable keys.','匯出所有資料':'Export all data','儲存到本機':'Save locally','儲存到 Google Drive':'Save to Google Drive','手機會開啟分享選單，請選擇 Google Drive；若裝置不支援，會先下載備份檔再開啟 Drive。':'On mobile, choose Google Drive in the share sheet. If sharing is unavailable, the backup will download and Drive will open.','匯入備份':'Import backup','匯入會以備份內容取代目前資料。系統會先檢查檔案格式並要求確認。':'Importing replaces the current data. The file is validated and you will be asked to confirm first.','選擇備份檔':'Choose backup file'});
-Object.assign(EN_TRANSLATIONS,{'搜尋':'Search','狀態':'Status','日期類型':'Date type','開始日期':'Start date','結束日期':'End date','排序':'Sort','啟用中':'Active','已封存':'Archived','垃圾桶':'Trash','全部狀態':'All statuses','加入日期':'Date added','下次複習日期':'Next review date','最後複習日期':'Last reviewed date','下次複習：由近到遠':'Next review: earliest first','下次複習：由遠到近':'Next review: latest first','最新加入':'Newest added','最早加入':'Oldest added','最近複習':'Recently reviewed','熟練度最高':'Highest mastery','清除篩選':'Clear filters','選取本頁':'Select this page','啟用':'Activate','封存':'Archive','調整日期':'Change date','移到垃圾桶':'Move to trash','清空垃圾桶':'Empty trash','編輯複習卡':'Edit review card','標題':'Title','語言':'Language','標籤':'Tags','改善句':'Improved sentence','文法錯誤說明':'Grammar issue','文法原因':'Grammar explanation','文法規則':'Grammar rule','新例句':'New example','取消':'Cancel','儲存修改':'Save changes'});
-Object.assign(EN_TRANSLATIONS,{'復原':'Restore','永久刪除':'Delete permanently'});
-Object.assign(EN_TRANSLATIONS,{'問題練習':'Question practice','自由講稿':'Free manuscript','開始自由講稿':'Start your manuscript','講稿內容':'Manuscript','可直接錄音或輸入文字':'Record or type directly','分析我的講稿 ✦':'Analyze my manuscript ✦','重新開始':'Start over'});
-Object.assign(EN_TRANSLATIONS,{'講稿':'Manuscript','講稿模式':'Manuscript mode','建立講稿、逐段改善表達，並把值得學習的句子加入複習。':'Create manuscripts, improve each paragraph, and add useful sentences to review.','我的講稿':'My manuscripts','＋ 新講稿':'＋ New manuscript','使用中':'Active','選擇或建立一篇講稿':'Select or create a manuscript','你可以逐段撰寫、錄音轉文字，再請 AI 提供多個改善版本。':'Write paragraph by paragraph, dictate with speech-to-text, and get multiple AI versions.','已自動儲存':'Autosaved','講稿設定':'Manuscript settings','主要語言':'Primary language','發表目的':'Purpose','目標聽眾':'Audience','語氣':'Tone','預計長度（分鐘）':'Target length (minutes)','AI 版本數':'AI versions','全文 AI 檢查':'Full AI review','＋ 新增段落':'＋ Add paragraph','開啟講稿':'Open manuscript'});
-Object.assign(EN_TRANSLATIONS,{'今天想練什麼？':'What would you like to practice?','選一種最適合現在的練習，踏出今天的一小步。':'Choose the practice that fits this moment and take one small step today.','即興回答':'Impromptu answers','每天三題，把腦中的想法說得更清楚。':'Three questions a day to express your ideas more clearly.','英文口說':'English speaking','用日常題目，練習更自然地用英文表達。':'Practice expressing yourself naturally in English with everyday prompts.','演講練習':'Speech practice','整理講稿、反覆演練，讓上台更有把握。':'Shape and rehearse your speech so you can present with confidence.','趁記憶正好，把值得保留的說法練熟。':'Strengthen useful expressions while they are fresh.','題到期':'due','返回首頁':'Back home','首頁':'Home'});
-Object.assign(EN_TRANSLATIONS,{'即興問答':'Impromptu Q&A','設定':'Settings','資料與費用':'Data and costs','管理儲存方式、完整備份與 API 使用費用。':'Manage storage, full backups, and API usage costs.','儲存方式':'Storage','目前為本機模式':'Currently local','API 費用':'API costs','AI 練習設定':'AI practice settings','選擇產生題目與分析回饋時使用的教練。':'Choose the coach used to generate questions and analyze feedback.'});
-Object.assign(EN_TRANSLATIONS,{'設定選單':'Settings menu','資料儲存方式':'Data storage','資料匯入與匯出':'Import and export data','備份、還原或移轉所有資料':'Back up, restore, or move all data','查看使用紀錄與估算費用':'View usage history and estimated costs'});
 function applyUiLanguage() {
-  const english=state.language==='en-US'; const reverse=Object.fromEntries(Object.entries(EN_TRANSLATIONS).map(([a,b])=>[b,a])); const dict=english?EN_TRANSLATIONS:reverse;
-  const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT); let node;
-  while(node=walker.nextNode()){if(['SCRIPT','STYLE'].includes(node.parentElement?.tagName))continue;const raw=node.nodeValue;const trimmed=raw.trim();if(dict[trimmed])node.nodeValue=raw.replace(trimmed,dict[trimmed]);}
-  document.querySelectorAll('[placeholder]').forEach(el=>{const src=el.getAttribute('placeholder');if(english&&PLACEHOLDER_EN[src])el.setAttribute('placeholder',PLACEHOLDER_EN[src]);else if(!english){const rev=Object.fromEntries(Object.entries(PLACEHOLDER_EN).map(([a,b])=>[b,a]));if(rev[src])el.setAttribute('placeholder',rev[src]);}});
-  document.documentElement.lang=english?'en':'zh-Hant';
+  I18n.setLocale(state.language);
+  I18n.apply();
 }
-function ui(zh,en){return state.language==='en-US'?en:zh;}
-function responseLanguageRule(){return state.language==='en-US'?'IMPORTANT: Write every question, comment, label, and feedback field in English only. Do not use Chinese.':'所有題目、評論與回饋欄位都必須使用繁體中文。';}
+function ui(zh, en) { return I18n.fromSource(zh, en); }
+function responseLanguageRule(){return state.language==='en-US'?'IMPORTANT: Write every question, comment, label, and feedback field in English only. Do not use Chinese.':state.language==='ja-JP'?'すべての質問、コメント、フィードバックを日本語だけで書いてください。':'所有題目、評論與回饋欄位都必須使用繁體中文。';}
 function updateTodayLabel(){const locale=state.language==='en-US'?'en-US':'zh-TW';const dateText=new Intl.DateTimeFormat(locale,{month:'long',day:'numeric',weekday:'long'}).format(new Date());$('#todayLabel').textContent=`${dateText} · TODAY'S PRACTICE`;}
 
 function analysisButtonLabel(){return state.practiceMode==='manuscript'?ui('分析我的講稿 ✦','Analyze my manuscript ✦'):ui('分析我的回答 ✦','Analyze my answer ✦');}
@@ -77,29 +54,7 @@ function setPracticeMode(mode){
   applyUiLanguage();
 }
 
-const questionTemplates = {
-  'zh-TW': [
-    t => `如果要用一個親身經歷來說明「${t}」對你的意義，你會分享哪個故事？`,
-    t => `關於「${t}」，你曾經改變過什麼看法？是什麼讓你改變？`,
-    t => `假如你要給十年前的自己一個與「${t}」有關的建議，你會說什麼？`,
-    t => `你認為「${t}」最常被誤解的地方是什麼？`,
-    t => `如果明天只能做一件與「${t}」有關的事，你會選什麼？為什麼？`,
-    t => `有哪一個人影響了你對「${t}」的理解？請說說你們的故事。`
-  ],
-  'en-US': [
-    t => `What personal story best explains what “${t}” means to you?`,
-    t => `How has your view of “${t}” changed, and what changed it?`,
-    t => `What advice about “${t}” would you give your younger self?`,
-    t => `What do people most often misunderstand about “${t}”?`,
-    t => `If you could do one thing related to “${t}” tomorrow, what would it be and why?`
-  ],
-  'ja-JP': [
-    t => `「${t}」があなたにとって何を意味するか、実体験を交えて話してください。`,
-    t => `「${t}」に対する考え方はどう変わりましたか？きっかけは何ですか？`,
-    t => `10年前の自分に「${t}」について助言するなら、何を伝えますか？`,
-    t => `「${t}」について、よく誤解されていることは何だと思いますか？`
-  ]
-};
+const questionTemplates = new Proxy({}, { get: (_, locale) => I18n.questionTemplates(locale) });
 
 let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
 let saved = JSON.parse(localStorage.getItem(CONFIG.storageKey) || '{"history":[]}');
@@ -637,4 +592,7 @@ function init() {
   applyUiLanguage();
 }
 
-init();
+I18n.ready.then(init).catch(error => {
+  console.error(error);
+  document.body.dataset.i18nError = 'true';
+});
