@@ -334,7 +334,12 @@
     "review.good": "Good",
     "review.easy": "Easy",
     "review.reveal": "Reveal improved sentence",
-    "cloud.sessionFailed": "Could not create a sign-in session: {error}"
+    "cloud.sessionFailed": "Could not create a sign-in session: {error}",
+    "version.001": "Version history",
+    "version.002": "See new features and improvements",
+    "version.003": "Speech title",
+    "version.004": "Shown in practice history after saving",
+    "version.005": "Every release records its new features, experience improvements, and fixes here."
   },
   "placeholders": {
     "placeholder.001": "For example: travel, courage, something I learned…",
@@ -347,7 +352,8 @@
     "placeholder.008": "Search manuscripts",
     "placeholder.009": "Natural, formal, engaging…",
     "placeholder.010": "Comma-separated",
-    "placeholder.011": "Record or type your manuscript here…"
+    "placeholder.011": "Record or type your manuscript here…",
+    "placeholder.012": "For example: What I learned from my first public speech"
   },
   "questionTemplates": [
     "What personal story best explains what “{topic}” means to you?",

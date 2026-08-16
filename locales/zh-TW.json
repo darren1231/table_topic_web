@@ -334,7 +334,12 @@
     "review.good": "記得",
     "review.easy": "熟練",
     "review.reveal": "顯示優化句",
-    "cloud.sessionFailed": "無法建立登入狀態：{error}"
+    "cloud.sessionFailed": "無法建立登入狀態：{error}",
+    "version.001": "版本紀錄",
+    "version.002": "查看新增功能與優化內容",
+    "version.003": "演講標題",
+    "version.004": "儲存後會顯示在練習紀錄中",
+    "version.005": "每次更新都會在這裡留下新增功能、體驗優化與修正紀錄。"
   },
   "placeholders": {
     "placeholder.001": "例如：旅行、勇氣、最近學到的事⋯",
@@ -347,7 +352,8 @@
     "placeholder.008": "搜尋講稿",
     "placeholder.009": "自然、正式、有感染力…",
     "placeholder.010": "以逗號分隔",
-    "placeholder.011": "直接錄音或在這裡輸入講稿內容⋯"
+    "placeholder.011": "直接錄音或在這裡輸入講稿內容⋯",
+    "placeholder.012": "例如：我從第一次公開演講學到的事"
   },
   "questionTemplates": [
     "如果要用一個親身經歷來說明「{topic}」對你的意義，你會分享哪個故事？",
