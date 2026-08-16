@@ -340,7 +340,12 @@
     "review.good": "覚えている",
     "review.easy": "簡単",
     "review.reveal": "改善文を表示",
-    "cloud.sessionFailed": "ログイン状態を作成できません：{error}"
+    "cloud.sessionFailed": "ログイン状態を作成できません：{error}",
+    "version.001": "バージョン履歴",
+    "version.002": "新機能と改善内容を見る",
+    "version.003": "スピーチのタイトル",
+    "version.004": "保存後、練習履歴に表示されます",
+    "version.005": "各アップデートの新機能、改善、修正内容をここに記録します。"
   },
   "placeholders": {
     "placeholder.001": "例：旅行、勇気、最近学んだこと…",
@@ -353,6 +358,7 @@
     "placeholder.008": "原稿を検索",
     "placeholder.009": "自然、正式、感情豊か…",
     "placeholder.010": "カンマ区切り",
-    "placeholder.011": "録音するか、ここに原稿を入力…"
+    "placeholder.011": "録音するか、ここに原稿を入力…",
+    "placeholder.012": "例：初めてのスピーチで学んだこと"
   }
 }

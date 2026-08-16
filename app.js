@@ -12,6 +12,10 @@ const CONFIG = {
 
 const AI_CONFIG_KEY = 'tableTopicsAIProjects.v1';
 const UI_LANGUAGE_KEY = 'tableTopicsLanguage.v1';
+const VERSION_HISTORY = [
+  {version:'1.1.0',date:'2026-08-16',changes:['自由講稿可輸入自訂演講標題，並保存到練習紀錄與詳細報告。','設定選單新增版本紀錄，可在網站內查看每次更新。','建立 CHANGELOG.md，往後持續記錄新增功能、優化與修正。','既有自由講稿資料維持相容，不會因升級而遺失。']},
+  {version:'1.0.0',date:'2026-08-15',changes:['即興問答、自由講稿、錄音與語音轉文字。','AI 表達回饋、逐句改善、文法複習與講稿工作區。','練習日曆、成績趨勢、資料備份及跨裝置同步。']}
+];
 const DEFAULT_PROMPT = '你是一位專業、溫暖且具體的即興表達教練。題目要有深度但容易理解；分析時請根據結構、內容具體度、流暢度評分，指出優點並提供可立即實行的改善建議。使用者使用什麼語言，就用相同語言回答。';
 const DEFAULT_PROMPT_EN = 'You are a professional, warm, and specific impromptu-speaking coach. Create thoughtful but accessible questions. Score structure, specificity, and fluency; identify strengths and give immediately actionable improvements. Always respond in the practice language.';
 let aiSettings = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || 'null') || { activeId:'builtin', projects:[{id:'builtin',name:'內建教練',provider:'builtin',model:'',endpoint:'',apiKey:'',prompt:DEFAULT_PROMPT}] };
@@ -29,7 +33,7 @@ function analysisButtonLabel(){return state.practiceMode==='manuscript'?ui('分�
 function setPracticeMode(mode){
   const previousMode=state.practiceMode;
   if(previousMode==='question')state.modeDrafts.question={topic:state.topic,questions:[...state.questions],index:state.index,text:$('#transcript').value};
-  else state.modeDrafts.manuscript.text=$('#transcript').value;
+  else {state.modeDrafts.manuscript.text=$('#transcript').value;state.modeDrafts.manuscript.title=$('#manuscriptTitleInput').value;}
   state.practiceMode=mode==='manuscript'?'manuscript':'question';
   const manuscript=state.practiceMode==='manuscript';
   resetRecorderForQuestion();
@@ -38,6 +42,7 @@ function setPracticeMode(mode){
   $('#manuscriptModeButton').classList.toggle('active',manuscript);
   $('#topicPanel').classList.toggle('hidden',manuscript);
   $('#practicePanel').classList.toggle('manuscript-mode',manuscript);
+  $('#manuscriptTitleField').classList.toggle('hidden',!manuscript);
   const questionDraft=state.modeDrafts.question;
   const hasQuestion=!manuscript&&questionDraft.questions.length>0;
   $('#practicePanel').classList.toggle('hidden',!manuscript&&!hasQuestion);
@@ -49,7 +54,7 @@ function setPracticeMode(mode){
   $('#analyzeButton').textContent=analysisButtonLabel();
   $('#nextButton').classList.toggle('hidden',manuscript);
   $('#retryButton').textContent=manuscript?ui('重新開始','Start over'):ui('再答一次','Try again');
-  if(manuscript){state.topic=ui('自由講稿','Free manuscript');state.questions=[ui('自由講稿內容','Free manuscript')];state.index=0;$('#transcript').value=state.modeDrafts.manuscript.text;requestAnimationFrame(()=>$('#transcript').focus());}
+  if(manuscript){state.topic=ui('自由講稿','Free manuscript');state.questions=[ui('自由講稿內容','Free manuscript')];state.index=0;$('#manuscriptTitleInput').value=state.modeDrafts.manuscript.title||'';$('#transcript').value=state.modeDrafts.manuscript.text;requestAnimationFrame(()=>$('#manuscriptTitleInput').focus());}
   else {state.topic=questionDraft.topic;state.questions=[...questionDraft.questions];state.index=Math.min(questionDraft.index,Math.max(0,state.questions.length-1));$('#topicInput').value=state.topic;$('#transcript').value=questionDraft.text;if(hasQuestion){$('#questionText').textContent=state.questions[state.index];$('#topicBadge').textContent=state.topic;$('#questionIndex').textContent=state.language==='en-US'?`Question ${state.index+1} of ${state.questions.length}`:`第 ${state.index+1} / ${state.questions.length} 題`;}}
   updateCharCount();
   applyUiLanguage();
@@ -57,7 +62,7 @@ function setPracticeMode(mode){
 
 const questionTemplates = new Proxy({}, { get: (_, locale) => I18n.questionTemplates(locale) });
 
-let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
+let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{title:'',text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
 let saved = JSON.parse(localStorage.getItem(CONFIG.storageKey) || '{"history":[]}');
 
 function shuffle(items) { return [...items].sort(() => Math.random() - .5); }
@@ -123,6 +128,10 @@ function renderHistory() {
   list.innerHTML = saved.history.slice(0, 12).map((x, i) => `<article class="history-item" data-history-index="${i}" tabindex="0" role="button"><div class="history-score">${x.score}</div><div><h4>${escapeHtml(x.topic)}</h4><p>${escapeHtml(x.question)}</p></div><time>${x.date}</time></article>`).join('');
   list.querySelectorAll('.history-item').forEach(el => { const open = () => openHistoryDetail(Number(el.dataset.historyIndex)); el.onclick = open; el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') open(); }; });
   applyUiLanguage();
+}
+
+function renderVersionHistory(){
+  $('#versionTimeline').innerHTML=VERSION_HISTORY.map(release=>`<article class="version-release"><header><h3>v${escapeHtml(release.version)}</h3><time datetime="${release.date}">${release.date}</time></header><ul>${release.changes.map(change=>`<li>${escapeHtml(change)}</li>`).join('')}</ul></article>`).join('');
 }
 
 function escapeHtml(value) { const el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
@@ -452,6 +461,8 @@ function updateCharCount() { const n=$('#transcript').value.trim().length; $('#c
 
 async function analyzeAnswer() {
   const text = $('#transcript').value.trim();
+  const manuscriptTitle=$('#manuscriptTitleInput').value.trim();
+  if(state.practiceMode==='manuscript'&&!manuscriptTitle){toast(ui('請先輸入演講標題，方便日後找到這筆紀錄','Enter a speech title so you can find this record later'));$('#manuscriptTitleInput').focus();return;}
   if(state.isTranscribing){toast(ui('請等待 API 完成轉錄','Please wait for API transcription to finish'));return;}
   if(state.isRecording&&activeTranscriptionMode()==='api'){pauseRecording();toast(ui('正在轉錄，完成後請再按一次分析','Transcribing now. Tap Analyze again when it finishes.'));return;}
   if (text.length < 15) { toast('回答再多一點，至少 15 個字才能分析'); return; }
@@ -463,7 +474,8 @@ async function analyzeAnswer() {
   ['structure','detail','fluency'].forEach(key => { $(`#${key}Score`).textContent = result[key]; $(`#${key}Bar`).style.width = `${result[key]}%`; });
   $('#strengthText').textContent = result.strength; $('#improveText').textContent = result.improve;
   const historyId=makeId('practice');state.currentHistoryId=historyId;result._historyId=historyId;
-  saved.history.unshift({ id:historyId, date:localDateKey(), completedAt:new Date().toISOString(), mode:state.practiceMode, language:state.language, topic:state.topic, question:state.questions[state.index], answer:text, score:result.overall, metrics:result });
+  const savedTitle=state.practiceMode==='manuscript'?manuscriptTitle:state.topic;
+  saved.history.unshift({ id:historyId, date:localDateKey(), completedAt:new Date().toISOString(), mode:state.practiceMode, language:state.language, title:state.practiceMode==='manuscript'?manuscriptTitle:'', topic:savedTitle, question:state.practiceMode==='manuscript'?ui('自由講稿','Free manuscript'):state.questions[state.index], answer:text, score:result.overall, metrics:result });
   persist();
   renderCoachReport(result);
   $('#rawAgentResponse').textContent=result._rawResponse||ui('目前使用內建教練，沒有外部 API 原始回覆。','The built-in coach is active, so there is no external API response.');
@@ -569,6 +581,7 @@ function init() {
   $('#languageSelect').value=state.language;
   updateTodayLabel();
   renderSuggestions(); renderHistory(); updateStats(); initSettings(); initBackup();
+  renderVersionHistory();$('#versionHistoryButton').onclick=()=>{closeSettingsMenu();renderVersionHistory();$('#versionHistoryDialog').showModal();};$('#closeVersionHistoryButton').onclick=()=>$('#versionHistoryDialog').close();
   syncTranscriptionQuickPicker();
   $('#transcriptionModeQuick').onchange=e=>{const p=getActiveProject(),d=providerDefaults(p.provider);p.transcriptionMode=e.target.value;p.transcriptionModel||=d.transcriptionModel;p.transcriptionEndpoint||=d.transcriptionEndpoint;persistAISettings();$('#transcriptionModeSelect').value=e.target.value;$('#transcriptionModelInput').value=p.transcriptionModel||'';$('#transcriptionEndpointInput').value=p.transcriptionEndpoint||'';syncTranscriptionQuickPicker();toast(ui(e.target.value==='api'?'已切換為 API 高品質轉錄':'已切換為瀏覽器即時辨識',e.target.value==='api'?'API transcription enabled':'Browser live recognition enabled'));};
   $('#transcriptionModeSelect').onchange=e=>{$('#transcriptionModeQuick').value=e.target.value;};
@@ -588,7 +601,7 @@ function init() {
   $('#randomTopicButton').onclick = () => { const topics = CONFIG.languages[state.language].topics; $('#topicInput').value = topics[Math.floor(Math.random() * topics.length)]; };
   $('#languageSelect').onchange = e => changePracticeLanguage(e.target.value,{announce:true});
   $('#resumeRecordButton').onclick = resumeRecording; $('#pauseRecordButton').onclick = pauseRecording; $('#restartRecordButton').onclick = resetRecording;
-  $('#transcript').oninput = updateCharCount; $('#analyzeButton').onclick = analyzeAnswer; updateRecorderControls();
+  $('#transcript').oninput = updateCharCount;$('#manuscriptTitleInput').oninput=e=>{state.modeDrafts.manuscript.title=e.target.value;}; $('#analyzeButton').onclick = analyzeAnswer; updateRecorderControls();
   $('#retryButton').onclick = () => { $('#feedbackPanel').classList.add('hidden'); $('#transcript').value = ''; updateCharCount(); $('#practicePanel').scrollIntoView({behavior:'smooth'}); };
   $('#nextButton').onclick = nextQuestion;
   $('#regenerateButton').onclick = async e => { e.preventDefault(); const button=$('#regenerateButton'); const card=$('.question-card'); if(button.disabled)return; button.disabled=true;card.classList.add('is-loading');pauseRecording();try{const newQuestion=(await aiProvider.generateQuestions(state.topic,state.language,1))[0];state.questions[state.index]=newQuestion;showQuestion();$('#feedbackPanel').classList.add('hidden');requestAnimationFrame(()=>$('#practicePanel').scrollIntoView({behavior:'smooth',block:'start'}));toast('已換一個新題目，錄音已重置');}catch(err){toast(`換題失敗：${err.message}`);}finally{button.disabled=false;card.classList.remove('is-loading');} };

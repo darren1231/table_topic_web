@@ -27,6 +27,7 @@
             <button type="button" role="menuitem" id="backupButton"><span class="settings-menu-icon">⇅</span><span><strong>資料匯入與匯出</strong><small>備份、還原或移轉所有資料</small></span><i>›</i></button>
             <button type="button" role="menuitem" id="scoreTrendsButton"><span class="settings-menu-icon">↗</span><span><strong>成績趨勢</strong><small>回顧每次練習的成長軌跡</small></span><i>›</i></button>
             <button type="button" role="menuitem" id="apiUsageButton"><span class="settings-menu-icon">＄</span><span><strong>API 費用</strong><small>查看使用紀錄與估算費用</small></span><b id="headerApiCost">US$0.0000</b></button>
+            <button type="button" role="menuitem" id="versionHistoryButton"><span class="settings-menu-icon">◷</span><span><strong>版本紀錄</strong><small>查看新增功能與優化內容</small></span><i>›</i></button>
           </div>
         </div>
         <button class="streak" id="streakButton" type="button" title="查看打卡日曆"><span>🔥</span> <b id="streakCount">0</b> 天</button>
@@ -99,6 +100,11 @@
           <div><span class="step">02</span><h2>開始即興回答</h2></div>
           <span class="question-index" id="questionIndex">第 1 / 3 題</span>
         </div>
+
+        <label class="manuscript-title-field hidden" id="manuscriptTitleField" for="manuscriptTitleInput">
+          <span>演講標題 <small>儲存後會顯示在練習紀錄中</small></span>
+          <input id="manuscriptTitleInput" maxlength="100" placeholder="例如：我從第一次公開演講學到的事" autocomplete="off" />
+        </label>
 
         <article class="question-card">
           <div class="question-top"><span id="topicBadge">主題</span><button class="icon-button" id="regenerateButton" type="button" title="換一題">↻</button></div>
@@ -248,6 +254,13 @@
   </dialog>
   <dialog class="app-dialog history-dialog" id="historyDialog">
     <div class="dialog-card history-detail"><div class="dialog-head"><div><p class="eyebrow">PRACTICE REPORT</p><h2 id="historyDetailTitle">練習報告</h2></div><button class="dialog-close" id="closeHistoryButton" aria-label="關閉">×</button></div><div id="historyDetailContent"></div></div>
+  </dialog>
+  <dialog class="app-dialog version-dialog" id="versionHistoryDialog">
+    <div class="dialog-card version-card">
+      <div class="dialog-head"><div><p class="eyebrow">WHAT'S NEW</p><h2>版本紀錄</h2></div><button class="dialog-close" id="closeVersionHistoryButton" type="button" aria-label="關閉">×</button></div>
+      <p class="dialog-intro">每次更新都會在這裡留下新增功能、體驗優化與修正紀錄。</p>
+      <div class="version-timeline" id="versionTimeline"></div>
+    </div>
   </dialog>
   <dialog class="app-dialog account-dialog" id="accountDialog">
     <div class="dialog-card account-card">
