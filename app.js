@@ -13,6 +13,7 @@ const CONFIG = {
 const AI_CONFIG_KEY = 'tableTopicsAIProjects.v1';
 const UI_LANGUAGE_KEY = 'tableTopicsLanguage.v1';
 const VERSION_HISTORY = [
+  {version:'1.2.0',date:'2026-08-17',changes:['改進後的完整文章可使用瀏覽器內建語音朗讀。','支援播放、暫停、繼續與停止，全程不呼叫 AI 或付費 API。']},
   {version:'1.1.0',date:'2026-08-16',changes:['自由講稿可輸入自訂演講標題，並保存到練習紀錄與詳細報告。','設定選單新增版本紀錄，可在網站內查看每次更新。','建立 CHANGELOG.md，往後持續記錄新增功能、優化與修正。','既有自由講稿資料維持相容，不會因升級而遺失。']},
   {version:'1.0.0',date:'2026-08-15',changes:['即興問答、自由講稿、錄音與語音轉文字。','AI 表達回饋、逐句改善、文法複習與講稿工作區。','練習日曆、成績趨勢、資料備份及跨裝置同步。']}
 ];
@@ -62,7 +63,7 @@ function setPracticeMode(mode){
 
 const questionTemplates = new Proxy({}, { get: (_, locale) => I18n.questionTemplates(locale) });
 
-let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{title:'',text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
+let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{title:'',text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], speechUtterance:null, speechControls:null, currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
 let saved = JSON.parse(localStorage.getItem(CONFIG.storageKey) || '{"history":[]}');
 
 function shuffle(items) { return [...items].sort(() => Math.random() - .5); }
@@ -250,9 +251,37 @@ function renderCoachReport(r) {
   const improvements=r.improvements.map(x=>`<article class="improvement-item"><h4>${escapeHtml(x.title||'改善重點')}</h4><p>${escapeHtml(x.detail||'')}</p></article>`).join('');
   const comparisons=r.comparisons.map((x,i)=>{const cardId=`${r._historyId||'pending'}:${i}`;const added=saved.reviewCards?.some(c=>c.id===cardId&&c.status!=='trashed');const hasGrammar=x.grammarIssue||x.grammarExplanation||x.grammarRule||x.grammarExample;return `<article class="comparison-card ${hasGrammar?(x.isGrammarCorrect?'grammar-correct':'grammar-fix'):''}"><div class="comparison-label"><span>${escapeHtml(x.label||'句子優化')}${hasGrammar?` · ${x.isGrammarCorrect?'✓ Grammar correct':'Grammar note'}`:''}</span><label class="review-toggle"><input type="checkbox" data-review-index="${i}" ${added?'checked':''}> <span>${ui('加入複習','Add to review')}</span></label></div><div class="sentence-before"><span class="sentence-tag">${ui('原句','Before')}</span><span>${escapeHtml(x.before||'')}</span></div><div class="sentence-after"><span class="sentence-tag">${ui('改後','After')}</span><span>${escapeHtml(x.after||'')}</span></div>${hasGrammar?`<dl class="grammar-explanation integrated-grammar">${x.grammarIssue?`<div><dt>Grammar status</dt><dd>${escapeHtml(x.grammarIssue)}</dd></div>`:''}${x.grammarExplanation?`<div><dt>Why</dt><dd>${escapeHtml(x.grammarExplanation)}</dd></div>`:''}${x.grammarRule?`<div><dt>Grammar rule</dt><dd>${escapeHtml(x.grammarRule)}</dd></div>`:''}${x.grammarExample?`<div><dt>Another example</dt><dd>${escapeHtml(x.grammarExample)}</dd></div>`:''}</dl>`:''}</article>`}).join('');
   const scores=r.scoreDetails.map(x=>`<tr><td>${escapeHtml(x.name||'項目')}</td><td class="score-old">${parseScore(x.before,r.overall)}${x.beforeNote?`<span class="score-note" title="${escapeHtml(x.beforeNote)}">原稿說明</span>`:''}</td><td class="score-arrow">→</td><td class="score-new">${parseScore(x.after,r.improvedOverall)}${x.afterNote?`<span class="score-note" title="${escapeHtml(x.afterNote)}">改後說明</span>`:''}</td></tr>`).join('');
-  $('#coachReport').innerHTML=`<section class="coach-section"><h3 class="coach-title"><span>👏</span> 教練總評</h3><p class="coach-summary">${escapeHtml(r.summary||'')}</p></section>${improvements?`<section class="coach-section"><h3 class="coach-title"><span>🛠</span> 逐點改進</h3><div class="improvement-list">${improvements}</div></section>`:''}${comparisons?`<section class="coach-section"><h3 class="coach-title"><span>🔁</span> ${state.language==='en-US'?'Sentence Improvement & Grammar':'原句與優化句對照'}</h3><div class="comparison-list">${comparisons}</div></section>`:''}<section class="coach-section"><h3 class="coach-title"><span>🧩</span> 改進後的完整 1–2 分鐘稿</h3><div class="rewritten-speech">${escapeHtml(r.rewritten||'')}</div></section>${scores?`<section class="coach-section"><h3 class="coach-title"><span>🧮</span> 分項評分</h3><div class="score-comparison"><table class="score-table"><thead><tr><th>評分項目</th><th>原稿</th><th></th><th>改進後</th></tr></thead><tbody>${scores}</tbody></table></div><div class="overall-upgrade"><div><span>原稿</span> <b class="score-old">${r.overall}</b></div><span>→</span><div><span>改進稿</span> <b class="score-new">${r.improvedOverall}</b></div></div></section>`:''}`;
+  $('#coachReport').innerHTML=`<section class="coach-section"><h3 class="coach-title"><span>👏</span> 教練總評</h3><p class="coach-summary">${escapeHtml(r.summary||'')}</p></section>${improvements?`<section class="coach-section"><h3 class="coach-title"><span>🛠</span> 逐點改進</h3><div class="improvement-list">${improvements}</div></section>`:''}${comparisons?`<section class="coach-section"><h3 class="coach-title"><span>🔁</span> ${state.language==='en-US'?'Sentence Improvement & Grammar':'原句與優化句對照'}</h3><div class="comparison-list">${comparisons}</div></section>`:''}<section class="coach-section rewritten-section"><div class="rewritten-heading"><h3 class="coach-title"><span>🧩</span> 改進後的完整 1–2 分鐘稿</h3><div class="speech-actions"><button type="button" data-speech-play>▶ ${ui('聆聽文章','Listen')}</button><button type="button" data-speech-stop disabled>■ ${ui('停止','Stop')}</button></div></div><p class="speech-note">${ui('使用瀏覽器內建語音播放，不會呼叫 AI 或 API。','Uses your browser’s built-in voice; no AI or API call is made.')}</p><div class="rewritten-speech">${escapeHtml(r.rewritten||'')}</div></section>${scores?`<section class="coach-section"><h3 class="coach-title"><span>🧮</span> 分項評分</h3><div class="score-comparison"><table class="score-table"><thead><tr><th>評分項目</th><th>原稿</th><th></th><th>改進後</th></tr></thead><tbody>${scores}</tbody></table></div><div class="overall-upgrade"><div><span>原稿</span> <b class="score-old">${r.overall}</b></div><span>→</span><div><span>改進稿</span> <b class="score-new">${r.improvedOverall}</b></div></div></section>`:''}`;
   bindReviewToggles($('#coachReport'),r);
+  bindSpeechControls($('#coachReport'));
   applyUiLanguage();
+}
+
+function resetSpeechControls(){
+  if(!state.speechControls)return;
+  const play=state.speechControls.querySelector('[data-speech-play]'),stop=state.speechControls.querySelector('[data-speech-stop]');
+  if(play)play.textContent=`▶ ${ui('聆聽文章','Listen')}`;
+  if(stop)stop.disabled=true;
+  state.speechControls=null;state.speechUtterance=null;
+}
+function stopBrowserSpeech(){if('speechSynthesis' in window)window.speechSynthesis.cancel();resetSpeechControls();}
+function bindSpeechControls(container){
+  const controls=container.querySelector('.speech-actions'),play=controls?.querySelector('[data-speech-play]'),stop=controls?.querySelector('[data-speech-stop]');
+  if(!controls||!play||!stop)return;
+  if(!('speechSynthesis' in window)||!('SpeechSynthesisUtterance' in window)){play.disabled=true;play.textContent=ui('瀏覽器不支援播放','Playback unavailable');return;}
+  play.onclick=()=>{
+    if(state.speechControls===controls&&window.speechSynthesis.speaking){
+      if(window.speechSynthesis.paused){window.speechSynthesis.resume();play.textContent=`Ⅱ ${ui('暫停','Pause')}`;}
+      else{window.speechSynthesis.pause();play.textContent=`▶ ${ui('繼續','Resume')}`;}
+      return;
+    }
+    const text=container.querySelector('.rewritten-speech')?.textContent.trim();if(!text)return toast(ui('目前沒有可播放的文章','There is no article to play'));
+    stopBrowserSpeech();const utterance=new SpeechSynthesisUtterance(text);utterance.lang=/[\u3400-\u9fff]/.test(text)?'zh-TW':'en-US';utterance.rate=.95;
+    state.speechUtterance=utterance;state.speechControls=controls;play.textContent=`Ⅱ ${ui('暫停','Pause')}`;stop.disabled=false;
+    utterance.onend=resetSpeechControls;utterance.onerror=event=>{resetSpeechControls();if(event.error!=='canceled'&&event.error!=='interrupted')toast(ui('瀏覽器語音播放失敗','Browser speech playback failed'));};
+    window.speechSynthesis.speak(utterance);
+  };
+  stop.onclick=stopBrowserSpeech;
 }
 
 function bindReviewToggles(container,result){container.querySelectorAll('[data-review-index]').forEach(input=>{input.onchange=()=>toggleReviewCard(result,Number(input.dataset.reviewIndex),input);});container.querySelectorAll('[data-grammar-review-index]').forEach(input=>{input.onchange=()=>toggleGrammarReviewCard(result,Number(input.dataset.grammarReviewIndex),input);});}
