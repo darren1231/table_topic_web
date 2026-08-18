@@ -12,13 +12,18 @@ const CONFIG = {
 
 const AI_CONFIG_KEY = 'tableTopicsAIProjects.v1';
 const UI_LANGUAGE_KEY = 'tableTopicsLanguage.v1';
+const SPEECH_SETTINGS_KEY = 'tableTopicsSpeechSettings.v1';
 const VERSION_HISTORY = [
+  {version:'1.3.0',date:'2026-08-17',changes:['瀏覽器朗讀改為句子、子句與語言片段佇列，加入逗號、句尾和段落的自然停頓。','支援中英混合逐段選用相符語音，並正確辨識繁中、英文與日文。','加入輕微語速韻律、文字正規化與可安全停止的播放佇列。']},
+  {version:'1.2.1',date:'2026-08-17',changes:['文章朗讀新增語音與速度選擇，可改用裝置上較自然的增強語音。','英文文章會優先選擇相符的英文語音，並記住使用者的朗讀偏好。']},
+  {version:'1.2.0',date:'2026-08-17',changes:['改進後的完整文章可使用瀏覽器內建語音朗讀。','支援播放、暫停、繼續與停止，全程不呼叫 AI 或付費 API。']},
   {version:'1.1.0',date:'2026-08-16',changes:['自由講稿可輸入自訂演講標題，並保存到練習紀錄與詳細報告。','設定選單新增版本紀錄，可在網站內查看每次更新。','建立 CHANGELOG.md，往後持續記錄新增功能、優化與修正。','既有自由講稿資料維持相容，不會因升級而遺失。']},
   {version:'1.0.0',date:'2026-08-15',changes:['即興問答、自由講稿、錄音與語音轉文字。','AI 表達回饋、逐句改善、文法複習與講稿工作區。','練習日曆、成績趨勢、資料備份及跨裝置同步。']}
 ];
 const DEFAULT_PROMPT = '你是一位專業、溫暖且具體的即興表達教練。題目要有深度但容易理解；分析時請根據結構、內容具體度、流暢度評分，指出優點並提供可立即實行的改善建議。使用者使用什麼語言，就用相同語言回答。';
 const DEFAULT_PROMPT_EN = 'You are a professional, warm, and specific impromptu-speaking coach. Create thoughtful but accessible questions. Score structure, specificity, and fluency; identify strengths and give immediately actionable improvements. Always respond in the practice language.';
 let aiSettings = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || 'null') || { activeId:'builtin', projects:[{id:'builtin',name:'內建教練',provider:'builtin',model:'',endpoint:'',apiKey:'',prompt:DEFAULT_PROMPT}] };
+let speechSettings = JSON.parse(localStorage.getItem(SPEECH_SETTINGS_KEY) || 'null') || {voiceURI:'',rate:.9};
 
 function applyUiLanguage() {
   I18n.setLocale(state.language);
@@ -62,7 +67,7 @@ function setPracticeMode(mode){
 
 const questionTemplates = new Proxy({}, { get: (_, locale) => I18n.questionTemplates(locale) });
 
-let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{title:'',text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
+let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{title:'',text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], speechUtterance:null, speechControls:null, speechChunks:[], speechQueue:SpeechUtils.createQueueState(), currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
 let saved = JSON.parse(localStorage.getItem(CONFIG.storageKey) || '{"history":[]}');
 
 function shuffle(items) { return [...items].sort(() => Math.random() - .5); }
@@ -250,9 +255,57 @@ function renderCoachReport(r) {
   const improvements=r.improvements.map(x=>`<article class="improvement-item"><h4>${escapeHtml(x.title||'改善重點')}</h4><p>${escapeHtml(x.detail||'')}</p></article>`).join('');
   const comparisons=r.comparisons.map((x,i)=>{const cardId=`${r._historyId||'pending'}:${i}`;const added=saved.reviewCards?.some(c=>c.id===cardId&&c.status!=='trashed');const hasGrammar=x.grammarIssue||x.grammarExplanation||x.grammarRule||x.grammarExample;return `<article class="comparison-card ${hasGrammar?(x.isGrammarCorrect?'grammar-correct':'grammar-fix'):''}"><div class="comparison-label"><span>${escapeHtml(x.label||'句子優化')}${hasGrammar?` · ${x.isGrammarCorrect?'✓ Grammar correct':'Grammar note'}`:''}</span><label class="review-toggle"><input type="checkbox" data-review-index="${i}" ${added?'checked':''}> <span>${ui('加入複習','Add to review')}</span></label></div><div class="sentence-before"><span class="sentence-tag">${ui('原句','Before')}</span><span>${escapeHtml(x.before||'')}</span></div><div class="sentence-after"><span class="sentence-tag">${ui('改後','After')}</span><span>${escapeHtml(x.after||'')}</span></div>${hasGrammar?`<dl class="grammar-explanation integrated-grammar">${x.grammarIssue?`<div><dt>Grammar status</dt><dd>${escapeHtml(x.grammarIssue)}</dd></div>`:''}${x.grammarExplanation?`<div><dt>Why</dt><dd>${escapeHtml(x.grammarExplanation)}</dd></div>`:''}${x.grammarRule?`<div><dt>Grammar rule</dt><dd>${escapeHtml(x.grammarRule)}</dd></div>`:''}${x.grammarExample?`<div><dt>Another example</dt><dd>${escapeHtml(x.grammarExample)}</dd></div>`:''}</dl>`:''}</article>`}).join('');
   const scores=r.scoreDetails.map(x=>`<tr><td>${escapeHtml(x.name||'項目')}</td><td class="score-old">${parseScore(x.before,r.overall)}${x.beforeNote?`<span class="score-note" title="${escapeHtml(x.beforeNote)}">原稿說明</span>`:''}</td><td class="score-arrow">→</td><td class="score-new">${parseScore(x.after,r.improvedOverall)}${x.afterNote?`<span class="score-note" title="${escapeHtml(x.afterNote)}">改後說明</span>`:''}</td></tr>`).join('');
-  $('#coachReport').innerHTML=`<section class="coach-section"><h3 class="coach-title"><span>👏</span> 教練總評</h3><p class="coach-summary">${escapeHtml(r.summary||'')}</p></section>${improvements?`<section class="coach-section"><h3 class="coach-title"><span>🛠</span> 逐點改進</h3><div class="improvement-list">${improvements}</div></section>`:''}${comparisons?`<section class="coach-section"><h3 class="coach-title"><span>🔁</span> ${state.language==='en-US'?'Sentence Improvement & Grammar':'原句與優化句對照'}</h3><div class="comparison-list">${comparisons}</div></section>`:''}<section class="coach-section"><h3 class="coach-title"><span>🧩</span> 改進後的完整 1–2 分鐘稿</h3><div class="rewritten-speech">${escapeHtml(r.rewritten||'')}</div></section>${scores?`<section class="coach-section"><h3 class="coach-title"><span>🧮</span> 分項評分</h3><div class="score-comparison"><table class="score-table"><thead><tr><th>評分項目</th><th>原稿</th><th></th><th>改進後</th></tr></thead><tbody>${scores}</tbody></table></div><div class="overall-upgrade"><div><span>原稿</span> <b class="score-old">${r.overall}</b></div><span>→</span><div><span>改進稿</span> <b class="score-new">${r.improvedOverall}</b></div></div></section>`:''}`;
+  $('#coachReport').innerHTML=`<section class="coach-section"><h3 class="coach-title"><span>👏</span> 教練總評</h3><p class="coach-summary">${escapeHtml(r.summary||'')}</p></section>${improvements?`<section class="coach-section"><h3 class="coach-title"><span>🛠</span> 逐點改進</h3><div class="improvement-list">${improvements}</div></section>`:''}${comparisons?`<section class="coach-section"><h3 class="coach-title"><span>🔁</span> ${state.language==='en-US'?'Sentence Improvement & Grammar':'原句與優化句對照'}</h3><div class="comparison-list">${comparisons}</div></section>`:''}<section class="coach-section rewritten-section"><div class="rewritten-heading"><h3 class="coach-title"><span>🧩</span> 改進後的完整 1–2 分鐘稿</h3><div class="speech-actions"><button type="button" data-speech-play>▶ ${ui('聆聽文章','Listen')}</button><button type="button" data-speech-stop disabled>■ ${ui('停止','Stop')}</button></div></div><div class="speech-options"><label>${ui('語音','Voice')}<select data-speech-voice aria-label="${ui('選擇朗讀語音','Choose reading voice')}"><option value="">${ui('裝置預設語音','Device default')}</option></select></label><label>${ui('速度','Speed')}<select data-speech-rate aria-label="${ui('選擇朗讀速度','Choose reading speed')}"><option value="0.8">0.8×</option><option value="0.9">0.9×</option><option value="1">1.0×</option><option value="1.1">1.1×</option></select></label></div><p class="speech-note">${ui('自然度取決於裝置已安裝的語音；可嘗試名稱含 Natural、Enhanced 或 Premium 的語音。全程不呼叫 AI 或 API。','Naturalness depends on voices installed on your device. Try a voice named Natural, Enhanced, or Premium. No AI or API call is made.')}</p><div class="rewritten-speech">${escapeHtml(r.rewritten||'')}</div></section>${scores?`<section class="coach-section"><h3 class="coach-title"><span>🧮</span> 分項評分</h3><div class="score-comparison"><table class="score-table"><thead><tr><th>評分項目</th><th>原稿</th><th></th><th>改進後</th></tr></thead><tbody>${scores}</tbody></table></div><div class="overall-upgrade"><div><span>原稿</span> <b class="score-old">${r.overall}</b></div><span>→</span><div><span>改進稿</span> <b class="score-new">${r.improvedOverall}</b></div></div></section>`:''}`;
   bindReviewToggles($('#coachReport'),r);
+  bindSpeechControls($('#coachReport'));
   applyUiLanguage();
+}
+
+function resetSpeechControls(){
+  if(!state.speechControls)return;
+  const play=state.speechControls.querySelector('[data-speech-play]'),stop=state.speechControls.querySelector('[data-speech-stop]');
+  if(play)play.textContent=`▶ ${ui('聆聽文章','Listen')}`;
+  if(stop)stop.disabled=true;
+  state.speechControls=null;state.speechUtterance=null;
+}
+function stopBrowserSpeech(){
+  const queue=state.speechQueue;if(queue?.timeoutId)clearTimeout(queue.timeoutId);
+  state.speechQueue=SpeechUtils.resetQueueState(queue);state.speechChunks=[];
+  if('speechSynthesis' in window)window.speechSynthesis.cancel();resetSpeechControls();
+}
+function populateSpeechVoices(container,language){
+  const select=container.querySelector('[data-speech-voice]');if(!select)return;
+  const voices=window.speechSynthesis.getVoices().filter(voice=>SpeechUtils.voiceSupportsLanguage(voice,language)).sort((a,b)=>Number(String(b.lang).toLowerCase()===language.toLowerCase())-Number(String(a.lang).toLowerCase()===language.toLowerCase()));
+  select.replaceChildren();const defaultOption=document.createElement('option');defaultOption.textContent=ui('裝置預設語音','Device default');select.append(defaultOption);
+  voices.forEach(voice=>{const option=document.createElement('option');option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang}${voice.localService?'':' · online'}`;select.append(option);});
+  if(voices.some(voice=>voice.voiceURI===speechSettings.voiceURI))select.value=speechSettings.voiceURI;
+}
+function playNextSpeechChunk(){
+  const queue=state.speechQueue;if(queue.stopped||queue.paused)return;
+  const chunk=state.speechChunks[queue.index];if(!chunk){resetSpeechControls();state.speechChunks=[];state.speechQueue=SpeechUtils.resetQueueState(queue);return;}
+  const utterance=new SpeechSynthesisUtterance(chunk.text),voice=SpeechUtils.selectVoice(window.speechSynthesis.getVoices(),chunk.language,speechSettings.voiceURI);utterance.lang=chunk.language;utterance.rate=chunk.rate;if(voice)utterance.voice=voice;
+  const queueId=queue.id;let finished=false;state.speechUtterance=utterance;
+  const advance=()=>{if(finished||state.speechQueue.id!==queueId||state.speechQueue.stopped)return;finished=true;state.speechQueue.index+=1;state.speechUtterance=null;if(state.speechQueue.paused)return;state.speechQueue.timeoutId=setTimeout(()=>{if(state.speechQueue.id===queueId){state.speechQueue.timeoutId=null;playNextSpeechChunk();}},chunk.pauseMs);};
+  utterance.onend=advance;utterance.onerror=event=>{if(event.error!=='canceled'&&event.error!=='interrupted')advance();};window.speechSynthesis.speak(utterance);
+}
+function bindSpeechControls(container){
+  const controls=container.querySelector('.speech-actions'),play=controls?.querySelector('[data-speech-play]'),stop=controls?.querySelector('[data-speech-stop]'),voiceSelect=container.querySelector('[data-speech-voice]'),rateSelect=container.querySelector('[data-speech-rate]');
+  if(!controls||!play||!stop)return;
+  if(!('speechSynthesis' in window)||!('SpeechSynthesisUtterance' in window)){play.disabled=true;play.textContent=ui('瀏覽器不支援播放','Playback unavailable');return;}
+  const articleText=container.querySelector('.rewritten-speech')?.textContent.trim()||'',articleLanguage=CONFIG.languages[state.language]?state.language:'en-US';
+  populateSpeechVoices(container,articleLanguage);window.speechSynthesis.addEventListener('voiceschanged',()=>populateSpeechVoices(container,articleLanguage),{once:true});
+  rateSelect.value=String(speechSettings.rate);voiceSelect.onchange=()=>{speechSettings.voiceURI=voiceSelect.value;localStorage.setItem(SPEECH_SETTINGS_KEY,JSON.stringify(speechSettings));stopBrowserSpeech();};rateSelect.onchange=()=>{speechSettings.rate=Number(rateSelect.value);localStorage.setItem(SPEECH_SETTINGS_KEY,JSON.stringify(speechSettings));stopBrowserSpeech();};
+  play.onclick=()=>{
+    if(state.speechControls===controls&&!state.speechQueue.stopped){
+      if(state.speechQueue.paused){state.speechQueue.paused=false;if(window.speechSynthesis.paused)window.speechSynthesis.resume();else playNextSpeechChunk();play.textContent=`Ⅱ ${ui('暫停','Pause')}`;}
+      else{state.speechQueue.paused=true;if(state.speechQueue.timeoutId){clearTimeout(state.speechQueue.timeoutId);state.speechQueue.timeoutId=null;}window.speechSynthesis.pause();play.textContent=`▶ ${ui('繼續','Resume')}`;}
+      return;
+    }
+    const text=container.querySelector('.rewritten-speech')?.textContent.trim();if(!text)return toast(ui('目前沒有可播放的文章','There is no article to play'));
+    stopBrowserSpeech();speechSettings.voiceURI=voiceSelect.value;state.speechChunks=SpeechUtils.buildSpeechChunks(text,{language:articleLanguage,rate:Number(rateSelect.value)||.9});state.speechQueue=SpeechUtils.createQueueState(state.speechQueue.id+1);
+    state.speechControls=controls;play.textContent=`Ⅱ ${ui('暫停','Pause')}`;stop.disabled=false;playNextSpeechChunk();
+  };
+  stop.onclick=stopBrowserSpeech;
 }
 
 function bindReviewToggles(container,result){container.querySelectorAll('[data-review-index]').forEach(input=>{input.onchange=()=>toggleReviewCard(result,Number(input.dataset.reviewIndex),input);});container.querySelectorAll('[data-grammar-review-index]').forEach(input=>{input.onchange=()=>toggleGrammarReviewCard(result,Number(input.dataset.grammarReviewIndex),input);});}
