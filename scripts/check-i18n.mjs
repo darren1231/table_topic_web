@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const locales = ['zh-TW', 'en-US', 'ja-JP'];
+const locales = ['zh-TW', 'en-US', 'ja-JP', 'ar'];
 const catalogs = await Promise.all(locales.map(async locale => {
   const catalog = JSON.parse(await readFile(new URL(`../locales/${locale}.json`, import.meta.url)));
   assert.equal(catalog.meta.code, locale, `${locale}: meta.code must match its filename`);
