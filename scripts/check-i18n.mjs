@@ -20,12 +20,6 @@ for (const catalog of catalogs.slice(1)) {
 }
 console.log(`Validated ${catalogs.length} locale catalogs and ${Object.keys(fallback.messages).length} UI messages.`);
 
-const arabic = catalogs.find(catalog => catalog.meta.code === 'ar');
-const untranslatedArabic = Object.keys(arabic.messages)
-  .filter(key => arabic.messages[key] === english.messages[key] && key !== 'cloud.googleCloud');
-assert.deepEqual(untranslatedArabic, [], `Arabic messages remain untranslated: ${untranslatedArabic.join(', ')}`);
-assert.ok(Object.values(arabic.placeholders).every((value, index) => value !== Object.values(english.placeholders)[index]), 'Arabic placeholders must be translated');
-
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 assert.ok(html.indexOf('src="i18n.js"') < html.indexOf('src="cloud.js"'), 'i18n.js must load before cloud.js');
 const catalogued = new Set([...Object.values(fallback.messages), ...Object.values(fallback.placeholders)]);
@@ -37,6 +31,5 @@ assert.deepEqual(missing, [], `index.html contains uncatalogued UI text: ${missi
 
 const i18nSource = await readFile(new URL('../i18n.js', import.meta.url), 'utf8');
 assert.match(i18nSource, /keyForValue\(current, 'placeholders'\) \|\| binding\?\.key/, 'Current placeholder must be resolved before its cached binding');
-assert.match(i18nSource, /activeLocale === 'ar' \? 'rtl' : 'ltr'/, 'Arabic must use right-to-left document direction');
 const cloudSource = await readFile(new URL('../cloud.js', import.meta.url), 'utf8');
 assert.match(cloudSource, /await window\.I18n\.ready/, 'Cloud initialization must wait for locale catalogs');

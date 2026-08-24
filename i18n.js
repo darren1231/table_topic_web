@@ -29,7 +29,6 @@
   function setLocale(locale) {
     activeLocale = supportedLocales.includes(locale) ? locale : fallbackLocale;
     document.documentElement.lang = catalog(activeLocale)?.meta?.htmlLang || 'zh-Hant';
-    document.documentElement.dir = activeLocale === 'ar' ? 'rtl' : 'ltr';
   }
 
   function translate(key, variables = {}) {
