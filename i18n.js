@@ -1,7 +1,7 @@
 (function createI18n(global) {
   'use strict';
 
-  const supportedLocales = ['zh-TW', 'en-US', 'ja-JP'];
+  const supportedLocales = ['zh-TW', 'en-US', 'ja-JP', 'ar'];
   const fallbackLocale = 'zh-TW';
   const catalogs = new Map();
   const textBindings = new WeakMap();

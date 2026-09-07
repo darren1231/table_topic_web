@@ -6,7 +6,8 @@ const CONFIG = {
   languages: {
     'zh-TW': { locale: 'zh-TW', get topics() { return I18n.topics('zh-TW'); } },
     'en-US': { locale: 'en-US', get topics() { return I18n.topics('en-US'); } },
-    'ja-JP': { locale: 'ja-JP', get topics() { return I18n.topics('ja-JP'); } }
+    'ja-JP': { locale: 'ja-JP', get topics() { return I18n.topics('ja-JP'); } },
+    ar: { locale: 'ar', get topics() { return I18n.topics('ar'); } }
   }
 };
 
@@ -31,7 +32,7 @@ function applyUiLanguage() {
 }
 function ui(zh, en) { return I18n.fromSource(zh, en); }
 function t(key, variables) { return I18n.translate(key, variables); }
-function responseLanguageRule(){return state.language==='en-US'?'IMPORTANT: Write every question, comment, label, and feedback field in English only. Do not use Chinese.':state.language==='ja-JP'?'すべての質問、コメント、フィードバックを日本語だけで書いてください。':'所有題目、評論與回饋欄位都必須使用繁體中文。';}
+function responseLanguageRule(){return state.language==='en-US'?'IMPORTANT: Write every question, comment, label, and feedback field in English only. Do not use Chinese.':state.language==='ja-JP'?'すべての質問、コメント、フィードバックを日本語だけで書いてください。':state.language==='ar'?'مهم: اكتب كل سؤال وتعليق وتسمية وملاحظة باللغة العربية فقط.':'所有題目、評論與回饋欄位都必須使用繁體中文。';}
 function updateTodayLabel(){const locale=state.language;const dateText=new Intl.DateTimeFormat(locale,{month:'long',day:'numeric',weekday:'long'}).format(new Date());$('#todayLabel').textContent=`${dateText} · TODAY'S PRACTICE`;}
 
 function analysisButtonLabel(){return state.practiceMode==='manuscript'?ui('分析我的講稿 ✦','Analyze my manuscript ✦'):ui('分析我的回答 ✦','Analyze my answer ✦');}
