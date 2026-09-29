@@ -15,6 +15,7 @@ const AI_CONFIG_KEY = 'tableTopicsAIProjects.v1';
 const UI_LANGUAGE_KEY = 'tableTopicsLanguage.v1';
 const SPEECH_SETTINGS_KEY = 'tableTopicsSpeechSettings.v1';
 const VERSION_HISTORY = [
+  {version:'1.4.0',date:'2026-09-29',changes:['中文語音逐字稿下方新增「簡體轉繁體」按鈕，可在送出分析前一鍵修正辨識結果。','轉換會保留標點、數字及其他語言內容，並針對臺灣常用詞彙處理常見語境差異。']},
   {version:'1.3.0',date:'2026-08-17',changes:['瀏覽器朗讀改為句子、子句與語言片段佇列，加入逗號、句尾和段落的自然停頓。','支援中英混合逐段選用相符語音，並正確辨識繁中、英文與日文。','加入輕微語速韻律、文字正規化與可安全停止的播放佇列。']},
   {version:'1.2.1',date:'2026-08-17',changes:['文章朗讀新增語音與速度選擇，可改用裝置上較自然的增強語音。','英文文章會優先選擇相符的英文語音，並記住使用者的朗讀偏好。']},
   {version:'1.2.0',date:'2026-08-17',changes:['改進後的完整文章可使用瀏覽器內建語音朗讀。','支援播放、暫停、繼續與停止，全程不呼叫 AI 或付費 API。']},
@@ -29,11 +30,23 @@ let speechSettings = JSON.parse(localStorage.getItem(SPEECH_SETTINGS_KEY) || 'nu
 function applyUiLanguage() {
   I18n.setLocale(state.language);
   I18n.apply();
+  $('#traditionalConversion')?.classList.toggle('hidden', state.language !== 'zh-TW');
 }
 function ui(zh, en) { return I18n.fromSource(zh, en); }
 function t(key, variables) { return I18n.translate(key, variables); }
 function responseLanguageRule(){return state.language==='en-US'?'IMPORTANT: Write every question, comment, label, and feedback field in English only. Do not use Chinese.':state.language==='ja-JP'?'すべての質問、コメント、フィードバックを日本語だけで書いてください。':state.language==='ar'?'مهم: اكتب كل سؤال وتعليق وتسمية وملاحظة باللغة العربية فقط.':'所有題目、評論與回饋欄位都必須使用繁體中文。';}
 function updateTodayLabel(){const locale=state.language;const dateText=new Intl.DateTimeFormat(locale,{month:'long',day:'numeric',weekday:'long'}).format(new Date());$('#todayLabel').textContent=`${dateText} · TODAY'S PRACTICE`;}
+
+function convertTranscriptToTraditional(){
+  const transcript=$('#transcript'),source=transcript.value;
+  if(!source.trim())return toast(ui('目前沒有可轉換的逐字稿','There is no transcript to convert'));
+  const converted=ChineseConverter.toTraditional(source);
+  if(converted===source)return toast(ui('逐字稿已經是繁體中文','The transcript is already in Traditional Chinese'));
+  const selectionStart=transcript.selectionStart,selectionEnd=transcript.selectionEnd;
+  transcript.value=converted;updateCharCount();transcript.focus();
+  transcript.setSelectionRange(Math.min(selectionStart,converted.length),Math.min(selectionEnd,converted.length));
+  toast(ui('已將逐字稿轉為繁體中文','Transcript converted to Traditional Chinese'));
+}
 
 function analysisButtonLabel(){return state.practiceMode==='manuscript'?ui('分析我的講稿 ✦','Analyze my manuscript ✦'):ui('分析我的回答 ✦','Analyze my answer ✦');}
 function setPracticeMode(mode){
@@ -655,6 +668,7 @@ function init() {
   $('#randomTopicButton').onclick = () => { const topics = CONFIG.languages[state.language].topics; $('#topicInput').value = topics[Math.floor(Math.random() * topics.length)]; };
   $('#languageSelect').onchange = e => changePracticeLanguage(e.target.value,{announce:true});
   $('#resumeRecordButton').onclick = resumeRecording; $('#pauseRecordButton').onclick = pauseRecording; $('#restartRecordButton').onclick = resetRecording;
+  $('#convertTraditionalButton').onclick = convertTranscriptToTraditional;
   $('#transcript').oninput = updateCharCount;$('#manuscriptTitleInput').oninput=e=>{state.modeDrafts.manuscript.title=e.target.value;}; $('#analyzeButton').onclick = analyzeAnswer; updateRecorderControls();
   $('#retryButton').onclick = () => { $('#feedbackPanel').classList.add('hidden'); $('#transcript').value = ''; updateCharCount(); $('#practicePanel').scrollIntoView({behavior:'smooth'}); };
   $('#nextButton').onclick = nextQuestion;
