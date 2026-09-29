@@ -339,7 +339,12 @@
     "version.002": "See new features and improvements",
     "version.003": "Speech title",
     "version.004": "Shown in practice history after saving",
-    "version.005": "Every release records its new features, experience improvements, and fixes here."
+    "version.005": "Every release records its new features, experience improvements, and fixes here.",
+    "convert.001": "Simplified characters in the transcript?",
+    "convert.002": "Convert to Traditional Chinese",
+    "convert.003": "There is no transcript to convert",
+    "convert.004": "The transcript is already in Traditional Chinese",
+    "convert.005": "Transcript converted to Traditional Chinese"
   },
   "placeholders": {
     "placeholder.001": "For example: travel, courage, something I learned…",
