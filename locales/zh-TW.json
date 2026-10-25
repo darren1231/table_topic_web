@@ -15,6 +15,13 @@
     "習慣"
   ],
   "messages": {
+    "recordingWake.requesting": "正在啟用錄音期間螢幕常亮⋯",
+    "recordingWake.active": "錄音中：螢幕已保持開啟。請保持此頁在前景，避免手動鎖定手機。",
+    "recordingWake.unsupported": "此瀏覽器不支援螢幕常亮。長時間錄音前，請延長手機的自動鎖定時間，並保持此頁在前景。",
+    "recordingWake.denied": "無法保持螢幕開啟。請嘗試關閉省電模式後重試，或延長手機的自動鎖定時間。",
+    "recordingWake.released": "螢幕常亮已被系統解除。請重試，或延長手機的自動鎖定時間。",
+    "recordingWake.background": "頁面已進入背景，螢幕常亮暫停；返回後會重新嘗試啟用。錄音可能被系統中斷。",
+    "recordingWake.retry": "重試保持螢幕開啟",
     "ui.001": "表達練習室",
     "ui.002": "內建教練",
     "ui.003": "天",

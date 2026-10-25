@@ -15,6 +15,13 @@
     "habits"
   ],
   "messages": {
+    "recordingWake.requesting": "Keeping the screen awake while recording…",
+    "recordingWake.active": "Recording: screen kept awake. Keep this page in the foreground and avoid locking your phone.",
+    "recordingWake.unsupported": "This browser cannot keep the screen awake. Extend your phone’s auto-lock timeout before a long recording and keep this page in the foreground.",
+    "recordingWake.denied": "Could not keep the screen awake. Try disabling battery saver and retry, or extend your phone’s auto-lock timeout.",
+    "recordingWake.released": "The system released the screen wake lock. Retry or extend your phone’s auto-lock timeout.",
+    "recordingWake.background": "This page is in the background. Screen wake lock will be requested again when you return. The system may interrupt recording.",
+    "recordingWake.retry": "Retry keeping screen awake",
     "ui.001": "Table Topics Studio",
     "ui.002": "Built-in Coach",
     "ui.003": "days",
