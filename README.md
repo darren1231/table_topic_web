@@ -15,22 +15,22 @@
 
 ## 本機執行
 
-這是純前端網站。由於語系 JSON 透過 `fetch` 載入，請在專案目錄啟動本機伺服器（不要用 `file://` 直接開啟）：
+這是純前端網站，所有對外發布的檔案都放在 `public/`。由於語系 JSON 透過 `fetch` 載入，請以 `public/` 為根目錄啟動本機伺服器（不要用 `file://` 直接開啟）：
 
 ```powershell
-python -m http.server 8000
+python -m http.server 8000 --directory public
 ```
 
 然後開啟 <http://localhost:8000>。
 
 ## 新增或修改語言
 
-所有可翻譯的靜態介面文字、placeholder、內建主題與題目模板都集中在 `locales/`。`zh-TW.json` 是預設及 fallback 語系；每個語系檔案使用相同的 message key，因此新增語言時不需要修改畫面中的判斷邏輯。
+所有可翻譯的靜態介面文字、placeholder、內建主題與題目模板都集中在 `public/locales/`。`zh-TW.json` 是預設及 fallback 語系；每個語系檔案使用相同的 message key，因此新增語言時不需要修改畫面中的判斷邏輯。
 
-1. 複製 `locales/zh-TW.json`，以 BCP 47 language tag 命名（例如 `fr-FR.json`）。
+1. 複製 `public/locales/zh-TW.json`，以 BCP 47 language tag 命名（例如 `fr-FR.json`）。
 2. 保留所有 JSON key 與題目模板中的 `{topic}`，只翻譯 value。
-3. 在 `i18n.js` 的 `supportedLocales` 與 `index.html` 的語言選單加入新語系。
-4. 在 `app.js` 的 `CONFIG.languages` 加入語系；topics 會直接由 JSON catalog 取得。
+3. 在 `public/i18n.js` 的 `supportedLocales` 與 `public/index.html` 的語言選單加入新語系。
+4. 在 `public/app.js` 的 `CONFIG.languages` 加入語系；topics 會直接由 JSON catalog 取得。
 5. 執行語系完整性檢查：
 
    ```bash
@@ -41,7 +41,9 @@ python -m http.server 8000
 
 ## 部署
 
-專案包含 `vercel.json`，可直接匯入 Vercel 並從儲存庫根目錄部署。
+專案包含 `vercel.json`，設定 `outputDirectory` 為 `public`，Vercel 只會發布 `public/` 內的檔案。`docs/`、`scripts/`、`supabase.sql` 等開發用檔案不會出現在網站上。
+
+新增需要對外提供的檔案時，請放進 `public/`；不要放在儲存庫根目錄。
 
 ## 資料與 API Key
 
@@ -124,7 +126,7 @@ python -m http.server 8000
 1. 在 Supabase 的 **Project Settings > API**（新版介面可能顯示 **API Keys**）複製：
    - Project URL，例如 `https://<PROJECT_REF>.supabase.co`
    - 公開的 `anon` key；若專案只顯示新版 key，使用可公開於瀏覽器的 publishable key。
-2. 編輯 [`supabase-config.js`](supabase-config.js)：
+2. 編輯 [`public/supabase-config.js`](public/supabase-config.js)：
 
    ```js
    window.SUPABASE_CONFIG = {
@@ -138,10 +140,10 @@ python -m http.server 8000
 
 ### 7. 本機測試完整流程
 
-1. 在專案根目錄啟動網站；不要直接使用 `file://` 開啟：
+1. 以 `public/` 為根目錄啟動網站；不要直接使用 `file://` 開啟：
 
    ```bash
-   python -m http.server 8000
+   python -m http.server 8000 --directory public
    ```
 
 2. 開啟 <http://localhost:8000>，按右上角 **本機資料 / 資料模式**。
