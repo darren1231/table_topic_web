@@ -25,7 +25,7 @@ function fixture(options = {}) {
   const calls = [], logs = [];
   let balanceReads = 0;
   const fetch = async (url, init) => {
-    const entry = { url, method: init.method, headers: new Headers(init.headers), body: init.body ? JSON.parse(init.body) : null };
+    const entry = { url, method: init.method, headers: new Headers(init.headers), body: init.body ? JSON.parse(init.body) : null, signal: init.signal };
     calls.push(entry);
     if (url.endsWith('/auth/v1/user')) {
       if (options.authThrows) throw new Error('Simulated auth network failure');
@@ -37,6 +37,7 @@ function fixture(options = {}) {
       return Response.json(options.balanceBody ?? [{ spent: balanceReads === 1 ? (options.spent ?? '0') : '0.8' }], { status: options.balanceStatus ?? 200 });
     }
     if (url === 'https://api.openai.com/v1/responses') {
+      if (options.honorAbort) init.signal?.throwIfAborted();
       if (options.openaiThrows) throw options.openaiThrows;
       if (options.openaiInvalidJson) return new Response('not-json', { status: 200 });
       return Response.json(options.openaiBody ?? { output_text: 'A useful coaching response', usage }, { status: options.openaiStatus ?? 200 });
@@ -181,12 +182,41 @@ test('respond ignores client models and uses the selected environment key with e
     });
     assert.equal(response.status, 200);
     const call = aiCalls(f)[0];
-    assert.deepEqual(call.body, { model: 'server-test-model', instructions: body.instructions, input: body.input });
+    assert.deepEqual(call.body, { model: 'server-test-model', instructions: body.instructions, input: body.input, store: false, max_output_tokens: 8000 });
     assert.equal(call.method, 'POST');
     assert.equal(call.headers.get('Authorization'), `Bearer ${environment === 'production' ? env.CHATGPT_PRODUCTION_KEY : env.CHATGPT_PREVIEW_KEY}`);
     assert.equal(call.headers.get('apikey'), null);
     assert.equal(records(f)[0].body.p_model, 'server-test-model');
   }
+});
+
+test('respond disables OpenAI response storage even when the client requests it', async () => {
+  const f = fixture();
+  assert.equal((await f.run(request({ ...body, store: true }))).status, 200);
+  assert.equal(aiCalls(f)[0].body.store, false);
+});
+
+test('respond caps output at 8000 tokens even when the client requests a larger limit', async () => {
+  const f = fixture();
+  assert.equal((await f.run(request({ ...body, max_output_tokens: 100_000 }))).status, 200);
+  assert.equal(aiCalls(f)[0].body.max_output_tokens, 8000);
+});
+
+test('respond sets a 60-second AbortSignal and records timeouts as OpenAI errors', async t => {
+  const signal = AbortSignal.abort(new DOMException('Simulated timeout', 'TimeoutError'));
+  const timeout = t.mock.method(AbortSignal, 'timeout', milliseconds => {
+    assert.equal(milliseconds, 60_000);
+    return signal;
+  });
+  const f = fixture({ honorAbort: true });
+  const response = await f.run();
+  assert.equal(timeout.mock.callCount(), 1);
+  assert.equal(aiCalls(f)[0].signal, signal);
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: 'upstream_error' });
+  assert.equal(records(f).length, 1);
+  assert.equal(records(f)[0].body.p_status, 'error');
+  assert.equal(records(f)[0].body.p_estimated_cost, 0);
 });
 
 test('respond uses output_text first and otherwise joins output content text like the existing callAgent', async () => {

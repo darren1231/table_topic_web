@@ -80,8 +80,12 @@ async function handleRespond({ request, env, fetch, logger = console }) {
   try {
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
+      signal: AbortSignal.timeout(60_000),
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify({ model: config.text.model, instructions: input.instructions, input: input.input }),
+      body: JSON.stringify({
+        model: config.text.model, instructions: input.instructions, input: input.input,
+        store: false, max_output_tokens: 8000,
+      }),
     });
     const data = await response.json();
     const candidateUsage = responseUsage(data?.usage, response.ok);
