@@ -9,6 +9,8 @@ require('./ai-errors.test.cjs');
 require('./supabase-defaults.test.cjs');
 require('./ai-respond.test.cjs');
 require('./ai-transcribe.test.cjs');
+require('./system-ai.test.cjs');
+require('./system-ai-integration.test.cjs');
 
 test('test environment can query an in-memory PostgreSQL database', async () => {
   const { PGlite } = require('@electric-sql/pglite');

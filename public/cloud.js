@@ -65,6 +65,7 @@
     if (!configured) setStatus(t('cloud.notConfigured'), 'warning');
     else if (cloud) setStatus(t('cloud.syncEnabled'), 'success');
     else setStatus(t('cloud.nothingUploaded'));
+    window.dispatchEvent(new CustomEvent('tabletopics:auth'));
   }
 
   async function push(payload = readLocalPayload()) {
@@ -183,6 +184,19 @@
   }
 
   window.tableTopicsCloud = {
+    isSignedIn: () => Boolean(session?.user),
+    getUserId: () => session?.user?.id || null,
+    async getAccessToken() {
+      if (!client) return null;
+      try {
+        const { data, error } = await client.auth.getSession();
+        session = error ? null : data?.session || null;
+      } catch {
+        session = null;
+      }
+      updateUi();
+      return session?.user ? session.access_token || null : null;
+    },
     scheduleSync(payload) {
       if (!cloudEnabled()) return;
       clearTimeout(timer);
@@ -233,5 +247,5 @@
     if (authErrorMessage) setStatus(authErrorMessage, 'error');
   }
 
-  initialize();
+  window.tableTopicsCloud.ready = initialize();
 })();

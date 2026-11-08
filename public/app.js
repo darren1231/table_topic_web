@@ -14,6 +14,11 @@ const CONFIG = {
 const AI_CONFIG_KEY = 'tableTopicsAIProjects.v1';
 const UI_LANGUAGE_KEY = 'tableTopicsLanguage.v1';
 const SPEECH_SETTINGS_KEY = 'tableTopicsSpeechSettings.v1';
+const ENABLE_BYOK = false;
+let systemBalance = null;
+let systemIdentity = null;
+let systemCreditExhausted = false;
+let systemUiReady = false;
 const VERSION_HISTORY = [
   {version:'1.3.0',date:'2026-08-17',changes:['瀏覽器朗讀改為句子、子句與語言片段佇列，加入逗號、句尾和段落的自然停頓。','支援中英混合逐段選用相符語音，並正確辨識繁中、英文與日文。','加入輕微語速韻律、文字正規化與可安全停止的播放佇列。']},
   {version:'1.2.1',date:'2026-08-17',changes:['文章朗讀新增語音與速度選擇，可改用裝置上較自然的增強語音。','英文文章會優先選擇相符的英文語音，並記住使用者的朗讀偏好。']},
@@ -29,6 +34,7 @@ let speechSettings = JSON.parse(localStorage.getItem(SPEECH_SETTINGS_KEY) || 'nu
 function applyUiLanguage() {
   I18n.setLocale(state.language);
   I18n.apply();
+  if (systemUiReady) refreshSystemAiUi();
 }
 function ui(zh, en) { return I18n.fromSource(zh, en); }
 function t(key, variables) { return I18n.translate(key, variables); }
@@ -187,11 +193,225 @@ const localProvider = {
   }
 };
 
-function getActiveProject() { return aiSettings.projects.find(p => p.id === aiSettings.activeId) || aiSettings.projects[0]; }
+function getActiveProject() {
+  const current = aiSettings.projects.find(p => p.id === aiSettings.activeId) || aiSettings.projects[0];
+  let provider = SystemAI.selectProvider({ signedIn: window.tableTopicsCloud?.isSignedIn?.(), enableByok: ENABLE_BYOK, project: current });
+  if (provider === 'system' && systemCreditExhausted) provider = 'builtin';
+  return ENABLE_BYOK && current?.provider === provider ? current : managedProject(provider);
+}
+
+function managedProject(provider) {
+  const id = `managed_${provider}`;
+  let project = aiSettings.projects.find(item => item.id === id && item.provider === provider);
+  if (!project) {
+    project = { id, provider, name: t(provider === 'system' ? 'systemAi.name' : 'systemAi.builtin'),
+      prompt: t('systemAi.defaultPrompt'), transcriptionMode: 'browser', smartCorrection: true };
+    aiSettings.projects.push(project);
+  }
+  return project;
+}
+
+function initSystemAi() {
+  managedProject('system');
+  managedProject('builtin');
+  persistAISettings();
+  const option = document.createElement('option');
+  option.value = 'system';
+  option.textContent = t('systemAi.name');
+  $('#providerSelect').append(option);
+  $('#systemAiSigninButton').onclick = () => $('#accountButton').click();
+  if (!ENABLE_BYOK) {
+    for (const id of ['providerSelect', 'endpointInput', 'apiKeyInput', 'modelSelect', 'transcriptionModelInput', 'transcriptionEndpointInput', 'projectNameInput']) {
+      $(`#${id}`).closest('label').classList.add('hidden');
+      $(`#${id}`).disabled = true;
+    }
+    for (const id of ['newProjectButton', 'deleteProjectButton', 'apiUsageSection', 'testConnectionButton', 'connectionTestStatus']) $(`#${id}`).classList.add('hidden');
+    $('.security-note')?.classList.add('hidden');
+    $('.transcription-settings .field-help')?.classList.add('hidden');
+  }
+  window.addEventListener('tabletopics:auth', refreshSystemAiUi);
+  systemUiReady = true;
+  refreshSystemAiUi();
+}
+
+function refreshSystemAiUi() {
+  if (!systemUiReady) return;
+  const identity = window.tableTopicsCloud?.getUserId?.() || null;
+  if (identity !== systemIdentity) {
+    systemIdentity = identity;
+    systemBalance = null;
+    systemCreditExhausted = false;
+  }
+  const signedIn = Boolean(window.tableTopicsCloud?.isSignedIn?.());
+  $('#systemAiNoticeText').textContent = t(!signedIn ? 'systemAi.signInHint' : systemCreditExhausted ? 'systemAi.creditExhausted' : 'systemAi.ready');
+  $('#systemAiSigninButton').textContent = t('systemAi.signInButton');
+  $('#systemAiSigninButton').classList.toggle('hidden', signedIn);
+  renderSystemBalance();
+  if (!ENABLE_BYOK) renderManagedProjectSettings();
+}
+
+function renderManagedProjectSettings(force = false) {
+  const project = getActiveProject();
+  const changed = $('#projectSelect').dataset.projectId !== project.id;
+  const option = document.createElement('option');
+  option.value = project.id;
+  option.textContent = t(project.provider === 'system' ? 'systemAi.name' : 'systemAi.builtin');
+  $('#projectSelect').replaceChildren(option);
+  $('#projectSelect').value = project.id;
+  $('#projectSelect').dataset.projectId = project.id;
+  $('#activeProjectLabel').textContent = option.textContent;
+  if (changed || force) {
+    $('#promptInput').value = project.prompt;
+    $('#smartCorrectionInput').checked = project.smartCorrection !== false;
+    $('#transcriptionModeSelect').value = project.provider === 'system' ? project.transcriptionMode : 'browser';
+  }
+  $('#transcriptionModeSelect').disabled = project.provider !== 'system';
+  syncManagedTranscriptionPicker();
+}
+
+function saveManagedProject() {
+  const project = getActiveProject();
+  project.prompt = $('#promptInput').value.trim() || t('systemAi.defaultPrompt');
+  project.smartCorrection = $('#smartCorrectionInput').checked;
+  project.transcriptionMode = project.provider === 'system' ? $('#transcriptionModeSelect').value : 'browser';
+  aiSettings.activeId = project.id;
+  persistAISettings();
+  renderManagedProjectSettings();
+  $('#settingsDialog').close();
+  toast(t('systemAi.saved'));
+}
+
+function syncManagedTranscriptionPicker() {
+  const project = getActiveProject();
+  const mode = project.provider === 'system' ? project.transcriptionMode || 'browser' : 'browser';
+  $('#transcriptionModeQuick').value = mode;
+  $('#transcriptionModeQuick').disabled = project.provider !== 'system';
+  setTranscriptionApiStatus(t(mode === 'api' ? 'systemAi.transcriptionReady' : 'systemAi.browserMode'));
+}
+
+function renderSystemBalance() {
+  $('#systemAiBalance').textContent = systemBalance
+    ? t('systemAi.balance', { spent: Number(systemBalance.spent).toFixed(4), credit: Number(systemBalance.credit).toFixed(4) })
+    : t('systemAi.balanceUnknown');
+}
+
+function recordSystemUsage(project, data, kind, startedAt) {
+  const tokens = normalizeApiUsage(data.usage);
+  saved.apiUsage.unshift({ id: makeId('usage'), createdAt: new Date().toISOString(), projectId: project.id,
+    projectName: t('systemAi.name'), provider: 'system', model: t('systemAi.serverModel'), kind, status: 'success', error: '',
+    ...tokens, audioSeconds: Number(data.usage.audioSeconds) || 0, inputRate: 0, outputRate: 0,
+    estimatedCost: data.cost, priced: true, durationMs: Date.now() - startedAt });
+  saved.apiUsage = saved.apiUsage.slice(0, 2000);
+  systemBalance = data.balance || null;
+  persist();
+  renderApiUsageDashboard();
+}
+
+async function callSystemApi(operation, input, project, kind) {
+  const startedAt = Date.now();
+  const owner = window.tableTopicsCloud?.getUserId?.();
+  const client = SystemAI.createClient({ fetch: (...args) => fetch(...args), getAccessToken: async () => {
+    const token = await window.tableTopicsCloud?.getAccessToken?.();
+    return owner === window.tableTopicsCloud?.getUserId?.() ? token : null;
+  } });
+  try {
+    const data = await client[operation](input);
+    if (owner !== window.tableTopicsCloud?.getUserId?.()) throw Object.assign(new Error(), SystemAI.interpretResponse(401));
+    recordSystemUsage(project, data, kind, startedAt);
+    return data.text;
+  } catch (error) {
+    if (error.fallbackToBuiltin) {
+      systemCreditExhausted = true;
+      refreshSystemAiUi();
+    }
+    const messageKey = error.messageKey || 'systemAi.networkError';
+    error.message = t(messageKey);
+    error.systemHandled = true;
+    toast(error.message);
+    if (error.code === 'unauthorized') $('#systemAiSigninButton').classList.remove('hidden');
+    throw error;
+  }
+}
+
+async function callSystemText(instruction, project, kind) {
+  return callSystemApi('respond', { instructions: `${project.prompt || t('systemAi.defaultPrompt')}\n${t('systemAi.jsonOnly')}`, input: instruction, kind }, project, kind);
+}
+
+async function transcribeWithSystem(blob, project) {
+  if (SystemAI.isAudioTooLarge(blob.size)) {
+    state.isTranscribing = false;
+    state.audioChunks = [];
+    updateRecorderControls();
+    toast(t('systemAi.audioTooLarge'));
+    $('#recordStatus').textContent = t('systemAi.audioTooLarge');
+    return;
+  }
+  state.isTranscribing = true;
+  updateRecorderControls();
+  $('#recordStatus').textContent = t('systemAi.transcribing');
+  setTranscriptionApiStatus(t('systemAi.transcribing'), 'calling');
+  try {
+    let text = await callSystemApi('transcribe', { file: blob, prompt: t('systemAi.transcriptionPrompt') }, project, 'transcription');
+    if (project.smartCorrection !== false) text = await polishTranscriptWithAgent(text, project);
+    const previous = $('#transcript').value.trim();
+    $('#transcript').value = previous ? `${previous}\n${text}` : text;
+    updateCharCount();
+    $('#recordStatus').textContent = t('systemAi.transcriptionDone');
+    setTranscriptionApiStatus(t('systemAi.transcriptionDone'), 'success');
+  } catch (error) {
+    $('#recordStatus').textContent = t(error.messageKey || 'systemAi.serviceError');
+    setTranscriptionApiStatus(t(error.messageKey || 'systemAi.serviceError'), 'error');
+  } finally {
+    state.isTranscribing = false;
+    state.audioChunks = [];
+    updateRecorderControls();
+  }
+}
+
+function renderSystemUsageDashboard() {
+  if (!$('#apiUsageList')) return;
+  const usage = filteredApiUsage();
+  const sum = field => usage.reduce((total, item) => total + (Number(item[field]) || 0), 0);
+  $('#apiUsageCalls').textContent = formatTokenCount(usage.length);
+  $('#apiUsageInputTokens').textContent = formatTokenCount(sum('inputTokens'));
+  $('#apiUsageOutputTokens').textContent = formatTokenCount(sum('outputTokens'));
+  $('#apiUsageTotalCost').textContent = `US$${sum('estimatedCost').toFixed(6)}`;
+  const month = new Date().toISOString().slice(0, 7);
+  const monthCost = saved.apiUsage.filter(item => item.createdAt?.startsWith(month)).reduce((total, item) => total + (Number(item.estimatedCost) || 0), 0);
+  $('#headerApiCost').textContent = `US$${monthCost.toFixed(4)}`;
+  const rows = usage.map(item => {
+    const row = document.createElement('tr');
+    const values = [
+      `${safeDateText(item.createdAt, true)} · ${item.projectName || ''}`,
+      item.model || t('systemAi.serverModel'),
+      item.audioSeconds ? t('systemAi.audioSeconds', { seconds: item.audioSeconds }) : t('systemAi.tokens', { count: item.inputTokens || 0 }),
+      t('systemAi.tokens', { count: item.outputTokens || 0 }),
+      `US$${(Number(item.estimatedCost) || 0).toFixed(6)}`,
+      t(item.status === 'success' ? 'systemAi.success' : 'systemAi.failed'),
+    ];
+    for (const value of values) { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); }
+    return row;
+  });
+  if (!rows.length) {
+    const row = document.createElement('tr'), cell = document.createElement('td');
+    cell.colSpan = 6; cell.textContent = t('systemAi.noUsage'); row.append(cell); rows.push(row);
+  }
+  $('#apiUsageList').replaceChildren(...rows);
+  const headings = document.querySelectorAll('.api-ledger-table thead th');
+  if (headings[2]) headings[2].textContent = t('systemAi.inputUsage');
+  if (headings[3]) headings[3].textContent = t('systemAi.outputUsage');
+  const intro = $('#apiUsageDialog .dialog-intro');
+  if (intro) intro.textContent = t('systemAi.usageIntro');
+  $('.api-ledger-note').textContent = t('systemAi.ledgerNote');
+  renderSystemBalance();
+}
 function extractJson(text) { const clean = String(text).replace(/```json|```/gi,'').trim(); const start = Math.min(...['{','['].map(c => { const i=clean.indexOf(c); return i<0?Infinity:i; })); if (!Number.isFinite(start)) throw new Error('Agent 未回傳 JSON'); return JSON.parse(clean.slice(start)); }
 function normalizeApiUsage(usage={}){return{inputTokens:Number(usage.input_tokens??usage.prompt_tokens??usage.inputTokens??0)||0,outputTokens:Number(usage.output_tokens??usage.completion_tokens??usage.outputTokens??0)||0};}
 function recordApiUsage(project,{usage={},status='success',error='',kind='agent',startedAt=Date.now()}={}){const tokens=normalizeApiUsage(usage),inputRate=Math.max(0,Number(project.inputTokenRate)||0),outputRate=Math.max(0,Number(project.outputTokenRate)||0),cost=tokens.inputTokens/1e6*inputRate+tokens.outputTokens/1e6*outputRate;saved.apiUsage.unshift({id:makeId('usage'),createdAt:new Date().toISOString(),projectId:project.id||'',projectName:project.name||'',provider:project.provider||'',model:project.model||'',kind,status,error:String(error||''),inputTokens:tokens.inputTokens,outputTokens:tokens.outputTokens,inputRate,outputRate,estimatedCost:cost,priced:Boolean(inputRate||outputRate),durationMs:Date.now()-startedAt});saved.apiUsage=saved.apiUsage.slice(0,2000);persist();renderApiUsageDashboard();}
-async function callAgent(instruction, project = getActiveProject()) {
+async function callAgent(instruction, project = getActiveProject(), kind = 'agent') {
+  if (!ENABLE_BYOK) project = getActiveProject();
+  if (project.provider === 'system') return callSystemText(instruction, project, kind);
+  if (!ENABLE_BYOK) throw Object.assign(new Error(t('systemAi.signInHint')), SystemAI.interpretResponse(systemCreditExhausted ? 402 : 401));
   if (!project.apiKey || !project.endpoint || !project.model) throw new Error('請先完成 API Key、Endpoint 與模型設定');
   const system = `${project.prompt || ui(DEFAULT_PROMPT,DEFAULT_PROMPT_EN)}\n${ui('請嚴格依照要求輸出，不要使用 Markdown code fence。','Follow the requested output format exactly. Do not use Markdown code fences.')}`;
   const startedAt=Date.now();let response,data,recorded=false;
@@ -213,15 +433,17 @@ async function callAgent(instruction, project = getActiveProject()) {
 }
 const aiProvider = {
   async generateQuestions(topic, language, count=3) {
+    await window.tableTopicsCloud?.ready;
     const project=getActiveProject(); if (project.provider==='builtin') return localProvider.generateQuestions(topic,language,count);
-    const output=await callAgent(`${responseLanguageRule()} Generate ${count} impromptu speaking questions about the topic “${topic}”. Language code: ${language}. Return only a JSON array of strings.`,project);
+    let output;try{output=await callAgent(`${responseLanguageRule()} Generate ${count} impromptu speaking questions about the topic “${topic}”. Language code: ${language}. Return only a JSON array of strings.`,project,'questions');}catch(error){if(error.fallbackToBuiltin)return localProvider.generateQuestions(topic,language,count);throw error;}
     const parsed=extractJson(output); if(!Array.isArray(parsed)) throw new Error('題目格式不正確'); return parsed.slice(0,count);
   },
   async analyze(text) {
+    await window.tableTopicsCloud?.ready;
     const project=getActiveProject(); if (project.provider==='builtin') return localProvider.analyze(text);
     const grammarRequirement=state.language==='en-US'?`The learner is practicing English but may deliberately speak Chinese when they do not know an English expression. Never translate those Chinese words or sentences. Preserve Chinese segments as Chinese and preserve mixed Chinese-English sentences as mixed. Integrate sentence improvement and grammar correction into comparisons. comparisons MUST contain exactly one item for EVERY sentence in the learner's answer, in the original order, without skipping short or grammatically correct sentences. Correct and explain grammar only in the English portions. Each comparison must be {"label":"Sentence 1","before":"exact learner sentence","after":"a grammatically correct, more natural sentence with the same meaning while retaining any Chinese text","isGrammarCorrect":false,"grammarIssue":"identify the exact English error, say No English grammar error, or explain that the sentence contains a Chinese placeholder","grammarExplanation":"plain-language explanation of why it is wrong and why the improved sentence works","grammarRule":"the relevant English grammar rule","grammarExample":"one new short example using the same rule"}. Set isGrammarCorrect true when no English grammar correction is required. Return grammarCorrections as an empty array to avoid duplicate sections. Include Grammar accuracy as one scoreDetails category.`:`Return grammarCorrections as an empty array.`;
     const contentType=state.practiceMode==='manuscript'?'This is a free-form speech manuscript with no question. Evaluate it as a standalone manuscript and improve its expression without inventing a prompt or changing its intended meaning.':'This is an answer to an impromptu speaking question.';
-    const output=await callAgent(`${responseLanguageRule()} ${contentType} Create a detailed and practical speaking-coach report for the text below. Return only one JSON object. Required: overall, structure, detail, fluency (integer 0–100); strength, improve, summary; improvements (at least 3 items with title and detail); comparisons (${state.language==='en-US'?'one integrated item per sentence as defined below':'at least 4 sentence-level items formatted as {"label":"focus","before":"an exact sentence or phrase from the learner text","after":"its rewritten sentence or phrase"}. The before and after fields MUST be text, NEVER scores or numbers'}); rewritten (a complete improved 1–2 minute speech); scoreDetails (at least 5 items formatted as {"name":"category","before":65,"after":90,"beforeNote":"comment","afterNote":"comment"}; before and after MUST be integers only). Keep sentence rewrites exclusively in comparisons and numeric evaluations exclusively in scoreDetails; never duplicate or swap these schemas. improvedOverall (integer 0–100 only). ${grammarRequirement} Check factual and wording errors. Evaluate position, logic, accuracy, emotional impact, and closing strength. Text: ${text}`,project);
+    let output;try{output=await callAgent(`${responseLanguageRule()} ${contentType} Create a detailed and practical speaking-coach report for the text below. Return only one JSON object. Required: overall, structure, detail, fluency (integer 0–100); strength, improve, summary; improvements (at least 3 items with title and detail); comparisons (${state.language==='en-US'?'one integrated item per sentence as defined below':'at least 4 sentence-level items formatted as {"label":"focus","before":"an exact sentence or phrase from the learner text","after":"its rewritten sentence or phrase"}. The before and after fields MUST be text, NEVER scores or numbers'}); rewritten (a complete improved 1–2 minute speech); scoreDetails (at least 5 items formatted as {"name":"category","before":65,"after":90,"beforeNote":"comment","afterNote":"comment"}; before and after MUST be integers only). Keep sentence rewrites exclusively in comparisons and numeric evaluations exclusively in scoreDetails; never duplicate or swap these schemas. improvedOverall (integer 0–100 only). ${grammarRequirement} Check factual and wording errors. Evaluate position, logic, accuracy, emotional impact, and closing strength. Text: ${text}`,project,'analysis');}catch(error){if(error.fallbackToBuiltin)return localProvider.analyze(text);throw error;}
     const r=extractJson(output); r._rawResponse=output; return normalizeCoachResult(r,text);
   }
 };
@@ -230,7 +452,7 @@ async function analyzeScriptParagraphAI(script,paragraph,count){
   const project=getActiveProject(),language=script.language||state.language,brief=`Title: ${script.title}\nTopic: ${script.topic}\nPurpose: ${script.purpose}\nAudience: ${script.audience}\nTone: ${script.tone}\nLanguage: ${language}`;
   if(project.provider==='builtin'){const grammar=language==='en-US'?basicEnglishGrammarReview(paragraph.text):[];const base=paragraph.text.trim();return {overview:ui('這一段已清楚表達核心意思，可以再強化節奏、具體度與記憶點。','The paragraph communicates its core idea. It can be stronger with tighter rhythm, specificity, and a memorable line.'),suggestions:Array.from({length:count},(_,i)=>({label:ui(`版本 ${i+1}`,`Version ${i+1}`),style:[ui('清楚精煉','Clear and concise'),ui('自然有感染力','Natural and engaging'),ui('正式有說服力','Formal and persuasive')][i%3],text:base,rationale:ui('保留原意並讓句子更容易聆聽。','Preserves the meaning while making it easier to follow.')})),comparisons:grammar.map((g,i)=>({label:`Sentence ${i+1}`,before:g.original,after:g.corrected,isGrammarCorrect:g.isCorrect,grammarIssue:g.issue,grammarExplanation:g.explanation,grammarRule:g.rule,grammarExample:g.example}))};}
   const mixed=language==='en-US'?'The writer may use Chinese placeholders. Never translate them; preserve mixed Chinese-English text and correct grammar only in English portions.':'Use Traditional Chinese.';
-  const output=await callAgent(`Improve one paragraph of a speech manuscript. ${mixed}\nSCRIPT BRIEF:\n${brief}\nReturn only JSON: {"overview":"brief diagnosis","suggestions":[exactly ${count} items as {"label":"version name","style":"distinct style","text":"complete improved paragraph","rationale":"why this version works"}],"comparisons":[one item for every source sentence as {"label":"Sentence 1","before":"exact source sentence","after":"improved sentence","isGrammarCorrect":true,"grammarIssue":"English grammar issue or none","grammarExplanation":"plain explanation","grammarRule":"rule","grammarExample":"new example"}]}. Keep the meaning and do not invent facts. SOURCE PARAGRAPH:\n${paragraph.text}`,project);
+  const output=await callAgent(`Improve one paragraph of a speech manuscript. ${mixed}\nSCRIPT BRIEF:\n${brief}\nReturn only JSON: {"overview":"brief diagnosis","suggestions":[exactly ${count} items as {"label":"version name","style":"distinct style","text":"complete improved paragraph","rationale":"why this version works"}],"comparisons":[one item for every source sentence as {"label":"Sentence 1","before":"exact source sentence","after":"improved sentence","isGrammarCorrect":true,"grammarIssue":"English grammar issue or none","grammarExplanation":"plain explanation","grammarRule":"rule","grammarExample":"new example"}]}. Keep the meaning and do not invent facts. SOURCE PARAGRAPH:\n${paragraph.text}`,project,'analysis');
   const result=extractJson(output);result._rawResponse=output;result.suggestions=Array.isArray(result.suggestions)?result.suggestions.slice(0,count):[];result.comparisons=Array.isArray(result.comparisons)?result.comparisons:[];return result;
 }
 async function reviewWholeScriptAI(script){const text=script.paragraphs.map((p,i)=>`${i+1}. ${p.text}`).join('\n\n'),project=getActiveProject();if(project.provider==='builtin')return {summary:ui('整體講稿已有基本架構。請檢查各段是否都服務同一個主旨，並讓開場與結尾彼此呼應。','The manuscript has a workable structure. Make sure every paragraph supports one central message and that the opening and closing echo each other.'),transitions:ui('在段落之間加入清楚的承接句。','Add clear transition sentences between paragraphs.'),repetition:ui('刪除重複觀點，只保留最有力的例子。','Remove repeated ideas and keep the strongest example.'),tone:ui('維持一致的語氣與稱呼。','Keep the tone and form of address consistent.'),opening:ui('開場先交代核心主張或問題。','Open with the central claim or question.'),closing:ui('結尾回扣主旨並留下可記憶的一句話。','Return to the main point and end with a memorable line.')};const output=await callAgent(`Review this complete speech manuscript without rewriting or changing any paragraph. Preserve Chinese-English mixed content and never translate it. Return only JSON with summary, transitions, repetition, tone, opening, closing, and recommendations (array of actionable strings). SCRIPT BRIEF: ${JSON.stringify({title:script.title,topic:script.topic,purpose:script.purpose,audience:script.audience,tone:script.tone})}\nMANUSCRIPT:\n${text}`,project);const result=extractJson(output);result._rawResponse=output;return result;}
@@ -377,15 +599,16 @@ function populateModelSelect(provider,currentModel=''){const select=$('#modelSel
 function selectedModel(){return $('#modelSelect').value==='__custom__'?$('#modelInput').value.trim():$('#modelSelect').value;}
 function applySelectedModelPricing({preserveExisting=false}={}){const model=selectedModel(),pricing=MODEL_PRICING[model],input=$('#costInputRate'),output=$('#costOutputRate'),hint=$('#modelPricingHint');if(pricing){if(!preserveExisting||(!Number(input.value)&&!Number(output.value))){input.value=pricing.input;output.value=pricing.output;}hint.innerHTML=`${ui('已自動填入','Auto-filled from')} ${pricing.provider}${pricing.note?` · ${pricing.note}`:''} · <a href="${pricing.url}" target="_blank" rel="noopener">${ui('查看官方計價','Official pricing')}</a> · ${ui('仍可自行修改','You can edit these rates')}`;}else{if(!preserveExisting){input.value='';output.value='';}hint.textContent=model?ui('這個模型沒有可驗證的預設費率，請依供應商最新計價自行填寫。','No verified preset is available for this model. Enter the provider’s latest rates.'):ui('內建教練不會產生 API 費用。','The built-in coach has no API cost.');}renderApiUsageDashboard();}
 function formatTokenCount(value){return new Intl.NumberFormat(state.language).format(value||0);}
-function filteredApiUsage(){const period=$('#apiUsagePeriod')?.value||'month',kind=$('#apiUsageKind')?.value||'all',now=Date.now(),month=new Date().toISOString().slice(0,7);return(saved.apiUsage||[]).filter(item=>{if(kind!=='all'&&item.kind!==kind)return false;if(period==='month')return item.createdAt?.startsWith(month);if(period==='all')return true;return now-new Date(item.createdAt).getTime()<=Number(period)*86400000;});}
-function renderApiUsageDashboard(){if(!$('#apiUsageList'))return;const all=saved.apiUsage||[],usage=filteredApiUsage(),month=new Date().toISOString().slice(0,7),monthCost=all.filter(item=>item.createdAt?.startsWith(month)).reduce((total,item)=>total+(Number(item.estimatedCost)||0),0),sum=key=>usage.reduce((total,item)=>total+(Number(item[key])||0),0),inputTokens=sum('inputTokens'),outputTokens=sum('outputTokens'),totalCost=sum('estimatedCost');$('#apiUsageCalls').textContent=formatTokenCount(usage.length);$('#apiUsageInputTokens').textContent=formatTokenCount(inputTokens);$('#apiUsageOutputTokens').textContent=formatTokenCount(outputTokens);$('#apiUsageTotalCost').textContent=`US$${totalCost.toFixed(6)}`;$('#headerApiCost').textContent=`US$${monthCost.toFixed(4)}`;$('#apiUsageList').innerHTML=usage.length?usage.map(item=>{const inputCost=(Number(item.inputTokens)||0)/1e6*(Number(item.inputRate)||0),outputCost=(Number(item.outputTokens)||0)/1e6*(Number(item.outputRate)||0),priced=item.priced||item.inputRate||item.outputRate,cost=value=>priced?`US$${value.toFixed(6)}`:ui('未設定費率','No rate');return`<tr><td><strong>${new Date(item.createdAt).toLocaleString(state.language)}</strong><small>${escapeHtml(item.projectName||'—')} · ${item.kind==='transcription'?ui('語音轉文字','Transcription'):ui('文字 Agent','Text agent')}</small></td><td><strong>${escapeHtml(item.model||item.provider||'API')}</strong><small>${escapeHtml(item.provider||'')}</small></td><td><b>${cost(inputCost)}</b><small>${formatTokenCount(item.inputTokens)} tokens × US$${Number(item.inputRate||0).toFixed(2)}/1M</small></td><td><b>${cost(outputCost)}</b><small>${formatTokenCount(item.outputTokens)} tokens × US$${Number(item.outputRate||0).toFixed(2)}/1M</small></td><td class="api-ledger-total">${cost(Number(item.estimatedCost)||0)}</td><td><span class="api-ledger-state ${item.status}">${item.status==='success'?ui('成功','Success'):ui('失敗','Failed')}</span>${item.error?`<small class="api-call-error" title="${escapeHtml(item.error)}">${escapeHtml(item.error)}</small>`:''}</td></tr>`}).join(''):`<tr><td colspan="6" class="empty">${ui('這個期間還沒有 API 呼叫紀錄。','No API calls in this period.')}</td></tr>`;}
+function filteredApiUsage(){const period=$('#apiUsagePeriod')?.value||'month',kind=$('#apiUsageKind')?.value||'all',now=Date.now(),month=new Date().toISOString().slice(0,7);return(saved.apiUsage||[]).filter(item=>{if(kind!=='all'&&(kind==='agent'?item.kind==='transcription':item.kind!==kind))return false;if(period==='month')return item.createdAt?.startsWith(month);if(period==='all')return true;return now-new Date(item.createdAt).getTime()<=Number(period)*86400000;});}
+function renderApiUsageDashboard(){if(!ENABLE_BYOK)return renderSystemUsageDashboard();if(!$('#apiUsageList'))return;const all=saved.apiUsage||[],usage=filteredApiUsage(),month=new Date().toISOString().slice(0,7),monthCost=all.filter(item=>item.createdAt?.startsWith(month)).reduce((total,item)=>total+(Number(item.estimatedCost)||0),0),sum=key=>usage.reduce((total,item)=>total+(Number(item[key])||0),0),inputTokens=sum('inputTokens'),outputTokens=sum('outputTokens'),totalCost=sum('estimatedCost');$('#apiUsageCalls').textContent=formatTokenCount(usage.length);$('#apiUsageInputTokens').textContent=formatTokenCount(inputTokens);$('#apiUsageOutputTokens').textContent=formatTokenCount(outputTokens);$('#apiUsageTotalCost').textContent=`US$${totalCost.toFixed(6)}`;$('#headerApiCost').textContent=`US$${monthCost.toFixed(4)}`;$('#apiUsageList').innerHTML=usage.length?usage.map(item=>{const inputCost=(Number(item.inputTokens)||0)/1e6*(Number(item.inputRate)||0),outputCost=(Number(item.outputTokens)||0)/1e6*(Number(item.outputRate)||0),priced=item.priced||item.inputRate||item.outputRate,cost=value=>priced?`US$${value.toFixed(6)}`:ui('未設定費率','No rate');return`<tr><td><strong>${new Date(item.createdAt).toLocaleString(state.language)}</strong><small>${escapeHtml(item.projectName||'—')} · ${item.kind==='transcription'?ui('語音轉文字','Transcription'):ui('文字 Agent','Text agent')}</small></td><td><strong>${escapeHtml(item.model||item.provider||'API')}</strong><small>${escapeHtml(item.provider||'')}</small></td><td><b>${cost(inputCost)}</b><small>${formatTokenCount(item.inputTokens)} tokens × US$${Number(item.inputRate||0).toFixed(2)}/1M</small></td><td><b>${cost(outputCost)}</b><small>${formatTokenCount(item.outputTokens)} tokens × US$${Number(item.outputRate||0).toFixed(2)}/1M</small></td><td class="api-ledger-total">${cost(Number(item.estimatedCost)||0)}</td><td><span class="api-ledger-state ${item.status}">${item.status==='success'?ui('成功','Success'):ui('失敗','Failed')}</span>${item.error?`<small class="api-call-error" title="${escapeHtml(item.error)}">${escapeHtml(item.error)}</small>`:''}</td></tr>`}).join(''):`<tr><td colspan="6" class="empty">${ui('這個期間還沒有 API 呼叫紀錄。','No API calls in this period.')}</td></tr>`;}
 
 function loadProjectCostRates(project){$('#costInputRate').value=project.inputTokenRate??'';$('#costOutputRate').value=project.outputTokenRate??'';applySelectedModelPricing({preserveExisting:true});}
-function renderProjectSettings(){const select=$('#projectSelect');select.innerHTML=aiSettings.projects.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');select.value=aiSettings.activeId;loadProjectForm();const p=getActiveProject();$('#activeProjectLabel').textContent=p.name;}
-function loadProjectForm(){const p=aiSettings.projects.find(x=>x.id===$('#projectSelect').value)||getActiveProject();const defaults=providerDefaults(p.provider);$('#projectNameInput').value=p.name;$('#providerSelect').value=p.provider;populateModelSelect(p.provider,p.model||defaults.model||'');$('#endpointInput').value=p.endpoint||'';$('#apiKeyInput').value=p.apiKey||'';$('#transcriptionModeSelect').value=p.transcriptionMode||'browser';$('#transcriptionModelInput').value=p.transcriptionModel||defaults.transcriptionModel||'';$('#transcriptionEndpointInput').value=p.transcriptionEndpoint||defaults.transcriptionEndpoint||'';$('#smartCorrectionInput').checked=p.smartCorrection!==false;$('#promptInput').value=(state.language==='en-US'&&p.prompt===DEFAULT_PROMPT)?DEFAULT_PROMPT_EN:(p.prompt||ui(DEFAULT_PROMPT,DEFAULT_PROMPT_EN));loadProjectCostRates(p);syncTranscriptionQuickPicker();}
-function saveProject(){const id=$('#projectSelect').value;const p=aiSettings.projects.find(x=>x.id===id);if(!p)return;p.name=$('#projectNameInput').value.trim()||'未命名專案';p.provider=$('#providerSelect').value;p.model=selectedModel();p.endpoint=$('#endpointInput').value.trim();p.apiKey=$('#apiKeyInput').value.trim();p.transcriptionMode=$('#transcriptionModeSelect').value;p.transcriptionModel=$('#transcriptionModelInput').value.trim();p.transcriptionEndpoint=$('#transcriptionEndpointInput').value.trim();p.smartCorrection=$('#smartCorrectionInput').checked;p.prompt=$('#promptInput').value.trim()||DEFAULT_PROMPT;p.inputTokenRate=Math.max(0,Number($('#costInputRate').value)||0);p.outputTokenRate=Math.max(0,Number($('#costOutputRate').value)||0);aiSettings.activeId=id;persistAISettings();renderProjectSettings();syncTranscriptionQuickPicker();$('#settingsDialog').close();toast(`已啟用「${p.name}」`);}
+function renderProjectSettings(){if(!ENABLE_BYOK)return renderManagedProjectSettings(true);const select=$('#projectSelect');select.innerHTML=aiSettings.projects.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');select.value=aiSettings.activeId;loadProjectForm();const p=getActiveProject();$('#activeProjectLabel').textContent=p.name;}
+function loadProjectForm(){if(!ENABLE_BYOK)return renderManagedProjectSettings(true);const p=aiSettings.projects.find(x=>x.id===$('#projectSelect').value)||getActiveProject();const defaults=providerDefaults(p.provider);$('#projectNameInput').value=p.name;$('#providerSelect').value=p.provider;populateModelSelect(p.provider,p.model||defaults.model||'');$('#endpointInput').value=p.endpoint||'';$('#apiKeyInput').value=p.apiKey||'';$('#transcriptionModeSelect').value=p.transcriptionMode||'browser';$('#transcriptionModelInput').value=p.transcriptionModel||defaults.transcriptionModel||'';$('#transcriptionEndpointInput').value=p.transcriptionEndpoint||defaults.transcriptionEndpoint||'';$('#smartCorrectionInput').checked=p.smartCorrection!==false;$('#promptInput').value=(state.language==='en-US'&&p.prompt===DEFAULT_PROMPT)?DEFAULT_PROMPT_EN:(p.prompt||ui(DEFAULT_PROMPT,DEFAULT_PROMPT_EN));loadProjectCostRates(p);syncTranscriptionQuickPicker();}
+function saveProject(){if(!ENABLE_BYOK)return saveManagedProject();const id=$('#projectSelect').value;const p=aiSettings.projects.find(x=>x.id===id);if(!p)return;p.name=$('#projectNameInput').value.trim()||'未命名專案';p.provider=$('#providerSelect').value;p.model=selectedModel();p.endpoint=$('#endpointInput').value.trim();p.apiKey=$('#apiKeyInput').value.trim();p.transcriptionMode=$('#transcriptionModeSelect').value;p.transcriptionModel=$('#transcriptionModelInput').value.trim();p.transcriptionEndpoint=$('#transcriptionEndpointInput').value.trim();p.smartCorrection=$('#smartCorrectionInput').checked;p.prompt=$('#promptInput').value.trim()||DEFAULT_PROMPT;p.inputTokenRate=Math.max(0,Number($('#costInputRate').value)||0);p.outputTokenRate=Math.max(0,Number($('#costOutputRate').value)||0);aiSettings.activeId=id;persistAISettings();renderProjectSettings();syncTranscriptionQuickPicker();$('#settingsDialog').close();toast(`已啟用「${p.name}」`);}
 function setConnectionTestStatus(type,title,detail){const box=$('#connectionTestStatus');box.className=`connection-test-status ${type}`;$('#connectionTestIcon').textContent=type==='success'?'✓':type==='error'?'!':'⋯';$('#connectionTestTitle').textContent=title;$('#connectionTestDetail').textContent=detail||'';}
 async function testAgentConnection(){
+  if(!ENABLE_BYOK)return;
   const btn=$('#testConnectionButton'),draft={name:$('#projectNameInput').value,provider:$('#providerSelect').value,model:selectedModel(),endpoint:$('#endpointInput').value.trim(),apiKey:$('#apiKeyInput').value.trim(),prompt:$('#promptInput').value,inputTokenRate:Math.max(0,Number($('#costInputRate').value)||0),outputTokenRate:Math.max(0,Number($('#costOutputRate').value)||0)};
   if(draft.provider==='builtin'){setConnectionTestStatus('success',ui('內建教練可以使用','Built-in coach is ready'),ui('內建模式不需要 API Key 或網路連線。','Built-in mode does not require an API key or network connection.'));return;}
   const missing=[!draft.apiKey&&'API Key',!draft.endpoint&&'Endpoint',!draft.model&&ui('模型','Model')].filter(Boolean);
@@ -397,7 +620,7 @@ async function testAgentConnection(){
   finally{btn.disabled=false;btn.textContent=ui('測試連線','Test connection');}
 }
 function setTranscriptionApiStatus(message,type=''){const el=$('#transcriptionApiStatus');if(!el)return;el.textContent=message;el.className=`transcription-api-status ${type}`.trim();}
-function syncTranscriptionQuickPicker(){const p=getActiveProject();if($('#transcriptionModeQuick'))$('#transcriptionModeQuick').value=p.transcriptionMode||'browser';if((p.transcriptionMode||'browser')==='api')setTranscriptionApiStatus(ui(`API 模式已啟用：${p.transcriptionModel||'尚未設定模型'}`,`API mode enabled: ${p.transcriptionModel||'model not configured'}`));else setTranscriptionApiStatus(ui('目前使用瀏覽器即時辨識，不會呼叫 Audio API。','Browser live recognition is active. The Audio API will not be called.'));}
+function syncTranscriptionQuickPicker(){if(!ENABLE_BYOK)return syncManagedTranscriptionPicker();const p=getActiveProject();if($('#transcriptionModeQuick'))$('#transcriptionModeQuick').value=p.transcriptionMode||'browser';if((p.transcriptionMode||'browser')==='api')setTranscriptionApiStatus(ui(`API 模式已啟用：${p.transcriptionModel||'尚未設定模型'}`,`API mode enabled: ${p.transcriptionModel||'model not configured'}`));else setTranscriptionApiStatus(ui('目前使用瀏覽器即時辨識，不會呼叫 Audio API。','Browser live recognition is active. The Audio API will not be called.'));}
 function closeSettingsMenu(){const menu=$('#settingsMenu'),button=$('#settingsButton');menu.classList.add('hidden');button.setAttribute('aria-expanded','false');}
 function initSettings(){renderProjectSettings();renderApiUsageDashboard();const menu=$('#settingsMenu'),settingsButton=$('#settingsButton');settingsButton.onclick=event=>{event.stopPropagation();const opening=menu.classList.contains('hidden');menu.classList.toggle('hidden',!opening);settingsButton.setAttribute('aria-expanded',String(opening));if(opening)menu.querySelector('[role=menuitem]')?.focus();};$('#openAiSettingsButton').onclick=()=>{closeSettingsMenu();$('#settingsDialog').showModal();renderProjectSettings();$('#connectionTestStatus').classList.add('hidden');};document.addEventListener('click',event=>{if(!event.target.closest('.settings-menu-wrap'))closeSettingsMenu();});document.addEventListener('keydown',event=>{if(event.key==='Escape')closeSettingsMenu();});$('#projectSelect').onchange=()=>{loadProjectForm();$('#connectionTestStatus').classList.add('hidden');};$('#providerSelect').onchange=e=>{const d=providerDefaults(e.target.value);populateModelSelect(e.target.value,d.model);applySelectedModelPricing();$('#endpointInput').value=d.endpoint;$('#connectionTestStatus').classList.add('hidden');};$('#modelSelect').onchange=e=>{$('#modelInput').classList.toggle('hidden',e.target.value!=='__custom__');if(e.target.value==='__custom__')$('#modelInput').focus();applySelectedModelPricing();$('#connectionTestStatus').classList.add('hidden');};$('#newProjectButton').onclick=()=>{const p={id:`p_${Date.now()}`,name:'新 AI 專案',provider:'openai',apiKey:'',prompt:DEFAULT_PROMPT,...providerDefaults('openai')};aiSettings.projects.push(p);aiSettings.activeId=p.id;persistAISettings();renderProjectSettings();};$('#deleteProjectButton').onclick=()=>{if(aiSettings.projects.length===1)return toast('至少保留一個專案');aiSettings.projects=aiSettings.projects.filter(p=>p.id!==$('#projectSelect').value);aiSettings.activeId=aiSettings.projects[0].id;persistAISettings();renderProjectSettings();};$('#saveProjectButton').onclick=saveProject;$('#toggleKeyButton').onclick=()=>{const i=$('#apiKeyInput');i.type=i.type==='password'?'text':'password';$('#toggleKeyButton').textContent=i.type==='password'?'顯示':'隱藏';};$('#modelInput').onchange=()=>applySelectedModelPricing();$('#testConnectionButton').onclick=testAgentConnection;['costInputRate','costOutputRate'].forEach(id=>$(`#${id}`).oninput=()=>{const p=aiSettings.projects.find(item=>item.id===$('#projectSelect').value);if(p){p.inputTokenRate=Math.max(0,Number($('#costInputRate').value)||0);p.outputTokenRate=Math.max(0,Number($('#costOutputRate').value)||0);persistAISettings();}renderApiUsageDashboard();});const openUsage=()=>{closeSettingsMenu();renderApiUsageDashboard();$('#apiUsageDialog').showModal();};$('#apiUsageButton').onclick=openUsage;$('#openApiUsageButton').onclick=openUsage;$('#closeApiUsageButton').onclick=()=>$('#apiUsageDialog').close();$('#apiUsagePeriod').onchange=renderApiUsageDashboard;$('#apiUsageKind').onchange=renderApiUsageDashboard;$('#clearApiUsageButton').onclick=()=>{if(confirm(ui('確定清除這個使用者的所有 API 使用紀錄嗎？','Clear all API usage records for this user?'))){saved.apiUsage=[];persist();renderApiUsageDashboard();}};$('#closeHistoryButton').onclick=()=>$('#historyDialog').close();}
 
@@ -459,24 +682,26 @@ function setupRecognition() {
   return recognition;
 }
 
-function activeTranscriptionMode(){return getActiveProject()?.transcriptionMode||'browser';}
+function activeTranscriptionMode(){const project=getActiveProject();return project.provider==='builtin'?'browser':project.transcriptionMode||'browser';}
 let transcriptionQueue=Promise.resolve();
 function queueAudioTranscription(blob,project){const run=()=>transcribeAudioBlobV2(blob,project);transcriptionQueue=transcriptionQueue.then(run,run);return transcriptionQueue;}
 async function startApiRecording(){
-  const project=getActiveProject();if(!project.apiKey||!project.transcriptionEndpoint||!project.transcriptionModel){toast(ui('請先在 AI 專案設定完成 Audio-to-Text API','Configure the Audio-to-Text API in AI project settings first'));return false;}
+  const project=getActiveProject();if(project.provider!=='system'&&(!project.apiKey||!project.transcriptionEndpoint||!project.transcriptionModel)){toast(ui('請先在 AI 專案設定完成 Audio-to-Text API','Configure the Audio-to-Text API in AI project settings first'));return false;}
   if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){toast(ui('這個瀏覽器不支援音訊錄製','This browser does not support audio recording'));return false;}
   try{state.discardAudio=false;const chunks=[];state.audioChunks=chunks;const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});state.mediaStream=stream;const preferred=['audio/webm;codecs=opus','audio/mp4','audio/webm'];const mimeType=preferred.find(t=>MediaRecorder.isTypeSupported?.(t))||'';const recorder=new MediaRecorder(stream,mimeType?{mimeType}:undefined);state.mediaRecorder=recorder;recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};recorder.onstop=async()=>{const captured=[...chunks],type=recorder.mimeType||captured[0]?.type||'audio/webm',discard=state.discardAudio;stream.getTracks().forEach(track=>track.stop());if(state.mediaStream===stream)state.mediaStream=null;if(discard||!captured.length){if(discard)state.discardAudio=false;return;}const unexpectedlyEnded=state.isRecording&&activeTranscriptionMode()==='api';if(unexpectedlyEnded){$('#recordStatus').textContent=ui('錄音連線已自動重接，正在保存上一段⋯','Recording reconnected automatically; saving the previous segment…');const restarted=await startApiRecording();if(!restarted){state.isRecording=false;clearInterval(state.timerId);state.timerId=null;state.isPaused=true;updateRecorderControls();}}await queueAudioTranscription(new Blob(captured,{type}),project);if(unexpectedlyEnded&&state.isRecording)$('#recordStatus').textContent=ui('已接續錄音，上一段已安全轉錄','Recording continues; the previous segment was transcribed safely.');};recorder.start(500);return true;}catch(e){stopMediaStream();toast(`${ui('無法啟動麥克風','Could not start microphone')}: ${e.message}`);return false;}
 }
 function stopMediaStream(){state.mediaStream?.getTracks().forEach(track=>track.stop());state.mediaStream=null;}
 async function transcribeAudioBlob(blob,project){
+  if (!ENABLE_BYOK || project.provider === 'system') return transcribeWithSystem(blob, project);
   state.isTranscribing=true;updateRecorderControls();$('#recordStatus').textContent=ui('正在透過 API 轉錄並補上標點⋯','Transcribing and adding punctuation with the API…');
   try{const type=blob.type||'audio/webm';const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const form=new FormData();form.append('file',blob,`recording.${ext}`);form.append('model',project.transcriptionModel);form.append('prompt','Add natural punctuation and paragraph breaks. Preserve every spoken language exactly as spoken. Never translate. Chinese speech must remain Chinese, English speech must remain English, and mixed-language speech must remain mixed.');const response=await fetch(project.transcriptionEndpoint,{method:'POST',headers:{Authorization:`Bearer ${project.apiKey}`},body:form});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message||data?.message||`API ${response.status}`);const text=String(data.text||data.transcript||data.output_text||'').trim();if(!text)throw new Error(ui('API 沒有回傳逐字稿','The API returned no transcript'));const previous=$('#transcript').value.trim();$('#transcript').value=previous?`${previous}\n${text}`:text;updateCharCount();$('#recordStatus').textContent=ui('API 轉錄完成，可繼續錄製','API transcription complete. You can continue recording.');}catch(e){toast(`${ui('API 轉錄失敗','API transcription failed')}: ${e.message}`);$('#recordStatus').textContent=ui('轉錄失敗，可保留目前文字或重新錄製','Transcription failed. Keep the current text or record again.');}finally{state.isTranscribing=false;state.audioChunks=[];updateRecorderControls();}
 }
 async function polishTranscriptWithAgent(rawText,project){
   if(project.smartCorrection===false)return rawText;
-  try{const instruction=`This is a raw multilingual speech-to-text transcript. Return only the cleaned transcript. Add natural punctuation and paragraph breaks and correct only obvious recognition errors or repeated fragments. Preserve the language of every phrase exactly: never translate Chinese into English or English into Chinese. If the speaker switches languages within a sentence, keep that mixed-language structure. Do not add ideas, remove meaning, summarize, or change the speaker's style.\n\nRAW TRANSCRIPT:\n${rawText}`;const polished=(await callAgent(instruction,project)).trim();if(!polished)return rawText;const rawCjk=(rawText.match(/[\u3400-\u9fff]/g)||[]).length,polishedCjk=(polished.match(/[\u3400-\u9fff]/g)||[]).length,rawLatin=(rawText.match(/[A-Za-z]/g)||[]).length,polishedLatin=(polished.match(/[A-Za-z]/g)||[]).length;if((rawCjk>3&&polishedCjk<rawCjk*.8)||(rawLatin>8&&polishedLatin<rawLatin*.8)){toast(ui('偵測到 Agent 可能改變原語言，已保留 Audio API 原始逐字稿','The Agent may have changed the spoken language, so the original Audio API transcript was kept.'));return rawText;}return polished;}catch(e){toast(`${ui('Agent 智慧校正失敗，保留原始轉錄','Agent cleanup failed; keeping the raw transcript')}: ${e.message}`);return rawText;}
+  try{const instruction=`This is a raw multilingual speech-to-text transcript. Return only the cleaned transcript. Add natural punctuation and paragraph breaks and correct only obvious recognition errors or repeated fragments. Preserve the language of every phrase exactly: never translate Chinese into English or English into Chinese. If the speaker switches languages within a sentence, keep that mixed-language structure. Do not add ideas, remove meaning, summarize, or change the speaker's style.\n\nRAW TRANSCRIPT:\n${rawText}`;const polished=(await callAgent(instruction,project,'polish')).trim();if(!polished)return rawText;const rawCjk=(rawText.match(/[\u3400-\u9fff]/g)||[]).length,polishedCjk=(polished.match(/[\u3400-\u9fff]/g)||[]).length,rawLatin=(rawText.match(/[A-Za-z]/g)||[]).length,polishedLatin=(polished.match(/[A-Za-z]/g)||[]).length;if((rawCjk>3&&polishedCjk<rawCjk*.8)||(rawLatin>8&&polishedLatin<rawLatin*.8)){toast(ui('偵測到 Agent 可能改變原語言，已保留 Audio API 原始逐字稿','The Agent may have changed the spoken language, so the original Audio API transcript was kept.'));return rawText;}return polished;}catch(e){if(e.systemHandled)return rawText;toast(`${ui('Agent 智慧校正失敗，保留原始轉錄','Agent cleanup failed; keeping the raw transcript')}: ${e.message}`);return rawText;}
 }
 async function transcribeAudioBlobV2(blob,project){
+  if (!ENABLE_BYOK || project.provider === 'system') return transcribeWithSystem(blob, project);
   state.isTranscribing=true;updateRecorderControls();setTranscriptionApiStatus(ui(`正在呼叫 Audio API：${project.transcriptionModel}`,`Calling Audio API: ${project.transcriptionModel}`),'calling');$('#recordStatus').textContent=ui('第一階段：正在進行 Audio-to-Text⋯','Stage 1: Audio-to-Text in progress…');
   try{const type=blob.type||'audio/webm';const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const form=new FormData();form.append('file',blob,`recording.${ext}`);form.append('model',project.transcriptionModel);form.append('prompt','Use natural punctuation and preserve all spoken content. Automatically detect each spoken language. Never translate. Keep Chinese as Chinese, English as English, and preserve mixed Chinese-English sentences.');const startedAt=Date.now();const response=await fetch(project.transcriptionEndpoint,{method:'POST',headers:{Authorization:`Bearer ${project.apiKey}`},body:form});const data=await response.json().catch(()=>({}));const transcriptionError=data?.error?.message||data?.message||`HTTP ${response.status}`;recordApiUsage({...project,model:project.transcriptionModel},{usage:data?.usage,status:response.ok?'success':'error',error:response.ok?'':transcriptionError,kind:'transcription',startedAt});if(!response.ok)throw new Error(transcriptionError);const rawText=String(data.text||data.transcript||data.output_text||'').trim();if(!rawText)throw new Error(ui('Audio API 沒有回傳逐字稿','Audio API returned no transcript'));let finalText=rawText;if(project.smartCorrection!==false){$('#recordStatus').textContent=ui('第二階段：Agent 正在校正文字與標點⋯','Stage 2: Agent is correcting text and punctuation…');setTranscriptionApiStatus(ui(`Audio API 成功，正在使用 Agent 智慧校正⋯`,`Audio API succeeded; Agent cleanup in progress…`),'calling');finalText=await polishTranscriptWithAgent(rawText,project);}const previous=$('#transcript').value.trim();$('#transcript').value=previous?`${previous}\n${finalText}`:finalText;updateCharCount();const time=new Intl.DateTimeFormat(state.language,{hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date());setTranscriptionApiStatus(ui(`✓ Audio API 已成功調用 · ${project.transcriptionModel} · ${time} · ${((Date.now()-startedAt)/1000).toFixed(1)} 秒`,`✓ Audio API called successfully · ${project.transcriptionModel} · ${time} · ${((Date.now()-startedAt)/1000).toFixed(1)}s`),'success');$('#recordStatus').textContent=ui('智慧轉錄完成，可繼續錄製','Smart transcription complete. You can continue recording.');}catch(e){setTranscriptionApiStatus(`${ui('Audio API 調用失敗','Audio API call failed')}: ${e.message}`,'error');toast(`${ui('Audio-to-Text 失敗','Audio-to-Text failed')}: ${e.message}`);$('#recordStatus').textContent=ui('轉錄失敗，請檢查 Endpoint、模型與 API Key','Transcription failed. Check endpoint, model, and API key.');}finally{state.isTranscribing=false;state.audioChunks=[];updateRecorderControls();}
 }
@@ -630,6 +855,7 @@ async function transcribeScriptParagraph(blob,paragraphId,project){const paragra
 function initScriptMode(){renderScriptProjects();$('#newScriptButton').onclick=newScript;$('#scriptSearchInput').oninput=e=>{state.scriptSearch=e.target.value;renderScriptProjects();};$('#scriptStatusFilter').onchange=e=>{state.scriptStatus=e.target.value;renderScriptProjects();};['scriptTitleInput','scriptLanguageInput','scriptTopicInput','scriptPurposeInput','scriptAudienceInput','scriptToneInput','scriptMinutesInput','scriptTagsInput'].forEach(id=>{$(`#${id}`).oninput=saveScriptBrief;$(`#${id}`).onchange=()=>{saveScriptBrief();renderScriptProjects();};});$('#addScriptParagraphButton').onclick=()=>addScriptParagraph();$('#fullScriptReviewButton').onclick=runFullScriptReview;$('#archiveScriptButton').onclick=()=>{const script=currentScript();if(script)setScriptStatus(script.id,script.status==='archived'?'active':'archived');};$('#trashScriptButton').onclick=()=>{const script=currentScript();if(script&&confirm(ui('確定把這篇講稿移到垃圾桶嗎？','Move this manuscript to trash?')))setScriptStatus(script.id,'trashed');};}
 
 function init() {
+  initSystemAi();
   ensureDataSchema();
   if(!CONFIG.languages[state.language])state.language='zh-TW';
   $('#languageSelect').value=state.language;
