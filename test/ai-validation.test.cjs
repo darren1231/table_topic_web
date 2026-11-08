@@ -5,7 +5,7 @@ const validateTranscriptionInput = (...args) => require('../api/_lib/validation.
 const invalid = { status: 400, code: 'invalid_input' };
 
 test('respond accepts all allowed kinds and strips client-selected models without mutating input', () => {
-  for (const kind of ['agent', 'analysis', 'questions', 'transcription', 'polish']) {
+  for (const kind of ['agent', 'analysis', 'questions', 'polish']) {
     const body = Object.freeze({ instructions: 'Follow instructions', input: 'Answer', kind, model: 'untrusted-model' });
     assert.deepEqual(validateRespondInput(body), { instructions: body.instructions, input: body.input, kind });
   }
@@ -26,7 +26,7 @@ test('respond rejects malformed bodies, non-string text and every unsupported ki
       assert.throws(() => validateRespondInput({ ...valid, [field]: value }), invalid);
     }
   }
-  for (const kind of [undefined, null, '', 'Agent', 'unknown', '__proto__', {}, ['agent']]) {
+  for (const kind of [undefined, null, '', 'Agent', 'unknown', 'transcription', '__proto__', {}, ['agent']]) {
     assert.throws(() => validateRespondInput({ ...valid, kind }), invalid);
   }
 });
@@ -47,7 +47,13 @@ test('transcription rejects missing, empty or invalid file sizes, prompts and ki
   for (const prompt of [undefined, null, {}, 1]) {
     assert.throws(() => validateTranscriptionInput({ ...valid, prompt }), invalid);
   }
-  for (const kind of ['unknown', '', '__proto__', undefined]) {
+  for (const kind of ['agent', 'analysis', 'questions', 'polish', 'unknown', '', '__proto__', undefined]) {
     assert.throws(() => validateTranscriptionInput({ ...valid, kind }), invalid);
   }
+});
+
+test('transcription prompt accepts 2000 Unicode characters and rejects 2001', () => {
+  const body = { file: { size: 1 }, prompt: '😀'.repeat(2000), kind: 'transcription' };
+  assert.deepEqual(validateTranscriptionInput(body), body);
+  assert.throws(() => validateTranscriptionInput({ ...body, prompt: body.prompt + 'x' }), invalid);
 });

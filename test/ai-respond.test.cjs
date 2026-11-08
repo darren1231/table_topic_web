@@ -1,0 +1,273 @@
+const assert = require('node:assert/strict');
+const { test } = require('node:test');
+
+const env = {
+  CHATGPT_PREVIEW_KEY: 'preview-placeholder',
+  CHATGPT_PRODUCTION_KEY: 'production-placeholder',
+  SUPABASE_URL: 'https://database.example.invalid',
+  SUPABASE_PUBLISHABLE_KEY: 'public-placeholder',
+};
+const authorization = 'Bearer user-placeholder';
+const body = { instructions: 'Coach the speaker', input: 'My practice answer', kind: 'analysis' };
+const usage = { input_tokens: 1_000_000, output_tokens: 500_000 };
+const handleRespond = args => require('../api/_lib/respond.js').handleRespond(args);
+
+function request(value = body, options = {}) {
+  const method = options.method || 'POST';
+  return new Request('https://app.example.invalid/api/ai/respond', {
+    method,
+    headers: { 'Content-Type': 'application/json', Authorization: authorization, ...options.headers },
+    ...(method === 'GET' || method === 'HEAD' ? {} : { body: options.rawBody ?? JSON.stringify(value) }),
+  });
+}
+
+function fixture(options = {}) {
+  const calls = [], logs = [];
+  let balanceReads = 0;
+  const fetch = async (url, init) => {
+    const entry = { url, method: init.method, headers: new Headers(init.headers), body: init.body ? JSON.parse(init.body) : null };
+    calls.push(entry);
+    if (url.endsWith('/auth/v1/user')) {
+      if (options.authThrows) throw new Error('Simulated auth network failure');
+      return Response.json(options.authBody ?? { id: '00000000-0000-0000-0000-000000000001' }, { status: options.authStatus ?? 200 });
+    }
+    if (url.endsWith('/rpc/get_my_ai_balance')) {
+      balanceReads += 1;
+      if (balanceReads > 1 && options.refreshThrows) throw new Error('Simulated refresh failure');
+      return Response.json(options.balanceBody ?? [{ spent: balanceReads === 1 ? (options.spent ?? '0') : '0.8' }], { status: options.balanceStatus ?? 200 });
+    }
+    if (url === 'https://api.openai.com/v1/responses') {
+      if (options.openaiThrows) throw options.openaiThrows;
+      if (options.openaiInvalidJson) return new Response('not-json', { status: 200 });
+      return Response.json(options.openaiBody ?? { output_text: 'A useful coaching response', usage }, { status: options.openaiStatus ?? 200 });
+    }
+    if (url.endsWith('/rpc/record_ai_usage')) {
+      if (options.recordThrows) throw options.recordThrows;
+      return Response.json(options.recordBody ?? '00000000-0000-0000-0000-000000000002', { status: options.recordStatus ?? 200 });
+    }
+    throw new Error('Unexpected fake fetch URL');
+  };
+  return {
+    calls, logs, fetch,
+    run: (req = request(), overrides = {}) => handleRespond({
+      request: req, env: { ...env, ...overrides }, fetch,
+      logger: { error: (...args) => logs.push(args.join(' ')) },
+    }),
+  };
+}
+
+const aiCalls = f => f.calls.filter(call => call.url === 'https://api.openai.com/v1/responses');
+const records = f => f.calls.filter(call => call.url.endsWith('/rpc/record_ai_usage'));
+
+test('respond rejects non-POST requests before any service access', async () => {
+  const f = fixture();
+  for (const method of ['GET', 'PUT', 'DELETE', 'OPTIONS']) {
+    const response = await f.run(request(body, { method }));
+    assert.ok(response instanceof Response);
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get('Allow'), 'POST');
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('respond requires a nonempty Bearer credential before any service access', async () => {
+  for (const header of ['', 'Bearer', 'Bearer ', 'Basic not-a-token', 'Bearer two values']) {
+    const f = fixture();
+    const response = await f.run(request(body, { headers: { Authorization: header } }));
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: 'unauthorized' });
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test('respond rejects invalid or unverifiable Supabase identities', async () => {
+  for (const options of [{ authStatus: 401 }, { authStatus: 403 }, { authBody: {} }, { authBody: { id: '' } }, { authThrows: true }]) {
+    const f = fixture(options);
+    assert.equal((await f.run()).status, 401);
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0].method, 'GET');
+  }
+});
+
+test('respond refuses exhausted and zero credit without calling OpenAI or recording usage', async () => {
+  for (const [spent, credit] of [['1', '1'], ['1.1', '1'], ['0', '0']]) {
+    const f = fixture({ spent });
+    const response = await f.run(request(), { AI_USER_CREDIT_USD: credit });
+    assert.equal(response.status, 402);
+    assert.deepEqual(await response.json(), { error: 'credit_exhausted' });
+    assert.equal(f.calls.length, 2);
+    assert.equal(aiCalls(f).length, 0);
+    assert.equal(records(f).length, 0);
+  }
+});
+
+test('respond validates JSON, combined length and text-only kinds after auth and credit checks', async () => {
+  const requests = [
+    request({ ...body, input: 'x'.repeat(60_001) }), request({ ...body, kind: 'transcription' }),
+    request({ ...body, kind: 'unknown' }), request({ ...body, instructions: null }), request(null),
+    request(body, { rawBody: '{invalid-json' }),
+  ];
+  for (const req of requests) {
+    const f = fixture();
+    const response = await f.run(req);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'invalid_input' });
+    assert.equal(f.calls.length, 2);
+  }
+});
+
+test('respond fails closed for missing selected keys or invalid numeric configuration', async () => {
+  for (const overrides of [
+    { CHATGPT_PREVIEW_KEY: undefined },
+    { VERCEL_ENV: 'production', CHATGPT_PRODUCTION_KEY: undefined },
+    { AI_INPUT_USD_PER_MTOK: '-1' }, { AI_USER_CREDIT_USD: 'NaN' },
+  ]) {
+    const f = fixture();
+    const response = await f.run(request(), overrides);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'configuration_error' });
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test('respond never calls OpenAI if the balance cannot be read or validated', async () => {
+  for (const options of [
+    { balanceStatus: 500 }, { balanceBody: [] }, { balanceBody: [{ spent: '-1' }] },
+    { balanceBody: [{ spent: 'NaN' }] }, { balanceBody: {} },
+  ]) {
+    const f = fixture(options);
+    assert.equal((await f.run()).status, 503);
+    assert.equal(aiCalls(f).length, 0);
+  }
+});
+
+test('respond authenticates, checks balance, generates, records, then reads the latest balance', async () => {
+  const f = fixture();
+  const response = await f.run();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  const result = await response.json();
+  assert.equal(result.text, 'A useful coaching response');
+  assert.deepEqual(result.usage, { inputTokens: 1_000_000, outputTokens: 500_000 });
+  assert.equal(result.cost, 0.8);
+  assert.equal(result.balance.spent, 0.8);
+  assert.equal(result.balance.credit, 1);
+  assert.ok(Math.abs(result.balance.balance - 0.2) < 1e-15);
+  assert.deepEqual(f.calls.map(call => call.url), [
+    `${env.SUPABASE_URL}/auth/v1/user`, `${env.SUPABASE_URL}/rest/v1/rpc/get_my_ai_balance`,
+    'https://api.openai.com/v1/responses', `${env.SUPABASE_URL}/rest/v1/rpc/record_ai_usage`,
+    `${env.SUPABASE_URL}/rest/v1/rpc/get_my_ai_balance`,
+  ]);
+  for (const call of f.calls.filter(call => call.url.startsWith(env.SUPABASE_URL))) {
+    assert.equal(call.headers.get('apikey'), env.SUPABASE_PUBLISHABLE_KEY);
+    assert.equal(call.headers.get('Authorization'), authorization);
+    assert.equal(call.method, call.url.endsWith('/auth/v1/user') ? 'GET' : 'POST');
+  }
+  const entry = records(f)[0].body;
+  assert.deepEqual({ ...entry, p_duration_ms: 0 }, {
+    p_provider: 'openai', p_model: 'gpt-5.6-luna', p_kind: 'analysis', p_status: 'success', p_error: '',
+    p_input_tokens: 1_000_000, p_output_tokens: 500_000, p_input_rate: 0.2, p_output_rate: 1.2,
+    p_estimated_cost: 0.8, p_duration_ms: 0,
+  });
+  assert.ok(Number.isSafeInteger(entry.p_duration_ms) && entry.p_duration_ms >= 0);
+  assert.equal(f.logs.length, 0);
+});
+
+test('respond ignores client models and uses the selected environment key with exactly the Responses payload', async () => {
+  for (const environment of ['production', 'development']) {
+    const f = fixture();
+    const response = await f.run(request({ ...body, model: 'untrusted-model', apiKey: 'untrusted-placeholder' }), {
+      VERCEL_ENV: environment, AI_MODEL: 'server-test-model',
+    });
+    assert.equal(response.status, 200);
+    const call = aiCalls(f)[0];
+    assert.deepEqual(call.body, { model: 'server-test-model', instructions: body.instructions, input: body.input });
+    assert.equal(call.method, 'POST');
+    assert.equal(call.headers.get('Authorization'), `Bearer ${environment === 'production' ? env.CHATGPT_PRODUCTION_KEY : env.CHATGPT_PREVIEW_KEY}`);
+    assert.equal(call.headers.get('apikey'), null);
+    assert.equal(records(f)[0].body.p_model, 'server-test-model');
+  }
+});
+
+test('respond uses output_text first and otherwise joins output content text like the existing callAgent', async () => {
+  for (const [payload, expected] of [
+    [{ output_text: 'Preferred', output: [{ content: [{ text: 'Ignored' }] }] }, 'Preferred'],
+    [{ output: [{ content: [{ text: 'First' }, { type: 'other' }] }, { content: [{ text: 'Second' }] }] }, 'FirstSecond'],
+  ]) {
+    const f = fixture({ openaiBody: { ...payload, usage } });
+    assert.equal((await (await f.run()).json()).text, expected);
+  }
+});
+
+test('respond records unsuccessful OpenAI calls without returning or persisting the raw error body', async () => {
+  const raw = 'UPSTREAM_BODY_DO_NOT_EXPOSE ' + env.CHATGPT_PREVIEW_KEY;
+  const f = fixture({ openaiStatus: 429, openaiBody: { error: { message: raw }, usage } });
+  const response = await f.run();
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: 'upstream_error' });
+  const entry = records(f)[0].body;
+  assert.equal(entry.p_status, 'error');
+  assert.equal(entry.p_estimated_cost, 0.8);
+  assert.equal(entry.p_error.includes('UPSTREAM_BODY'), false);
+  assert.equal(entry.p_error.includes(env.CHATGPT_PREVIEW_KEY), false);
+});
+
+test('respond records network failures and invalid JSON as errors, with no invented usage', async () => {
+  for (const options of [
+    { openaiThrows: new Error(`network ${env.CHATGPT_PREVIEW_KEY} ${authorization}`) },
+    { openaiInvalidJson: true },
+    { openaiBody: { output_text: 'No usage provided' } },
+    { openaiBody: { output_text: 'Invalid usage', usage: { input_tokens: -1, output_tokens: 1 } } },
+  ]) {
+    const f = fixture(options);
+    const response = await f.run();
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: 'upstream_error' });
+    assert.equal(records(f).length, 1);
+    const entry = records(f)[0].body;
+    assert.equal(entry.p_status, 'error');
+    assert.equal(entry.p_estimated_cost, 0);
+    assert.equal(entry.p_error.includes(env.CHATGPT_PREVIEW_KEY), false);
+    assert.ok(entry.p_error.length <= 500);
+  }
+});
+
+test('respond retains AI results when recording fails and logs only redacted diagnostics', async () => {
+  for (const options of [
+    { recordStatus: 500, recordBody: { message: `PRIVATE_BODY ${env.CHATGPT_PREVIEW_KEY}` } },
+    { recordThrows: new Error(`${env.CHATGPT_PREVIEW_KEY} ${env.SUPABASE_PUBLISHABLE_KEY} ${authorization}`) },
+  ]) {
+    const f = fixture(options);
+    const response = await f.run();
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.text, 'A useful coaching response');
+    assert.equal(result.cost, 0.8);
+    assert.equal(aiCalls(f).length, 1);
+    assert.equal(records(f).length, 1);
+    assert.ok(f.logs.length > 0);
+    const logs = f.logs.join(' ');
+    for (const secret of [env.CHATGPT_PREVIEW_KEY, env.SUPABASE_PUBLISHABLE_KEY, 'user-placeholder', 'PRIVATE_BODY']) {
+      assert.equal(logs.includes(secret), false);
+      assert.equal(JSON.stringify(result).includes(secret), false);
+    }
+  }
+});
+
+test('respond retains AI results with an unknown balance if the final balance refresh fails', async () => {
+  const f = fixture({ refreshThrows: true });
+  const response = await f.run();
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.text, 'A useful coaching response');
+  assert.equal(result.balance, null);
+  assert.ok(f.logs.length > 0);
+});
+
+test('Vercel entry exports a POST Web handler returning a Response', async () => {
+  const { POST } = require('../api/ai/respond.js');
+  assert.equal(typeof POST, 'function');
+  const response = await POST(request(body, { method: 'GET' }));
+  assert.ok(response instanceof Response);
+  assert.equal(response.status, 405);
+});
