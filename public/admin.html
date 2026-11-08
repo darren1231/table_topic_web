@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title></title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="admin-page">
+  <div class="shell">
+    <header class="topbar">
+      <h1 data-admin-i18n="admin.title"></h1>
+      <div class="top-actions">
+        <select id="adminLanguage">
+          <option value="zh-TW" data-admin-i18n="admin.localeZh"></option>
+          <option value="en-US" data-admin-i18n="admin.localeEn"></option>
+          <option value="ja-JP" data-admin-i18n="admin.localeJa"></option>
+          <option value="ar" data-admin-i18n="admin.localeAr"></option>
+        </select>
+        <button id="adminSignIn" type="button" class="secondary" data-admin-i18n="admin.signIn"></button>
+        <button id="adminSignOut" type="button" class="secondary hidden" data-admin-i18n="admin.signOut"></button>
+      </div>
+    </header>
+    <p id="adminStatus" role="status"></p>
+    <main id="adminData" class="hidden">
+      <div class="api-ledger-toolbar">
+        <label><span data-admin-i18n="admin.period"></span><select id="adminPeriod">
+          <option value="month" data-admin-i18n="admin.month"></option>
+          <option value="7" data-admin-i18n="admin.week"></option>
+          <option value="30" data-admin-i18n="admin.thirtyDays"></option>
+          <option value="all" data-admin-i18n="admin.allTime"></option>
+        </select></label>
+        <label><span data-admin-i18n="admin.purpose"></span><select id="adminKind">
+          <option value="all" data-admin-i18n="admin.allKinds"></option>
+          <option value="agent" data-admin-i18n="admin.agent"></option>
+          <option value="analysis" data-admin-i18n="admin.analysis"></option>
+          <option value="questions" data-admin-i18n="admin.questions"></option>
+          <option value="polish" data-admin-i18n="admin.polish"></option>
+          <option value="transcription" data-admin-i18n="admin.transcription"></option>
+        </select></label>
+        <label><span data-admin-i18n="admin.user"></span><select id="adminUserFilter"></select></label>
+        <button id="adminRefresh" type="button" class="secondary" data-admin-i18n="admin.refresh"></button>
+      </div>
+      <div class="api-usage-summary">
+        <article><strong id="adminCalls">0</strong><span data-admin-i18n="admin.calls"></span></article>
+        <article><strong id="adminInputTokens">0</strong><span data-admin-i18n="admin.inputTokens"></span></article>
+        <article><strong id="adminOutputTokens">0</strong><span data-admin-i18n="admin.outputTokens"></span></article>
+        <article><strong id="adminCost">0</strong><span data-admin-i18n="admin.cost"></span></article>
+        <article><strong id="adminAudioSeconds">0</strong><span data-admin-i18n="admin.audioSeconds"></span></article>
+      </div>
+      <h2 data-admin-i18n="admin.userTotals"></h2>
+      <p class="api-ledger-note" data-admin-i18n="admin.lifetimeNote"></p>
+      <div class="api-ledger-table-wrap"><table class="api-ledger-table">
+        <thead><tr><th data-admin-i18n="admin.email"></th><th data-admin-i18n="admin.calls"></th><th data-admin-i18n="admin.spent"></th><th data-admin-i18n="admin.lastUsed"></th></tr></thead>
+        <tbody id="adminUserRows"></tbody>
+      </table></div>
+      <h2 data-admin-i18n="admin.details"></h2>
+      <div class="api-ledger-table-wrap"><table class="api-ledger-table">
+        <thead><tr><th data-admin-i18n="admin.time"></th><th data-admin-i18n="admin.user"></th><th data-admin-i18n="admin.purpose"></th><th data-admin-i18n="admin.model"></th><th data-admin-i18n="admin.inputTokens"></th><th data-admin-i18n="admin.outputTokens"></th><th data-admin-i18n="admin.audioSeconds"></th><th data-admin-i18n="admin.cost"></th><th data-admin-i18n="admin.status"></th></tr></thead>
+        <tbody id="adminUsageRows"></tbody>
+      </table></div>
+    </main>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+  <script src="supabase-config.js" defer></script>
+  <script src="i18n.js" defer></script>
+  <script src="usage-stats.js" defer></script>
+  <script src="admin.js" defer></script>
+</body>
+</html>

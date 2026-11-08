@@ -69,6 +69,7 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
     scheduleSync() {},
   };
   b.context.SystemAI = require('../../public/system-ai.js');
+  b.context.UsageStats = require('../../public/usage-stats.js');
   b.balanceCalls = [];
   b.context.fetch = (url, init) => {
     if (url === '/api/ai/balance') {
@@ -83,4 +84,4 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
   return b;
 }
 
-module.exports = { browser, app, publicDir };
+module.exports = { browser, app, publicDir, Element };

@@ -405,14 +405,14 @@ async function transcribeWithSystem(blob, project) {
 
 function renderSystemUsageDashboard() {
   if (!$('#apiUsageList')) return;
-  const usage = filteredApiUsage();
-  const sum = field => usage.reduce((total, item) => total + (Number(item[field]) || 0), 0);
-  $('#apiUsageCalls').textContent = formatTokenCount(usage.length);
-  $('#apiUsageInputTokens').textContent = formatTokenCount(sum('inputTokens'));
-  $('#apiUsageOutputTokens').textContent = formatTokenCount(sum('outputTokens'));
-  $('#apiUsageTotalCost').textContent = `US$${sum('estimatedCost').toFixed(6)}`;
-  const month = new Date().toISOString().slice(0, 7);
-  const monthCost = saved.apiUsage.filter(item => item.createdAt?.startsWith(month)).reduce((total, item) => total + (Number(item.estimatedCost) || 0), 0);
+  const kind = $('#apiUsageKind')?.value || 'all';
+  const usage = UsageStats.filterRecords(saved.apiUsage, { period: $('#apiUsagePeriod')?.value || 'month', kind: kind === 'agent' ? 'text' : kind });
+  const totals = UsageStats.summarize(usage);
+  $('#apiUsageCalls').textContent = formatTokenCount(totals.calls);
+  $('#apiUsageInputTokens').textContent = formatTokenCount(totals.inputTokens);
+  $('#apiUsageOutputTokens').textContent = formatTokenCount(totals.outputTokens);
+  $('#apiUsageTotalCost').textContent = `US$${totals.totalCost.toFixed(6)}`;
+  const monthCost = UsageStats.summarize(UsageStats.filterRecords(saved.apiUsage, { period: 'month' })).totalCost;
   $('#headerApiCost').textContent = `US$${monthCost.toFixed(4)}`;
   const rows = usage.map(item => {
     const row = document.createElement('tr');

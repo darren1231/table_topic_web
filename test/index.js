@@ -10,6 +10,8 @@ require('./supabase-defaults.test.cjs');
 require('./ai-respond.test.cjs');
 require('./ai-transcribe.test.cjs');
 require('./ai-balance.test.cjs');
+require('./usage-stats.test.cjs');
+require('./admin.test.cjs');
 require('./system-ai.test.cjs');
 require('./system-ai-integration.test.cjs');
 
