@@ -20,3 +20,6 @@ sites-app/
 .DS_Store
 Thumbs.db
 *.log
+
+# Security review reports: keep local until the findings are fixed
+docs/code-review/
