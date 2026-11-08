@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
+require('./ai-usage.test.cjs');
+
 test('test environment can query an in-memory PostgreSQL database', async () => {
   const { PGlite } = require('@electric-sql/pglite');
   const database = new PGlite();

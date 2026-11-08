@@ -51,6 +51,11 @@ python -m http.server 8000 --directory public
 
 ## 設定 Google 登入與 Supabase 同步
 
+資料庫初次設定請先執行根目錄的 `supabase.sql`，再另外執行
+[`supabase/migrations/0001_ai_usage.sql`](supabase/migrations/0001_ai_usage.sql) 一次。
+後者建立 AI 使用紀錄、管理員名單及受權限保護的資料庫函式，不會自動執行，
+也不需要 service role key。migration 由網站擁有者在 SQL Editor 手動執行。
+
 以下設定需要同時操作 **Supabase Dashboard**、**Google Cloud Console** 與本專案。建議先用本機網址完成測試，再加入正式網址。
 
 ### 1. 建立 Supabase 專案

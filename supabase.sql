@@ -22,3 +22,6 @@ create policy "Users can update their own data"
 on public.user_data for update
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
+
+-- AI usage is a separate migration. After this file, run
+-- supabase/migrations/0001_ai_usage.sql once in the SQL editor.
