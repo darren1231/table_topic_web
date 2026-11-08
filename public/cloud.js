@@ -164,7 +164,7 @@
     localStorage.setItem(MODE_KEY, 'cloud');
     const { error } = await client.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${location.origin}${location.pathname}` }
+      options: { redirectTo: `${location.origin}${location.pathname}`, queryParams: { prompt: 'select_account' } }
     });
     if (error) setStatus(t('cloud.signInFailed', { error: error.message }), 'error');
   }

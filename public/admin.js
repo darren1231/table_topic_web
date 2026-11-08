@@ -111,7 +111,7 @@
     }
     async function signIn() {
       try {
-        const { error } = await client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } });
+        const { error } = await client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo, queryParams: { prompt: 'select_account' } } });
         if (error) deny();
       } catch { deny(); }
     }

@@ -9,6 +9,26 @@ function success(text = 'Transcript') {
     balance: { spent: 0.2, credit: 1, balance: 0.8, exhausted: false } });
 }
 
+test('main-site Google sign-in requests account selection and preserves the redirect URL', async () => {
+  const b = browser();
+  const calls = [];
+  b.context.I18n.ready = Promise.resolve();
+  b.context.URLSearchParams = URLSearchParams;
+  b.context.location.pathname = '/practice';
+  b.context.window.SUPABASE_CONFIG = { url: 'https://database.example.invalid', anonKey: 'public-placeholder' };
+  b.context.window.supabase = { createClient: () => ({ auth: {
+    getSession: async () => ({ data: { session: null }, error: null }),
+    onAuthStateChange() {},
+    signInWithOAuth: async options => { calls.push(options); return { error: null }; },
+  } }) };
+  b.run(fs.readFileSync(path.join(publicDir, 'cloud.js'), 'utf8'));
+  await b.context.window.tableTopicsCloud.ready;
+  await b.get('#googleSignInButton').onclick();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ provider: 'google', options: {
+    redirectTo: 'https://app.example.invalid/practice', queryParams: { prompt: 'select_account' },
+  } }]);
+});
+
 test('login and opening the usage dialog fetch the server balance before any AI generation', async () => {
   const b = app({ signedIn: false, balanceFetch: async () => Response.json({ spent: 1, credit: 1, balance: 0, exhausted: true }) });
   assert.equal(b.balanceCalls.length, 0);

@@ -80,7 +80,7 @@ test('admin filtering updates totals and details while user spend remains a labe
   assert.equal(f.nodes.get('adminUserRows').children[0].children[2].textContent, 'US$0.250000');
 });
 
-test('admin sign-in uses Google and sign-out clears data before any pending RPC can repopulate it', async () => {
+test('admin sign-in requests Google account selection and sign-out clears pending data', async () => {
   let resolve, started;
   const waiting = new Promise(done => { started = done; });
   const f = fixture({ rpc: () => { started(); return new Promise(done => { resolve = done; }); } });
@@ -90,7 +90,9 @@ test('admin sign-in uses Google and sign-out clears data before any pending RPC 
   assert.equal(f.nodes.get('adminData').classList.contains('hidden'), true);
   assert.equal(f.nodes.get('adminUsageRows').children.length, 0);
   await f.controller.signIn();
-  assert.deepEqual(f.calls.at(-1), { provider: 'google', options: { redirectTo: 'https://app.example.invalid/admin' } });
+  assert.deepEqual(f.calls.at(-1), { provider: 'google', options: {
+    redirectTo: 'https://app.example.invalid/admin', queryParams: { prompt: 'select_account' },
+  } });
 });
 
 test('all admin text keys exist in four locales and contain intact Unicode', () => {
