@@ -29,20 +29,25 @@
   }
 
   function createClient({ fetch, getAccessToken }) {
-    async function send(path, body, json) {
+    async function send(path, body, json, readOnly = false) {
       let token;
       try { token = await getAccessToken(); } catch { throw failure(interpretResponse(401)); }
       if (!token) throw failure(interpretResponse(401));
       let response;
       try {
         response = await fetch(path, {
-          method: 'POST', headers: { Authorization: `Bearer ${token}`, ...(json ? { 'Content-Type': 'application/json' } : {}) },
+          method: readOnly ? 'GET' : 'POST', headers: { Authorization: `Bearer ${token}`, ...(json ? { 'Content-Type': 'application/json' } : {}) },
           body: json ? JSON.stringify(body) : body,
         });
       } catch { throw failure(interpretResponse(0)); }
       const result = interpretResponse(response.status);
       if (!result.ok) throw failure(result);
       const data = await response.json().catch(() => null);
+      if (readOnly) {
+        if (!data || !['spent', 'credit', 'balance'].every(key => typeof data[key] === 'number' && Number.isFinite(data[key]) && data[key] >= 0)
+          || typeof data.exhausted !== 'boolean') throw failure(interpretResponse(502));
+        return data;
+      }
       if (!data || typeof data.text !== 'string' || !data.usage || typeof data.usage !== 'object'
         || typeof data.cost !== 'number' || !Number.isFinite(data.cost) || data.cost < 0) {
         throw failure(interpretResponse(502));
@@ -50,6 +55,7 @@
       return data;
     }
     return {
+      balance() { return send('/api/ai/balance', undefined, false, true); },
       respond({ instructions, input, kind = 'agent' }) {
         return send('/api/ai/respond', { instructions, input, kind }, true);
       },

@@ -9,6 +9,20 @@ function success(text = 'Transcript') {
     balance: { spent: 0.2, credit: 1, balance: 0.8, exhausted: false } });
 }
 
+test('login and opening the usage dialog fetch the server balance before any AI generation', async () => {
+  const b = app({ signedIn: false, balanceFetch: async () => Response.json({ spent: 1, credit: 1, balance: 0, exhausted: true }) });
+  assert.equal(b.balanceCalls.length, 0);
+  b.setUser('member-one');
+  await b.run('refreshSystemBalance()');
+  assert.ok(b.balanceCalls.length >= 1);
+  assert.equal(b.run('getActiveProject().provider'), 'builtin');
+  assert.equal(b.get('#systemAiBalance').textContent, b.run('t("systemAi.balance", {spent:"1.0000",credit:"1.0000"})'));
+  const before = b.balanceCalls.length;
+  await b.run('openApiUsage()');
+  assert.ok(b.balanceCalls.length > before);
+  assert.equal(b.get('#apiUsageDialog').open, true);
+});
+
 test('local-mode sessions refresh their access tokens without requiring cloud sync', async () => {
   const b = browser();
   let session = { user: { id: 'member-one' }, access_token: 'first-placeholder' };

@@ -2,6 +2,18 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const api = () => require('../public/system-ai.js');
 
+test('system balance client makes a credentialed GET and accepts exhausted balances without AI usage', async () => {
+  const calls = [];
+  const expected = { spent: 1, credit: 1, balance: 0, exhausted: true };
+  const client = api().createClient({ getAccessToken: async () => 'user-placeholder', fetch: async (url, init) => {
+    calls.push({ url, init }); return Response.json(expected);
+  } });
+  assert.deepEqual(await client.balance(), expected);
+  assert.equal(calls[0].url, '/api/ai/balance');
+  assert.equal(calls[0].init.method, 'GET');
+  assert.equal(calls[0].init.body, undefined);
+});
+
 test('system provider selection uses authentication rather than sync mode and does not mutate old projects', () => {
   const project = Object.freeze({ provider: 'openai', apiKey: 'legacy-placeholder' });
   assert.equal(api().selectProvider({ signedIn: false, enableByok: false, project }), 'builtin');

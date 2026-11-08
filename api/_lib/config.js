@@ -48,4 +48,13 @@ function readConfig(env = {}, supabaseDefaults = {}) {
   }
 }
 
-module.exports = { readConfig };
+function readBalanceConfig(env = {}, defaults = {}) {
+  try {
+    return {
+      credit: env.AI_USER_CREDIT_USD === undefined ? 1 : nonNegativeNumber(env.AI_USER_CREDIT_USD, { allowString: true }),
+      supabase: { url: requiredString(env.SUPABASE_URL ?? defaults.url), publishableKey: requiredString(env.SUPABASE_PUBLISHABLE_KEY ?? defaults.anonKey) },
+    };
+  } catch { throw new ConfigurationError(); }
+}
+
+module.exports = { readConfig, readBalanceConfig };

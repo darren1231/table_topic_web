@@ -56,7 +56,7 @@ function browser() {
   return { context, nodes, storage, get, run: source => vm.runInContext(source, context) };
 }
 
-function app({ signedIn = true, fetch = async () => { throw new Error('Unexpected test fetch'); } } = {}) {
+function app({ signedIn = true, fetch = async () => { throw new Error('Unexpected test fetch'); }, balanceFetch } = {}) {
   const b = browser();
   b.storage.set('tableTopicsAIProjects.v1', JSON.stringify({ activeId: 'legacy', projects: [
     { id: 'legacy', name: 'Legacy project', provider: 'openai', apiKey: 'legacy-placeholder', endpoint: 'https://legacy.example.invalid' },
@@ -69,7 +69,14 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
     scheduleSync() {},
   };
   b.context.SystemAI = require('../../public/system-ai.js');
-  b.context.fetch = fetch;
+  b.balanceCalls = [];
+  b.context.fetch = (url, init) => {
+    if (url === '/api/ai/balance') {
+      b.balanceCalls.push(init);
+      return balanceFetch ? balanceFetch(url, init) : Promise.resolve(Response.json({ spent: 0, credit: 1, balance: 1, exhausted: false }));
+    }
+    return fetch(url, init);
+  };
   b.run(fs.readFileSync(path.join(publicDir, 'app.js'), 'utf8'));
   b.run('ensureDataSchema(); initSystemAi();');
   b.setUser = value => { user = value; b.window.dispatchEvent({ type: 'tabletopics:auth' }); };

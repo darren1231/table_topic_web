@@ -19,6 +19,7 @@ let systemBalance = null;
 let systemIdentity = null;
 let systemCreditExhausted = false;
 let systemUiReady = false;
+let systemBalanceRevision = 0;
 const VERSION_HISTORY = [
   {version:'1.3.0',date:'2026-08-17',changes:['瀏覽器朗讀改為句子、子句與語言片段佇列，加入逗號、句尾和段落的自然停頓。','支援中英混合逐段選用相符語音，並正確辨識繁中、英文與日文。','加入輕微語速韻律、文字正規化與可安全停止的播放佇列。']},
   {version:'1.2.1',date:'2026-08-17',changes:['文章朗讀新增語音與速度選擇，可改用裝置上較自然的增強語音。','英文文章會優先選擇相符的英文語音，並記住使用者的朗讀偏好。']},
@@ -237,10 +238,12 @@ function initSystemAi() {
 function refreshSystemAiUi() {
   if (!systemUiReady) return;
   const identity = window.tableTopicsCloud?.getUserId?.() || null;
-  if (identity !== systemIdentity) {
+  const changedIdentity = identity !== systemIdentity;
+  if (changedIdentity) {
     systemIdentity = identity;
     systemBalance = null;
     systemCreditExhausted = false;
+    systemBalanceRevision++;
   }
   const signedIn = Boolean(window.tableTopicsCloud?.isSignedIn?.());
   $('#systemAiNoticeText').textContent = t(!signedIn ? 'systemAi.signInHint' : systemCreditExhausted ? 'systemAi.creditExhausted' : 'systemAi.ready');
@@ -248,6 +251,36 @@ function refreshSystemAiUi() {
   $('#systemAiSigninButton').classList.toggle('hidden', signedIn);
   renderSystemBalance();
   if (!ENABLE_BYOK) renderManagedProjectSettings();
+  if (changedIdentity && signedIn) void refreshSystemBalance();
+}
+
+async function refreshSystemBalance() {
+  const owner = window.tableTopicsCloud?.getUserId?.();
+  if (!owner) return;
+  const revision = ++systemBalanceRevision;
+  const client = SystemAI.createClient({ fetch: (...args) => fetch(...args), getAccessToken: async () => {
+    const token = await window.tableTopicsCloud?.getAccessToken?.();
+    return owner === window.tableTopicsCloud?.getUserId?.() ? token : null;
+  } });
+  try {
+    const balance = await client.balance();
+    if (owner !== window.tableTopicsCloud?.getUserId?.() || revision !== systemBalanceRevision) return;
+    systemBalance = balance;
+    systemCreditExhausted = balance.exhausted;
+    refreshSystemAiUi();
+  } catch (error) {
+    if (owner === window.tableTopicsCloud?.getUserId?.() && revision === systemBalanceRevision && error.code === 'unauthorized') {
+      toast(t('systemAi.signInAgain'));
+      $('#systemAiSigninButton').classList.remove('hidden');
+    }
+  }
+}
+
+async function openApiUsage() {
+  closeSettingsMenu();
+  renderApiUsageDashboard();
+  $('#apiUsageDialog').showModal();
+  await refreshSystemBalance();
 }
 
 function renderManagedProjectSettings(force = false) {
@@ -303,6 +336,7 @@ function recordSystemUsage(project, data, kind, startedAt) {
     estimatedCost: data.cost, priced: true, durationMs: Date.now() - startedAt });
   saved.apiUsage = saved.apiUsage.slice(0, 2000);
   systemBalance = data.balance || null;
+  systemBalanceRevision++;
   persist();
   renderApiUsageDashboard();
 }
@@ -321,6 +355,7 @@ async function callSystemApi(operation, input, project, kind) {
     return data.text;
   } catch (error) {
     if (error.fallbackToBuiltin) {
+      systemBalanceRevision++;
       systemCreditExhausted = true;
       refreshSystemAiUi();
     }
@@ -622,7 +657,7 @@ async function testAgentConnection(){
 function setTranscriptionApiStatus(message,type=''){const el=$('#transcriptionApiStatus');if(!el)return;el.textContent=message;el.className=`transcription-api-status ${type}`.trim();}
 function syncTranscriptionQuickPicker(){if(!ENABLE_BYOK)return syncManagedTranscriptionPicker();const p=getActiveProject();if($('#transcriptionModeQuick'))$('#transcriptionModeQuick').value=p.transcriptionMode||'browser';if((p.transcriptionMode||'browser')==='api')setTranscriptionApiStatus(ui(`API 模式已啟用：${p.transcriptionModel||'尚未設定模型'}`,`API mode enabled: ${p.transcriptionModel||'model not configured'}`));else setTranscriptionApiStatus(ui('目前使用瀏覽器即時辨識，不會呼叫 Audio API。','Browser live recognition is active. The Audio API will not be called.'));}
 function closeSettingsMenu(){const menu=$('#settingsMenu'),button=$('#settingsButton');menu.classList.add('hidden');button.setAttribute('aria-expanded','false');}
-function initSettings(){renderProjectSettings();renderApiUsageDashboard();const menu=$('#settingsMenu'),settingsButton=$('#settingsButton');settingsButton.onclick=event=>{event.stopPropagation();const opening=menu.classList.contains('hidden');menu.classList.toggle('hidden',!opening);settingsButton.setAttribute('aria-expanded',String(opening));if(opening)menu.querySelector('[role=menuitem]')?.focus();};$('#openAiSettingsButton').onclick=()=>{closeSettingsMenu();$('#settingsDialog').showModal();renderProjectSettings();$('#connectionTestStatus').classList.add('hidden');};document.addEventListener('click',event=>{if(!event.target.closest('.settings-menu-wrap'))closeSettingsMenu();});document.addEventListener('keydown',event=>{if(event.key==='Escape')closeSettingsMenu();});$('#projectSelect').onchange=()=>{loadProjectForm();$('#connectionTestStatus').classList.add('hidden');};$('#providerSelect').onchange=e=>{const d=providerDefaults(e.target.value);populateModelSelect(e.target.value,d.model);applySelectedModelPricing();$('#endpointInput').value=d.endpoint;$('#connectionTestStatus').classList.add('hidden');};$('#modelSelect').onchange=e=>{$('#modelInput').classList.toggle('hidden',e.target.value!=='__custom__');if(e.target.value==='__custom__')$('#modelInput').focus();applySelectedModelPricing();$('#connectionTestStatus').classList.add('hidden');};$('#newProjectButton').onclick=()=>{const p={id:`p_${Date.now()}`,name:'新 AI 專案',provider:'openai',apiKey:'',prompt:DEFAULT_PROMPT,...providerDefaults('openai')};aiSettings.projects.push(p);aiSettings.activeId=p.id;persistAISettings();renderProjectSettings();};$('#deleteProjectButton').onclick=()=>{if(aiSettings.projects.length===1)return toast('至少保留一個專案');aiSettings.projects=aiSettings.projects.filter(p=>p.id!==$('#projectSelect').value);aiSettings.activeId=aiSettings.projects[0].id;persistAISettings();renderProjectSettings();};$('#saveProjectButton').onclick=saveProject;$('#toggleKeyButton').onclick=()=>{const i=$('#apiKeyInput');i.type=i.type==='password'?'text':'password';$('#toggleKeyButton').textContent=i.type==='password'?'顯示':'隱藏';};$('#modelInput').onchange=()=>applySelectedModelPricing();$('#testConnectionButton').onclick=testAgentConnection;['costInputRate','costOutputRate'].forEach(id=>$(`#${id}`).oninput=()=>{const p=aiSettings.projects.find(item=>item.id===$('#projectSelect').value);if(p){p.inputTokenRate=Math.max(0,Number($('#costInputRate').value)||0);p.outputTokenRate=Math.max(0,Number($('#costOutputRate').value)||0);persistAISettings();}renderApiUsageDashboard();});const openUsage=()=>{closeSettingsMenu();renderApiUsageDashboard();$('#apiUsageDialog').showModal();};$('#apiUsageButton').onclick=openUsage;$('#openApiUsageButton').onclick=openUsage;$('#closeApiUsageButton').onclick=()=>$('#apiUsageDialog').close();$('#apiUsagePeriod').onchange=renderApiUsageDashboard;$('#apiUsageKind').onchange=renderApiUsageDashboard;$('#clearApiUsageButton').onclick=()=>{if(confirm(ui('確定清除這個使用者的所有 API 使用紀錄嗎？','Clear all API usage records for this user?'))){saved.apiUsage=[];persist();renderApiUsageDashboard();}};$('#closeHistoryButton').onclick=()=>$('#historyDialog').close();}
+function initSettings(){renderProjectSettings();renderApiUsageDashboard();const menu=$('#settingsMenu'),settingsButton=$('#settingsButton');settingsButton.onclick=event=>{event.stopPropagation();const opening=menu.classList.contains('hidden');menu.classList.toggle('hidden',!opening);settingsButton.setAttribute('aria-expanded',String(opening));if(opening)menu.querySelector('[role=menuitem]')?.focus();};$('#openAiSettingsButton').onclick=()=>{closeSettingsMenu();$('#settingsDialog').showModal();renderProjectSettings();$('#connectionTestStatus').classList.add('hidden');};document.addEventListener('click',event=>{if(!event.target.closest('.settings-menu-wrap'))closeSettingsMenu();});document.addEventListener('keydown',event=>{if(event.key==='Escape')closeSettingsMenu();});$('#projectSelect').onchange=()=>{loadProjectForm();$('#connectionTestStatus').classList.add('hidden');};$('#providerSelect').onchange=e=>{const d=providerDefaults(e.target.value);populateModelSelect(e.target.value,d.model);applySelectedModelPricing();$('#endpointInput').value=d.endpoint;$('#connectionTestStatus').classList.add('hidden');};$('#modelSelect').onchange=e=>{$('#modelInput').classList.toggle('hidden',e.target.value!=='__custom__');if(e.target.value==='__custom__')$('#modelInput').focus();applySelectedModelPricing();$('#connectionTestStatus').classList.add('hidden');};$('#newProjectButton').onclick=()=>{const p={id:`p_${Date.now()}`,name:'新 AI 專案',provider:'openai',apiKey:'',prompt:DEFAULT_PROMPT,...providerDefaults('openai')};aiSettings.projects.push(p);aiSettings.activeId=p.id;persistAISettings();renderProjectSettings();};$('#deleteProjectButton').onclick=()=>{if(aiSettings.projects.length===1)return toast('至少保留一個專案');aiSettings.projects=aiSettings.projects.filter(p=>p.id!==$('#projectSelect').value);aiSettings.activeId=aiSettings.projects[0].id;persistAISettings();renderProjectSettings();};$('#saveProjectButton').onclick=saveProject;$('#toggleKeyButton').onclick=()=>{const i=$('#apiKeyInput');i.type=i.type==='password'?'text':'password';$('#toggleKeyButton').textContent=i.type==='password'?'顯示':'隱藏';};$('#modelInput').onchange=()=>applySelectedModelPricing();$('#testConnectionButton').onclick=testAgentConnection;['costInputRate','costOutputRate'].forEach(id=>$(`#${id}`).oninput=()=>{const p=aiSettings.projects.find(item=>item.id===$('#projectSelect').value);if(p){p.inputTokenRate=Math.max(0,Number($('#costInputRate').value)||0);p.outputTokenRate=Math.max(0,Number($('#costOutputRate').value)||0);persistAISettings();}renderApiUsageDashboard();});const openUsage=openApiUsage;$('#apiUsageButton').onclick=openUsage;$('#openApiUsageButton').onclick=openUsage;$('#closeApiUsageButton').onclick=()=>$('#apiUsageDialog').close();$('#apiUsagePeriod').onchange=renderApiUsageDashboard;$('#apiUsageKind').onchange=renderApiUsageDashboard;$('#clearApiUsageButton').onclick=()=>{if(confirm(ui('確定清除這個使用者的所有 API 使用紀錄嗎？','Clear all API usage records for this user?'))){saved.apiUsage=[];persist();renderApiUsageDashboard();}};$('#closeHistoryButton').onclick=()=>$('#historyDialog').close();}
 
 async function generatePractice() {
   const topic = $('#topicInput').value.trim();
