@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const {isNumericScore, partitionComparisons} = require('../coach-result-utils.js');
+const {isNumericScore, partitionComparisons} = require('../public/coach-result-utils.js');
 
 assert.equal(isNumericScore(60), true);
 assert.equal(isNumericScore('85/100'), true);

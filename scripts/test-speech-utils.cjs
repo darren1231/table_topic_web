@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');
-const SpeechUtils=require('../speech-utils.js');
+const SpeechUtils=require('../public/speech-utils.js');
 
 const zh=SpeechUtils.buildSpeechChunks('大家好，今天談練習。你準備好了嗎？\n\n我們開始吧！',{language:'zh-TW',rate:1});
 assert.deepEqual(zh.map(item=>item.text),['大家好，','今天談練習。','你準備好了嗎？','我們開始吧！'],'Chinese punctuation should produce natural clauses and sentences');
