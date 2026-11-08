@@ -2,6 +2,10 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
 require('./ai-usage.test.cjs');
+require('./ai-config.test.cjs');
+require('./ai-billing.test.cjs');
+require('./ai-validation.test.cjs');
+require('./ai-errors.test.cjs');
 
 test('test environment can query an in-memory PostgreSQL database', async () => {
   const { PGlite } = require('@electric-sql/pglite');
