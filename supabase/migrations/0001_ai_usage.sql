@@ -15,7 +15,8 @@ create table public.ai_usage (
   input_rate numeric not null check (input_rate >= 0 and input_rate < 'Infinity'::numeric),
   output_rate numeric not null check (output_rate >= 0 and output_rate < 'Infinity'::numeric),
   estimated_cost numeric not null check (estimated_cost >= 0 and estimated_cost < 'Infinity'::numeric),
-  duration_ms bigint not null check (duration_ms >= 0)
+  duration_ms bigint not null check (duration_ms >= 0),
+  audio_seconds numeric not null default 0 check (audio_seconds >= 0 and audio_seconds < 'Infinity'::numeric)
 );
 
 create index ai_usage_user_created_at_idx on public.ai_usage (user_id, created_at desc);
@@ -47,7 +48,8 @@ create function public.record_ai_usage(
   p_input_rate numeric,
   p_output_rate numeric,
   p_estimated_cost numeric,
-  p_duration_ms bigint
+  p_duration_ms bigint,
+  p_audio_seconds numeric default 0
 )
 returns uuid
 language plpgsql
@@ -76,16 +78,17 @@ begin
     or p_input_rate is null or p_input_rate < 0 or p_input_rate >= 'Infinity'::numeric
     or p_output_rate is null or p_output_rate < 0 or p_output_rate >= 'Infinity'::numeric
     or p_estimated_cost is null or p_estimated_cost < 0 or p_estimated_cost >= 'Infinity'::numeric
-    or p_duration_ms is null or p_duration_ms < 0 then
+    or p_duration_ms is null or p_duration_ms < 0
+    or p_audio_seconds is null or p_audio_seconds < 0 or p_audio_seconds >= 'Infinity'::numeric then
     raise exception 'Invalid AI usage numeric fields' using errcode = '22023';
   end if;
 
   insert into public.ai_usage (
     user_id, provider, model, kind, status, error, input_tokens, output_tokens,
-    input_rate, output_rate, estimated_cost, duration_ms
+    input_rate, output_rate, estimated_cost, duration_ms, audio_seconds
   ) values (
     v_user_id, p_provider, p_model, p_kind, p_status, p_error, p_input_tokens, p_output_tokens,
-    p_input_rate, p_output_rate, p_estimated_cost, p_duration_ms
+    p_input_rate, p_output_rate, p_estimated_cost, p_duration_ms, p_audio_seconds
   ) returning id into v_id;
 
   return v_id;
@@ -129,6 +132,7 @@ returns table (
   output_rate numeric,
   estimated_cost numeric,
   duration_ms bigint,
+  audio_seconds numeric,
   email text
 )
 language plpgsql
@@ -150,7 +154,7 @@ begin
   return query
     select usage.id, usage.user_id, usage.created_at, usage.provider, usage.model,
       usage.kind, usage.status, usage.error, usage.input_tokens, usage.output_tokens,
-      usage.input_rate, usage.output_rate, usage.estimated_cost, usage.duration_ms,
+      usage.input_rate, usage.output_rate, usage.estimated_cost, usage.duration_ms, usage.audio_seconds,
       account.email
     from public.ai_usage as usage
     join auth.users as account on account.id = usage.user_id
@@ -159,12 +163,12 @@ begin
 end;
 $$;
 
-revoke all on function public.record_ai_usage(text, text, text, text, text, bigint, bigint, numeric, numeric, numeric, bigint)
+revoke all on function public.record_ai_usage(text, text, text, text, text, bigint, bigint, numeric, numeric, numeric, bigint, numeric)
   from public, anon, authenticated;
 revoke all on function public.get_my_ai_balance() from public, anon, authenticated;
 revoke all on function public.admin_list_ai_usage(timestamptz) from public, anon, authenticated;
 
-grant execute on function public.record_ai_usage(text, text, text, text, text, bigint, bigint, numeric, numeric, numeric, bigint)
+grant execute on function public.record_ai_usage(text, text, text, text, text, bigint, bigint, numeric, numeric, numeric, bigint, numeric)
   to authenticated;
 grant execute on function public.get_my_ai_balance() to authenticated;
 grant execute on function public.admin_list_ai_usage(timestamptz) to authenticated;

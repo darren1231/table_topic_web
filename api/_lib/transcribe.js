@@ -1,6 +1,6 @@
 const { readConfig } = require('./config.js');
 const supabaseDefaults = require('./supabase-defaults.js');
-const { calculateCost, getCreditBalance } = require('./billing.js');
+const { calculateTranscriptionCost, getCreditBalance } = require('./billing.js');
 const { validateTranscriptionInput } = require('./validation.js');
 const { sanitizeErrorMessage } = require('./errors.js');
 
@@ -72,7 +72,8 @@ async function handleTranscribe({ request, env, fetch, logger = console }) {
   if (!config.transcription.available) return json({ error: 'configuration_error' }, 503);
 
   const startedAt = Date.now();
-  let text = '', usage = { inputTokens: 0, outputTokens: 0 }, cost = 0;
+  let text = '', usage = { inputTokens: 0, outputTokens: 0, audioSeconds: 0 }, cost = 0;
+  let inputRate = 0, outputRate = 0;
   let status = 'success', error = '';
   try {
     const form = new FormData();
@@ -87,14 +88,11 @@ async function handleTranscribe({ request, env, fetch, logger = console }) {
       body: form,
     });
     const data = await response.json();
-    // Missing, partial, or non-numeric token usage must never produce a free result.
-    const candidateUsage = {
-      inputTokens: data?.usage?.input_tokens,
-      outputTokens: data?.usage?.output_tokens,
-    };
-    const candidateCost = calculateCost(candidateUsage, config.transcription);
-    usage = candidateUsage;
-    cost = candidateCost;
+    const charge = calculateTranscriptionCost(data?.usage, config.transcription);
+    usage = charge.usage;
+    cost = charge.cost;
+    inputRate = charge.inputRate;
+    outputRate = charge.outputRate;
     if (!response.ok || typeof data.text !== 'string') throw new Error('OpenAI transcription failed');
     text = data.text;
   } catch {
@@ -108,8 +106,9 @@ async function handleTranscribe({ request, env, fetch, logger = console }) {
       p_provider: 'openai', p_model: config.transcription.model, p_kind: 'transcription',
       p_status: status, p_error: error,
       p_input_tokens: usage.inputTokens, p_output_tokens: usage.outputTokens,
-      p_input_rate: config.transcription.inputRate, p_output_rate: config.transcription.outputRate,
+      p_input_rate: inputRate, p_output_rate: outputRate,
       p_estimated_cost: cost, p_duration_ms: Math.max(0, Date.now() - startedAt),
+      p_audio_seconds: usage.audioSeconds,
     });
   } catch (recordError) {
     log('AI transcription usage recording failed', recordError);

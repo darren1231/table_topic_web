@@ -27,7 +27,7 @@ test('config provides specified defaults and accepts independent Supabase overri
   assert.deepEqual(config, {
     apiKey: 'preview-placeholder',
     text: { model: 'gpt-5.6-luna', inputRate: 0.2, outputRate: 1.2 },
-    transcription: { model: 'gpt-4o-mini-transcribe', inputRate: null, outputRate: null, available: false },
+    transcription: { model: 'gpt-transcribe', inputRate: null, outputRate: null, usdPerMinute: 0.0045, available: true },
     credit: 1,
     supabase: { url: defaults.url, publishableKey: defaults.anonKey },
   });
@@ -46,21 +46,30 @@ test('config uses explicit models, rates and zero credit without replacing zero 
     AI_TRANSCRIBE_INPUT_USD_PER_MTOK: '0', AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: '1e-2',
   }, defaults);
   assert.deepEqual(config.text, { model: 'text-test-model', inputRate: 0, outputRate: 2.5 });
-  assert.deepEqual(config.transcription, { model: 'audio-test-model', inputRate: 0, outputRate: 0.01, available: true });
+  assert.deepEqual(config.transcription, { model: 'audio-test-model', inputRate: 0, outputRate: 0.01, usdPerMinute: 0.0045, available: true });
   assert.equal(config.credit, 0);
 });
 
-test('transcription is unavailable unless both prices are explicitly configured', () => {
+test('transcription is available with the per-minute default even without token prices', () => {
   for (const prices of [{}, { AI_TRANSCRIBE_INPUT_USD_PER_MTOK: '0' }, { AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: '1' }]) {
-    assert.equal(readConfig({ ...env, ...prices }, defaults).transcription.available, false);
+    assert.equal(readConfig({ ...env, ...prices }, defaults).transcription.available, true);
   }
   assert.equal(readConfig({ ...env, AI_TRANSCRIBE_INPUT_USD_PER_MTOK: '0', AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: '0' }, defaults).transcription.available, true);
+});
+
+test('transcription per-minute price supports an override and explicit zero', () => {
+  for (const rate of ['0.01', '0']) {
+    const config = readConfig({ ...env, AI_TRANSCRIBE_USD_PER_MINUTE: rate }, defaults);
+    assert.equal(config.transcription.usdPerMinute, Number(rate));
+    assert.equal(config.transcription.available, true);
+  }
 });
 
 test('every numeric environment setting rejects invalid values with a safe configuration error', () => {
   const names = [
     'AI_INPUT_USD_PER_MTOK', 'AI_OUTPUT_USD_PER_MTOK', 'AI_USER_CREDIT_USD',
     'AI_TRANSCRIBE_INPUT_USD_PER_MTOK', 'AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK',
+    'AI_TRANSCRIBE_USD_PER_MINUTE',
   ];
   for (const name of names) {
     for (const value of ['-1', 'NaN', 'Infinity', '-Infinity', '1e309', '', ' ', '1oops', '0x10', null, true, []]) {

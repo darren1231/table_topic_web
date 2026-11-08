@@ -116,10 +116,10 @@ test('transcribe fails closed when initial balance is unavailable or malformed',
   }
 });
 
-test('transcribe requires both explicit voice prices and rejects invalid configuration without OpenAI', async () => {
+test('transcribe rejects invalid minute prices and other configuration without OpenAI', async () => {
   for (const overrides of [
-    { AI_TRANSCRIBE_INPUT_USD_PER_MTOK: undefined }, { AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: undefined },
-    { AI_TRANSCRIBE_INPUT_USD_PER_MTOK: undefined, AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: undefined },
+    { AI_TRANSCRIBE_USD_PER_MINUTE: '-1' }, { AI_TRANSCRIBE_USD_PER_MINUTE: 'NaN' },
+    { AI_TRANSCRIBE_USD_PER_MINUTE: 'Infinity' }, { AI_TRANSCRIBE_USD_PER_MINUTE: '' },
     { AI_TRANSCRIBE_INPUT_USD_PER_MTOK: '-1' }, { AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: 'NaN' },
     { AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: 'Infinity' }, { CHATGPT_PREVIEW_KEY: undefined },
     { VERCEL_ENV: 'production', CHATGPT_PRODUCTION_KEY: undefined },
@@ -197,7 +197,7 @@ test('transcribe records voice token costs and returns the latest balance with t
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
   const result = await response.json();
   assert.deepEqual(result, {
-    text: 'Transcribed practice speech', usage: { inputTokens: 1_000_000, outputTokens: 500_000 }, cost: 1,
+    text: 'Transcribed practice speech', usage: { inputTokens: 1_000_000, outputTokens: 500_000, audioSeconds: 0 }, cost: 1,
     balance: { spent: 1, credit: 1, balance: 0, exhausted: true },
   });
   assert.deepEqual(f.calls.map(call => call.url), [
@@ -212,9 +212,9 @@ test('transcribe records voice token costs and returns the latest balance with t
   }
   const entry = records(f)[0].body;
   assert.deepEqual({ ...entry, p_duration_ms: 0 }, {
-    p_provider: 'openai', p_model: 'gpt-4o-mini-transcribe', p_kind: 'transcription', p_status: 'success', p_error: '',
+    p_provider: 'openai', p_model: 'gpt-transcribe', p_kind: 'transcription', p_status: 'success', p_error: '',
     p_input_tokens: 1_000_000, p_output_tokens: 500_000, p_input_rate: 0.4, p_output_rate: 1.2,
-    p_estimated_cost: 1, p_duration_ms: 0,
+    p_estimated_cost: 1, p_duration_ms: 0, p_audio_seconds: 0,
   });
   assert.ok(Number.isSafeInteger(entry.p_duration_ms) && entry.p_duration_ms >= 0);
   assert.equal(f.logs.length, 0);
@@ -229,7 +229,7 @@ test('transcribe allows explicit zero rates but still requires actual numeric to
 });
 
 test('transcribe refuses results without complete valid usage instead of allowing a free transcription', async () => {
-  for (const rawUsage of [undefined, null, {}, { type: 'duration', seconds: 10 },
+  for (const rawUsage of [undefined, null, {}, { type: 'duration' },
     { input_tokens: 1 }, { input_tokens: null, output_tokens: 1 },
     { input_tokens: '1', output_tokens: 1 }, { input_tokens: -1, output_tokens: 1 },
     { input_tokens: 1, output_tokens: null }, { input_tokens: 1, output_tokens: 0.5 }]) {
@@ -240,6 +240,62 @@ test('transcribe refuses results without complete valid usage instead of allowin
     assert.equal(records(f).length, 1);
     assert.equal(records(f)[0].body.p_status, 'error');
     assert.equal(records(f)[0].body.p_estimated_cost, 0);
+  }
+});
+
+test('transcribe duration usage uses minute pricing without token prices and stores only audio seconds', async () => {
+  for (const raw of [{ type: 'duration', seconds: 90 }, { seconds: 90 }, { type: 'tokens', seconds: 90 }]) {
+    const f = fixture({ openaiBody: { text: 'Duration transcript', usage: raw } });
+    const response = await f.run(request(), { AI_TRANSCRIBE_INPUT_USD_PER_MTOK: undefined, AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: undefined });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.text, 'Duration transcript');
+    assert.ok(Math.abs(result.cost - 0.00675) < 1e-15);
+    assert.deepEqual(result.usage, { inputTokens: 0, outputTokens: 0, audioSeconds: 90 });
+    const entry = records(f)[0].body;
+    assert.equal(entry.p_audio_seconds, 90);
+    assert.equal(entry.p_input_tokens, 0);
+    assert.equal(entry.p_output_tokens, 0);
+    assert.equal(entry.p_input_rate, 0);
+    assert.equal(entry.p_output_rate, 0);
+    assert.ok(Math.abs(entry.p_estimated_cost - 0.00675) < 1e-15);
+  }
+});
+
+test('transcribe duration pricing honors per-minute overrides and zero pricing', async () => {
+  for (const rate of ['0.01', '0']) {
+    const f = fixture({ openaiBody: { text: 'Duration transcript', usage: { seconds: 30.5 } } });
+    const response = await f.run(request(), { AI_TRANSCRIBE_USD_PER_MINUTE: rate });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).cost, 30.5 / 60 * Number(rate));
+  }
+});
+
+test('transcribe token usage without either token price is recorded as an error, never returned', async () => {
+  for (const overrides of [
+    { AI_TRANSCRIBE_INPUT_USD_PER_MTOK: undefined }, { AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: undefined },
+    { AI_TRANSCRIBE_INPUT_USD_PER_MTOK: undefined, AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: undefined },
+  ]) {
+    const f = fixture();
+    const response = await f.run(request(), overrides);
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: 'upstream_error' });
+    assert.equal(aiCalls(f).length, 1);
+    assert.equal(records(f)[0].body.p_status, 'error');
+    assert.equal(records(f)[0].body.p_audio_seconds, 0);
+    assert.equal(records(f)[0].body.p_input_rate, 0);
+    assert.equal(records(f)[0].body.p_output_rate, 0);
+  }
+});
+
+test('transcribe invalid duration never falls back to token billing or exposes the transcript', async () => {
+  for (const seconds of [null, -1, '60', 'NaN', 'Infinity']) {
+    const f = fixture({ openaiBody: { text: 'MUST_NOT_RETURN', usage: { ...usage, type: 'duration', seconds } } });
+    const response = await f.run();
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: 'upstream_error' });
+    assert.equal(records(f)[0].body.p_status, 'error');
+    assert.equal(records(f)[0].body.p_audio_seconds, 0);
   }
 });
 

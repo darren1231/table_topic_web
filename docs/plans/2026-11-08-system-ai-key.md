@@ -25,15 +25,21 @@
 | `CHATGPT_PREVIEW_KEY` | `VERCEL_ENV=preview` 時使用的 OpenAI key | 回 503 |
 | `CHATGPT_PRODUCTION_KEY` | `VERCEL_ENV=production` 時使用的 OpenAI key | 回 503 |
 | `AI_MODEL` | 文字模型，預設 `gpt-5.6-luna` | 用預設值 |
-| `AI_TRANSCRIBE_MODEL` | 語音轉文字模型，預設 `gpt-4o-mini-transcribe` | 用預設值 |
+| `AI_TRANSCRIBE_MODEL` | 語音轉文字模型，預設 `gpt-transcribe` | 用預設值 |
 | `AI_INPUT_USD_PER_MTOK` / `AI_OUTPUT_USD_PER_MTOK` | 文字模型單價（每百萬 token），預設 `0.2` / `1.2` | 用預設值 |
-| `AI_TRANSCRIBE_INPUT_USD_PER_MTOK` / `AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK` | 語音模型單價，**沒有預設值** | 語音 API 回 503，不可以在沒有價格時放行 |
+| `AI_TRANSCRIBE_USD_PER_MINUTE` | 語音模型每分鐘單價，預設 `0.0045`（[官方價格](https://developers.openai.com/api/docs/pricing)，2026-11-08 查詢） | 用預設值；無效設定回 503 |
+| `AI_TRANSCRIBE_INPUT_USD_PER_MTOK` / `AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK` | 語音模型 tokens 計費單價，**沒有預設值** | duration usage 不需要；tokens usage 缺少任一單價時記錄失敗、回 502，不回傳轉錄結果 |
 | `AI_USER_CREDIT_USD` | 每人額度，預設 `1` | 用預設值 |
 | `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` | 預設取 `public/supabase-config.js` 的值 | 用預設值 |
 
 `VERCEL_ENV` 不是 `preview` 或 `production`（例如本機的 `development`）時，使用 `CHATGPT_PREVIEW_KEY`。
 
 **不得使用 Supabase service role 或 secret key。**
+
+所有數字環境變數都必須是有限且非負的數值，無效設定回 503。語音服務有每分鐘單價即可使用：
+`usage.type` 為 `duration` 或含有 `usage.seconds` 時，以 `seconds / 60 * AI_TRANSCRIBE_USD_PER_MINUTE` 計費；
+否則必須有完整的 input/output token usage 與兩個 token 單價。沒有 usage、秒數／token 不合法，或缺少 token 單價時，
+一律記錄失敗並回 502，不得當成免費成功結果回傳。
 
 ### API 端點
 
@@ -54,13 +60,13 @@
 
 ### 資料庫（檔案：`supabase/migrations/0001_ai_usage.sql`）
 
-- `public.ai_usage`：`id uuid pk default gen_random_uuid()`、`user_id uuid not null references auth.users on delete cascade default auth.uid()`、`created_at timestamptz default now()`，以及沿用前端 `recordApiUsage` 的欄位：`provider`、`model`、`kind`、`status`、`error`（上限 500 字元）、`input_tokens`、`output_tokens`、`input_rate`、`output_rate`、`estimated_cost`（`check >= 0`）、`duration_ms`。
+- `public.ai_usage`：`id uuid pk default gen_random_uuid()`、`user_id uuid not null references auth.users on delete cascade default auth.uid()`、`created_at timestamptz default now()`，以及沿用前端 `recordApiUsage` 的欄位：`provider`、`model`、`kind`、`status`、`error`（上限 500 字元）、`input_tokens`、`output_tokens`、`input_rate`、`output_rate`、`estimated_cost`（`check >= 0`）、`duration_ms`，另加 `audio_seconds numeric not null default 0`（有限且非負）。Duration 計費時將秒數寫入 `audio_seconds`，tokens 與 rates 記 0；tokens 計費時 `audio_seconds` 記 0。
 - `public.app_admins`：`email text primary key`。
 - 兩張表都 `enable row level security`。`ai_usage` 只有「select 自己的資料」一條 policy；`app_admins` **沒有任何 policy**。兩張表都 `revoke insert, update, delete` from `anon`、`authenticated`。
 - 函式一律 `security definer`、`set search_path = ''`，內文使用完整名稱（`public.ai_usage`）：
-  - `record_ai_usage(...)`：寫入一筆，`user_id` 固定為 `auth.uid()`。`auth.uid()` 為 null 時拋錯。金額、token 數不得為負，文字欄位限制長度。只能新增，不能修改或刪除。
+  - `record_ai_usage(..., p_audio_seconds numeric default 0)`：寫入一筆，`user_id` 固定為 `auth.uid()`。`auth.uid()` 為 null 時拋錯。金額、token 數不得為負，秒數須有限且非負，文字欄位限制長度。只能新增，不能修改或刪除。
   - `get_my_ai_balance()`：只回傳 `spent numeric`，也就是呼叫者本人所有紀錄的 `estimated_cost` 總和。額度比較由伺服器用 `AI_USER_CREDIT_USD` 進行。
-  - `admin_list_ai_usage(p_since timestamptz default null)`：以 `auth.uid()` 到 `auth.users` 查出呼叫者的 `email`，且 `email_confirmed_at is not null`，再比對 `app_admins`（比對時不分大小寫）。**不要**信任 JWT 裡的 email 欄位。不符合時拋錯。通過後回傳所有紀錄，並附上使用者 email。
+  - `admin_list_ai_usage(p_since timestamptz default null)`：以 `auth.uid()` 到 `auth.users` 查出呼叫者的 `email`，且 `email_confirmed_at is not null`，再比對 `app_admins`（比對時不分大小寫）。**不要**信任 JWT 裡的 email 欄位。不符合時拋錯。通過後回傳所有紀錄（含 `audio_seconds`），並附上使用者 email。
 - `revoke execute ... from public, anon`，只 `grant execute` 給 `authenticated`。
 - 在 `supabase.sql` 末尾註明需另外執行 migration，或把 migration 內容合併進去，二選一並在 README 說明。
 
@@ -114,7 +120,7 @@
 
 ### STEP 5：`/api/ai/transcribe`
 
-- 同 STEP 4，另外涵蓋：音檔超過 4 MB → 400；沒有設定語音單價 → 503 且未呼叫 OpenAI。
+- 同 STEP 4，另外涵蓋：音檔超過 4 MB → 400；prompt 超過 2,000 字元 → 400；每分鐘單價設定無效 → 503 且未呼叫 OpenAI；duration／tokens 兩種 usage 的計費與記帳；缺少 usage 或 tokens 單價 → 記錄失敗、回 502，不回傳轉錄結果。
 
 ### STEP 6：前端改用系統 AI
 
@@ -134,7 +140,7 @@
 
 1. 在 Supabase SQL Editor 執行 migration。
 2. 執行 `insert into public.app_admins (email) values ('<管理員 email>');`。
-3. 在 Vercel 設定語音模型單價環境變數。
+3. 確認語音每分鐘單價（預設 `0.0045`）；若模型回傳 tokens usage，另外設定兩個 token 單價環境變數。
 4. 在 preview 網址測試後再合併。
 
 ## 已知限制（接受）

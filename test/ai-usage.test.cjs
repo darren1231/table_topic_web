@@ -14,9 +14,9 @@ const recordSql = `SELECT public.record_ai_usage(
   p_provider => $1, p_model => $2, p_kind => $3, p_status => $4,
   p_error => $5, p_input_tokens => $6, p_output_tokens => $7,
   p_input_rate => $8, p_output_rate => $9, p_estimated_cost => $10,
-  p_duration_ms => $11
+  p_duration_ms => $11, p_audio_seconds => $12
 ) AS id`;
-const validUsage = ['openai', 'test-model', 'analysis', 'success', '', 100, 50, '0.2', '1.2', '0.25', 10];
+const validUsage = ['openai', 'test-model', 'analysis', 'success', '', 100, 50, '0.2', '1.2', '0.25', 10, 0];
 let database;
 
 async function asRole(role, id = null, email = 'member@example.invalid') {
@@ -105,6 +105,31 @@ describe('AI usage migration', { concurrency: false }, () => {
     assert.deepEqual((await database.query('SELECT user_id FROM public.ai_usage')).rows, [
       { user_id: users.member },
     ]);
+  });
+
+  test('audio seconds default to zero for legacy calls and are returned to owners and admins', async () => {
+    await asRole('authenticated', users.member);
+    await database.query(recordSql.replace(', p_audio_seconds => $12', ''), validUsage.slice(0, 11));
+    await record(users.member, { 2: 'transcription', 5: 0, 6: 0, 7: 0, 8: 0, 9: '0.0045', 11: '60.5' });
+    assert.deepEqual((await database.query('SELECT audio_seconds FROM public.ai_usage ORDER BY audio_seconds')).rows,
+      [{ audio_seconds: '0' }, { audio_seconds: '60.5' }]);
+    assert.deepEqual((await database.query('SELECT * FROM public.get_my_ai_balance()')).rows, [{ spent: '0.2545' }]);
+    await asRole('authenticated', users.admin);
+    assert.deepEqual((await database.query('SELECT audio_seconds FROM public.admin_list_ai_usage() ORDER BY audio_seconds')).rows,
+      [{ audio_seconds: '0' }, { audio_seconds: '60.5' }]);
+  });
+
+  test('audio seconds reject null, negatives, NaN and infinities in both function and table', async () => {
+    for (const seconds of [null, -1, 'NaN', 'Infinity', '-Infinity']) {
+      await assert.rejects(record(users.member, { 11: seconds }), { code: '22023' });
+    }
+    await record(users.member);
+    await database.exec('RESET ROLE');
+    for (const seconds of [null, -1, 'NaN', 'Infinity', '-Infinity']) {
+      await assert.rejects(database.query('UPDATE public.ai_usage SET audio_seconds = $1', [seconds]), {
+        code: seconds === null ? '23502' : '23514',
+      });
+    }
   });
 
   test('rejects negative or non-finite money, tokens, rates, and duration', async () => {

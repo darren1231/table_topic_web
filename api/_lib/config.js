@@ -1,6 +1,10 @@
 const { ConfigurationError } = require('./errors.js');
 const { nonNegativeNumber } = require('./numbers.js');
 
+// gpt-transcribe: USD per minute. Source checked 2026-11-08:
+// https://developers.openai.com/api/docs/pricing
+const DEFAULT_TRANSCRIBE_USD_PER_MINUTE = 0.0045;
+
 function requiredString(value) {
   if (typeof value !== 'string' || !value.trim()) throw new ConfigurationError();
   return value.trim();
@@ -17,6 +21,7 @@ function readConfig(env = {}, supabaseDefaults = {}) {
       ? env.CHATGPT_PRODUCTION_KEY : env.CHATGPT_PREVIEW_KEY);
     const inputRate = numberSetting('AI_TRANSCRIBE_INPUT_USD_PER_MTOK', null);
     const outputRate = numberSetting('AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK', null);
+    const usdPerMinute = numberSetting('AI_TRANSCRIBE_USD_PER_MINUTE', DEFAULT_TRANSCRIBE_USD_PER_MINUTE);
     return {
       apiKey,
       text: {
@@ -25,10 +30,11 @@ function readConfig(env = {}, supabaseDefaults = {}) {
         outputRate: numberSetting('AI_OUTPUT_USD_PER_MTOK', 1.2),
       },
       transcription: {
-        model: requiredString(env.AI_TRANSCRIBE_MODEL ?? 'gpt-4o-mini-transcribe'),
+        model: requiredString(env.AI_TRANSCRIBE_MODEL ?? 'gpt-transcribe'),
         inputRate,
         outputRate,
-        available: inputRate !== null && outputRate !== null,
+        usdPerMinute,
+        available: usdPerMinute !== null,
       },
       credit: numberSetting('AI_USER_CREDIT_USD', 1),
       supabase: {
