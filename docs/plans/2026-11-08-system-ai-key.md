@@ -30,7 +30,7 @@
 | `AI_TRANSCRIBE_USD_PER_MINUTE` | 語音模型每分鐘單價，預設 `0.0045`（[官方價格](https://developers.openai.com/api/docs/pricing)，2026-11-08 查詢） | 用預設值；無效設定回 503 |
 | `AI_TRANSCRIBE_INPUT_USD_PER_MTOK` / `AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK` | 語音模型 tokens 計費單價，**沒有預設值** | duration usage 不需要；tokens usage 缺少任一單價時記錄失敗、回 502，不回傳轉錄結果 |
 | `AI_USER_CREDIT_USD` | 每人額度，預設 `1` | 用預設值 |
-| `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` | 預設取 `public/supabase-config.js` 的值 | 用預設值 |
+| `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` | 預設取 `api/_lib/supabase-defaults.js` 的值，與 `public/supabase-config.js` 一致；測試以文字比對，不執行前端設定檔 | 用預設值 |
 
 `VERCEL_ENV` 不是 `preview` 或 `production`（例如本機的 `development`）時，使用 `CHATGPT_PREVIEW_KEY`。
 
@@ -43,20 +43,23 @@
 
 ### API 端點
 
-兩個端點都要求 `Authorization: Bearer <使用者的 Supabase access token>`。
+三個端點都要求 `Authorization: Bearer <使用者的 Supabase access token>`。入口使用 CommonJS 的具名 `POST(request)`／`GET(request)` Web handler，核心 `handleRespond`、`handleTranscribe`、`handleBalance` 接受可注入的 `request`、`env`、`fetch`，回傳 `Response`。
 
 1. `POST /api/ai/respond`：body `{ instructions: string, input: string, kind: string }`，回傳 `{ text, usage, cost, balance }`。
 2. `POST /api/ai/transcribe`：multipart，欄位 `file`、`prompt`、`kind`，回傳 `{ text, usage, cost, balance }`。
+3. `GET /api/ai/balance`：驗證身分後呼叫 `get_my_ai_balance()`，回傳 `{ spent, credit, balance, exhausted }`。只讀取 Supabase 與額度設定，不需要 OpenAI key、不呼叫 OpenAI，也不新增使用紀錄。額度用完仍回 200，並以 `exhausted: true` 表示。
 
-每個請求的處理順序：
+兩個 POST 請求的處理順序：
 
 1. 只接受 `POST`。
-2. 用 `GET {SUPABASE_URL}/auth/v1/user`（帶 `apikey` 與使用者的 token）驗證身分。失敗回 401。
-3. 呼叫 `get_my_ai_balance()` 取得已用金額與額度。已用金額 ≥ 額度時回 402，body `{ error: 'credit_exhausted' }`，**不呼叫 OpenAI**。
-4. 驗證輸入：`instructions` + `input` 合計上限 60,000 字元；音檔上限 4 MB（Vercel 請求上限 4.5 MB）；`kind` 只能是 `agent`、`analysis`、`questions`、`transcription`、`polish`。不合格回 400。
-5. 呼叫 OpenAI。模型由伺服器決定，**忽略**使用者送來的任何 model 欄位。
+2. 用 `GET {SUPABASE_URL}/auth/v1/user` 驗證身分。失敗回 401；此請求與後續 RPC 都帶公開 `apikey` 與使用者本人的 `Authorization`。
+3. 以 `POST {SUPABASE_URL}/rest/v1/rpc/get_my_ai_balance` 取得本人 `spent`，額度取自伺服器 `AI_USER_CREDIT_USD`。已用金額 ≥ 額度時回 402，body `{ error: 'credit_exhausted' }`，**不呼叫 OpenAI**。餘額查詢失敗或資料不合法時回 503，不放行 AI 請求。
+4. 驗證輸入：文字 `instructions` + `input` 合計上限 60,000 個 Unicode 字元；音檔上限 4 MB（4 × 1024 × 1024 bytes，Vercel 請求上限 4.5 MB），轉錄 `prompt` 上限 2,000 字元。Respond 的 `kind` 限 `agent`、`analysis`、`questions`、`polish`；transcribe 只接受 `transcription`。不合格回 400。
+5. 呼叫 OpenAI，兩者都使用 `AbortSignal.timeout(60000)`。文字端點為 `/v1/responses`，body 含伺服器指定的 `model`、`instructions`、`input`、`store: false`、`max_output_tokens: 8000`；轉錄端點為 `/v1/audio/transcriptions`，multipart 含 `file`、伺服器指定的 `model`、`prompt`、`response_format: json`。**忽略**使用者送來的任何 model 欄位。逾時或上游回應不合法時，走失敗記帳流程並回 502。
 6. 依單價計算費用，呼叫 `record_ai_usage(...)` 記帳，成功或失敗的呼叫都要記。
-7. 回傳結果與最新餘額。錯誤訊息不得包含 API key 或 OpenAI 的原始錯誤 body。
+7. 記帳使用 `POST {SUPABASE_URL}/rest/v1/rpc/record_ai_usage`。成功後重新查詢餘額，回傳結果與最新 `balance` 物件（`spent`、`credit`、`balance`、`exhausted`）。記帳失敗時仍保留已取得的 AI 結果，伺服器日誌僅記錄已清理的錯誤；最後餘額查詢失敗時 `balance` 回 `null`。錯誤訊息不得包含 API key 或 OpenAI 的原始錯誤 body。
+
+GET 額度端點只接受 GET，身分驗證與 RPC 使用相同憑證規則；非 GET 回 405、身分無效回 401、額度設定或查詢異常回 503。
 
 ### 資料庫（檔案：`supabase/migrations/0001_ai_usage.sql`）
 
@@ -68,25 +71,32 @@
   - `get_my_ai_balance()`：只回傳 `spent numeric`，也就是呼叫者本人所有紀錄的 `estimated_cost` 總和。額度比較由伺服器用 `AI_USER_CREDIT_USD` 進行。
   - `admin_list_ai_usage(p_since timestamptz default null)`：以 `auth.uid()` 到 `auth.users` 查出呼叫者的 `email`，且 `email_confirmed_at is not null`，再比對 `app_admins`（比對時不分大小寫）。**不要**信任 JWT 裡的 email 欄位。不符合時拋錯。通過後回傳所有紀錄（含 `audio_seconds`），並附上使用者 email。
 - `revoke execute ... from public, anon`，只 `grant execute` 給 `authenticated`。
-- 在 `supabase.sql` 末尾註明需另外執行 migration，或把 migration 內容合併進去，二選一並在 README 說明。
+- `supabase.sql` 末尾已註明需另外執行 migration；README 說明初次設定時依序執行兩份檔案一次，部署不會自動執行。
 
 ### 前端
 
 - 新增 provider `system`（顯示名稱「系統 AI」）。登入時預設使用 `system`；未登入時使用 `builtin`。
+- 系統 AI 資格只看是否登入，與雲端同步模式無關。`window.tableTopicsCloud.getAccessToken()` 每次透過 `client.auth.getSession()` 取得最新 token，未登入回 `null`。
 - 新增常數 `ENABLE_BYOK = false`。為 `false` 時，隱藏設定中 provider、endpoint、API key、模型、價格、測試連線等自備金鑰欄位。localStorage 中舊的自備金鑰專案保留不刪，但不能被選為使用中。
 - `callAgent` 與兩個轉錄函式遇到 `system` 時改呼叫上述 API，token 取自 Supabase session。不得在前端出現 OpenAI key。
+- `callAgent` 的 kind 由呼叫端傳入 `questions`、`analysis`、`polish`，其餘預設為 `agent`。轉錄使用 `transcription`，超過 4 MB 時先在前端阻擋並提示改用瀏覽器語音辨識。
 - 收到 402 時，顯示「AI 額度已用完，請聯絡管理員」，並改用內建教練完成這次回饋。
 - 收到 401 時，提示重新登入。
-- 在 API 使用紀錄畫面顯示「已用 $x / 額度 $y」。前端本機的使用紀錄維持現狀，伺服器紀錄才是額度的依據。
+- 登入與開啟 API 費用視窗時呼叫 `GET /api/ai/balance`，顯示「已用 $x / 額度 $y」，exhausted 時直接改用內建教練。AI 成功後也以回傳的 balance 更新顯示，不能用本機紀錄推算額度。
+- 系統 AI 呼叫成功後，以回傳的 cost 與 usage 寫入 provider 為 `system` 的本機使用紀錄；伺服器紀錄才是額度的依據。清除本機紀錄不會重置額度。
+- `public/system-ai.js` 採 UMD，提供 provider 選擇、API 錯誤分類、音檔大小檢查及可注入 fetch 的 client；在 `app.js` 之前載入並有測試。
 - 所有新增的畫面文字必須加入四個語系檔（`public/locales/*.json`），`node scripts/check-i18n.mjs` 必須通過。
+- 新增文字使用 `t(key)`，新增畫面以 `textContent`／DOM API 呈現，不新增中文／英文雙參數 `ui()` 寫法。
 
 ### 管理員後台
 
-- 新頁面 `public/admin.html`，使用同一個 Supabase client 登入，透過 `client.rpc('admin_list_ai_usage')` 取資料，**不經過 Vercel Function**。
+- 新頁面 `public/admin.html`（部署網址 `/admin`），以 `SUPABASE_CONFIG` 自行建立獨立 Supabase client，提供 Google 登入／登出，透過 `client.rpc('admin_list_ai_usage')` 取資料，**不經過 Vercel Function**。不載入 `cloud.js` 或 `app.js`，主網站不放後台連結。
 - 畫面與統計沿用現有的 API 使用紀錄介面（期間、用途篩選、總計、明細），再加上「使用者」欄位與篩選，以及每位使用者的已用金額。
-- 抽出共用的統計函式（例如 `public/usage-stats.js`，UMD 寫法同 `speech-utils.js`），前台與後台共用，並有單元測試。
+- `public/usage-stats.js` 採 UMD，前後台共用期間／用途／使用者篩選、呼叫次數、輸入輸出 token、總費用、音訊秒數統計及依使用者彙總，並有單元測試。前台同時支援本機 camelCase 紀錄與資料庫 snake_case 欄位。
+- 後台每位使用者的已用金額表顯示全部期間的 email、呼叫次數、已用金額與最後使用時間；期間與用途篩選套用於總計及明細，使用者篩選也套用於使用者表。
 - 所有來自資料庫的文字一律用 `textContent` 或完整的 HTML 跳脫（包含 `"` 與 `'`）輸出，不得直接塞進 `innerHTML`。
 - 非管理員開啟時只顯示「沒有權限」。
+- RPC 失敗時同樣只顯示「沒有權限」並清空資料；登出後不允許先前查詢回填。後台只能查看使用紀錄，管理員名單由擁有者在 SQL Editor 新增／移除。
 
 ## 步驟
 
@@ -117,6 +127,7 @@
 
 - handler 接受可注入的 `fetch` 與 `env`，測試用假的 Supabase 與 OpenAI 回應。
 - 涵蓋：非 POST → 405、沒有或無效的 token → 401、額度用完 → 402 且未呼叫 OpenAI、輸入過大 → 400、缺少 key → 503、成功 → 記帳且回傳餘額、OpenAI 失敗 → 也記帳且不洩漏原始錯誤、使用者送來的 model 被忽略。
+- 後續核准修正包含：`store: false`、8,000 token 輸出上限、60 秒逾時，以及記帳失敗仍回傳 AI 結果且日誌不含 key 的測試。
 
 ### STEP 5：`/api/ai/transcribe`
 
@@ -126,6 +137,7 @@
 
 - 依上方「前端」規格修改 `public/app.js`、`public/index.html` 與語系檔。
 - 能抽成純函式的邏輯（例如選擇 provider、解讀 API 錯誤）先寫測試。
+- 後續核准補充：新增並測試 `GET /api/ai/balance`，登入與開啟費用視窗時先更新伺服器額度。
 
 ### STEP 7：管理員後台
 
@@ -135,6 +147,7 @@
 
 - README：新增「系統 AI 與額度」與「管理員後台」章節，說明需要設定的 Vercel 環境變數、如何執行 migration、如何把 email 加入 `app_admins`。
 - CHANGELOG：新增版本紀錄。
+- 此步只修改文件，不修改程式；以文件對照實作、既有 `npm test` 全部通過及差異僅含文件作為驗收。
 
 ## 上線前由網站擁有者手動完成（不屬於 Codex 的工作）
 
