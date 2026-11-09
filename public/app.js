@@ -680,6 +680,7 @@ function showQuestion() {
 }
 
 function resetRecorderForQuestion() {
+  WakeLock.release();
   if (state.recognition) { try { state.recognition.abort(); } catch {} }
   state.discardAudio=true;if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){try{state.mediaRecorder.stop();}catch{}}stopMediaStream();state.audioChunks=[];
   state.isRecording=false; state.isPaused=false; clearInterval(state.timerId); state.timerId=null; state.seconds=0; state.recognition=null;
@@ -723,7 +724,7 @@ function queueAudioTranscription(blob,project){const run=()=>transcribeAudioBlob
 async function startApiRecording(){
   const project=getActiveProject();if(project.provider!=='system'&&(!project.apiKey||!project.transcriptionEndpoint||!project.transcriptionModel)){toast(ui('請先在 AI 專案設定完成 Audio-to-Text API','Configure the Audio-to-Text API in AI project settings first'));return false;}
   if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){toast(ui('這個瀏覽器不支援音訊錄製','This browser does not support audio recording'));return false;}
-  try{state.discardAudio=false;const chunks=[];state.audioChunks=chunks;const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});state.mediaStream=stream;const preferred=['audio/webm;codecs=opus','audio/mp4','audio/webm'];const mimeType=preferred.find(t=>MediaRecorder.isTypeSupported?.(t))||'';const recorder=new MediaRecorder(stream,SystemAI.recorderOptions(mimeType));state.mediaRecorder=recorder;recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};recorder.onstop=async()=>{const captured=[...chunks],type=recorder.mimeType||captured[0]?.type||'audio/webm',discard=state.discardAudio;stream.getTracks().forEach(track=>track.stop());if(state.mediaStream===stream)state.mediaStream=null;if(discard||!captured.length){if(discard)state.discardAudio=false;return;}const unexpectedlyEnded=state.isRecording&&activeTranscriptionMode()==='api';if(unexpectedlyEnded){$('#recordStatus').textContent=ui('錄音連線已自動重接，正在保存上一段⋯','Recording reconnected automatically; saving the previous segment…');const restarted=await startApiRecording();if(!restarted){state.isRecording=false;clearInterval(state.timerId);state.timerId=null;state.isPaused=true;updateRecorderControls();}}await queueAudioTranscription(new Blob(captured,{type}),project);if(unexpectedlyEnded&&state.isRecording)$('#recordStatus').textContent=ui('已接續錄音，上一段已安全轉錄','Recording continues; the previous segment was transcribed safely.');};recorder.start(500);return true;}catch(e){stopMediaStream();toast(`${ui('無法啟動麥克風','Could not start microphone')}: ${e.message}`);return false;}
+  try{state.discardAudio=false;const chunks=[];state.audioChunks=chunks;const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});state.mediaStream=stream;const preferred=['audio/webm;codecs=opus','audio/mp4','audio/webm'];const mimeType=preferred.find(t=>MediaRecorder.isTypeSupported?.(t))||'';const recorder=new MediaRecorder(stream,SystemAI.recorderOptions(mimeType));state.mediaRecorder=recorder;recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};recorder.onstop=async()=>{WakeLock.release();const captured=[...chunks],type=recorder.mimeType||captured[0]?.type||'audio/webm',discard=state.discardAudio;stream.getTracks().forEach(track=>track.stop());if(state.mediaStream===stream)state.mediaStream=null;if(discard||!captured.length){if(discard)state.discardAudio=false;return;}const unexpectedlyEnded=state.isRecording&&activeTranscriptionMode()==='api';if(unexpectedlyEnded){$('#recordStatus').textContent=ui('錄音連線已自動重接，正在保存上一段⋯','Recording reconnected automatically; saving the previous segment…');const restarted=await startApiRecording();if(!restarted){state.isRecording=false;clearInterval(state.timerId);state.timerId=null;state.isPaused=true;updateRecorderControls();}}await queueAudioTranscription(new Blob(captured,{type}),project);if(unexpectedlyEnded&&state.isRecording)$('#recordStatus').textContent=ui('已接續錄音，上一段已安全轉錄','Recording continues; the previous segment was transcribed safely.');};recorder.start(500);WakeLock.acquire();return true;}catch(e){stopMediaStream();toast(`${ui('無法啟動麥克風','Could not start microphone')}: ${e.message}`);return false;}
 }
 function stopMediaStream(){state.mediaStream?.getTracks().forEach(track=>track.stop());state.mediaStream=null;}
 async function transcribeAudioBlob(blob,project){
@@ -744,10 +745,11 @@ async function startRecording() {
   if (state.isRecording||state.isTranscribing) return;
   const mode=activeTranscriptionMode();
   if(mode==='api'){const started=await startApiRecording();if(!started)return;}else{state.browserFinalText=$('#transcript').value;state.recognition = setupRecognition();if (!state.recognition) { toast(ui('這個瀏覽器不支援即時辨識，請改用 API 高品質轉錄','Live recognition is unavailable. Try API transcription.')); return; }try{state.recognition.start();}catch{return pauseRecording();}}
-  const scrollPosition=window.scrollY; state.isRecording = true; state.isPaused = false; updateRecorderControls(); $('#recordStatus').textContent = mode==='api'?ui('正在錄製音訊，暫停後會自動轉錄','Recording audio. It will transcribe when paused.'):ui('正在聽你說話⋯','Listening…');
+  const scrollPosition=window.scrollY; state.isRecording = true; state.isPaused = false; WakeLock.acquire(); updateRecorderControls(); $('#recordStatus').textContent = mode==='api'?ui('正在錄製音訊，暫停後會自動轉錄','Recording audio. It will transcribe when paused.'):ui('正在聽你說話⋯','Listening…');
   state.timerId = setInterval(() => { state.seconds++; $('#timer').textContent = formatTimer(state.seconds); }, 1000);requestAnimationFrame(()=>window.scrollTo({top:scrollPosition,behavior:'auto'}));
 }
 function pauseRecording() {
+  WakeLock.release();
   if (!state.isRecording) return;
   const mode=activeTranscriptionMode();state.isRecording = false; clearInterval(state.timerId);clearTimeout(state.recognitionRestartTimer);state.recognitionRestartTimer=null; state.timerId = null;state.isPaused = true;updateRecorderControls();
   if(mode==='api'&&state.mediaRecorder?.state!=='inactive'){state.isTranscribing=true;updateRecorderControls();state.mediaRecorder.stop();$('#recordStatus').textContent=ui('正在準備 API 轉錄⋯','Preparing API transcription…');}
@@ -756,6 +758,7 @@ function pauseRecording() {
 function stopRecording() { pauseRecording(); }
 function resumeRecording() { startRecording(); }
 function resetRecording() {
+  WakeLock.release();
   clearTimeout(state.recognitionRestartTimer);state.recognitionRestartTimer=null;
   if (state.recognition) { try { state.recognition.abort(); } catch {} }
   state.discardAudio=true;if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){try{state.mediaRecorder.stop();}catch{}}stopMediaStream();state.audioChunks=[];

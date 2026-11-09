@@ -51,6 +51,7 @@ function browser() {
       questionTemplates: () => [topic => `Question about ${topic}`],
       translate(key, variables = {}) { return Object.entries(variables).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), messages[key] || key); } },
     SpeechUtils: require('../../public/speech-utils.js'), CoachResultUtils: require('../../public/coach-result-utils.js'),
+    WakeLock: require('../../public/wake-lock.js'),
   });
   window.I18n = context.I18n;
   return { context, nodes, storage, get, run: source => vm.runInContext(source, context) };
