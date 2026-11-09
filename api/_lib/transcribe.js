@@ -1,14 +1,14 @@
+const { createServerTiming } = require('./server-timing.js');
+const { createRpc } = require('./supabase-rpc.js');
 const { readConfig } = require('./config.js');
 const supabaseDefaults = require('./supabase-defaults.js');
 const { calculateTranscriptionCost, getCreditBalance } = require('./billing.js');
 const { validateTranscriptionInput } = require('./validation.js');
 const { sanitizeErrorMessage } = require('./errors.js');
 
-function json(body, status = 200, headers = {}) {
-  return Response.json(body, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
-}
-
 async function handleTranscribe({ request, env, fetch, logger = console }) {
+  const timing = createServerTiming(['balance', 'openai', 'record']);
+  const json = timing.json;
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
   const authorization = request.headers.get('Authorization') || '';
   const credential = authorization.match(/^Bearer ([^\s]+)$/i);
@@ -29,34 +29,19 @@ async function handleTranscribe({ request, env, fetch, logger = console }) {
   };
   const secrets = [config.apiKey, config.supabase.publishableKey, credential[1]];
   const log = (message, error) => logger.error(message, sanitizeErrorMessage(error, secrets));
-  const rpc = async (name, args = {}) => {
-    const response = await fetch(`${baseUrl}/rest/v1/rpc/${name}`, {
-      method: 'POST', headers, body: JSON.stringify(args),
-    });
-    if (!response.ok) throw new Error(`Supabase RPC failed (HTTP ${response.status})`);
-    return response;
-  };
-  const readBalance = async () => {
+  const rpc = createRpc({ fetch, baseUrl, headers });
+  const readBalance = () => timing.measure('balance', async () => {
     const response = await rpc('get_my_ai_balance');
     const data = await response.json();
     if (!Array.isArray(data) || data.length !== 1) throw new Error('Invalid balance response');
     return getCreditBalance(data[0]?.spent, config.credit);
-  };
-
-  try {
-    const response = await fetch(`${baseUrl}/auth/v1/user`, { method: 'GET', headers });
-    if (!response.ok) return json({ error: 'unauthorized' }, 401);
-    const user = await response.json();
-    if (typeof user?.id !== 'string' || !user.id) return json({ error: 'unauthorized' }, 401);
-  } catch {
-    return json({ error: 'unauthorized' }, 401);
-  }
+  });
 
   let balance;
   try {
     balance = await readBalance();
-  } catch {
-    return json({ error: 'balance_unavailable' }, 503);
+  } catch (error) {
+    return error?.unauthorized ? json({ error: 'unauthorized' }, 401) : json({ error: 'balance_unavailable' }, 503);
   }
   if (balance.exhausted) return json({ error: 'credit_exhausted' }, 402);
 
@@ -75,6 +60,7 @@ async function handleTranscribe({ request, env, fetch, logger = console }) {
   let text = '', usage = { inputTokens: 0, outputTokens: 0, audioSeconds: 0 }, cost = 0;
   let inputRate = 0, outputRate = 0;
   let status = 'success', error = '';
+  timing.start('openai');
   try {
     const form = new FormData();
     form.append('file', input.file, input.file.name);
@@ -99,8 +85,12 @@ async function handleTranscribe({ request, env, fetch, logger = console }) {
     status = 'error';
     // Unknown usage stays zero only on an error record, never a successful result.
     error = 'OpenAI transcription failed';
+  } finally {
+    timing.end('openai');
   }
 
+  let recorded = false;
+  timing.start('record');
   try {
     await rpc('record_ai_usage', {
       p_provider: 'openai', p_model: config.transcription.model, p_kind: 'transcription',
@@ -110,17 +100,15 @@ async function handleTranscribe({ request, env, fetch, logger = console }) {
       p_estimated_cost: cost, p_duration_ms: Math.max(0, Date.now() - startedAt),
       p_audio_seconds: usage.audioSeconds,
     });
+    recorded = true;
   } catch (recordError) {
     log('AI transcription usage recording failed', recordError);
+  } finally {
+    timing.end('record');
   }
 
   if (status === 'error') return json({ error: 'upstream_error' }, 502);
-  try {
-    balance = await readBalance();
-  } catch (balanceError) {
-    log('AI transcription balance refresh failed', balanceError);
-    balance = null;
-  }
+  balance = recorded ? getCreditBalance(balance.spent + cost, config.credit) : null;
   return json({ text, usage, cost, balance });
 }
 

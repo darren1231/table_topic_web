@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const { assertTiming } = require('./helpers/server-timing.cjs');
 
 const env = {
   CHATGPT_PREVIEW_KEY: 'preview-placeholder',
@@ -23,18 +24,13 @@ function request(value = body, options = {}) {
 
 function fixture(options = {}) {
   const calls = [], logs = [];
-  let balanceReads = 0;
   const fetch = async (url, init) => {
     const entry = { url, method: init.method, headers: new Headers(init.headers), body: init.body ? JSON.parse(init.body) : null, signal: init.signal };
     calls.push(entry);
-    if (url.endsWith('/auth/v1/user')) {
-      if (options.authThrows) throw new Error('Simulated auth network failure');
-      return Response.json(options.authBody ?? { id: '00000000-0000-0000-0000-000000000001' }, { status: options.authStatus ?? 200 });
-    }
     if (url.endsWith('/rpc/get_my_ai_balance')) {
-      balanceReads += 1;
-      if (balanceReads > 1 && options.refreshThrows) throw new Error('Simulated refresh failure');
-      return Response.json(options.balanceBody ?? [{ spent: balanceReads === 1 ? (options.spent ?? '0') : '0.8' }], { status: options.balanceStatus ?? 200 });
+      if (options.balanceInvalidJson) return new Response('invalid-json', { status: options.balanceStatus ?? 200 });
+      if (options.balanceThrows) throw new Error('Simulated balance failure');
+      return Response.json(options.balanceBody ?? [{ spent: options.spent ?? '0' }], { status: options.balanceStatus ?? 200 });
     }
     if (url === 'https://api.openai.com/v1/responses') {
       if (options.honorAbort) init.signal?.throwIfAborted();
@@ -81,12 +77,17 @@ test('respond requires a nonempty Bearer credential before any service access', 
   }
 });
 
-test('respond rejects invalid or unverifiable Supabase identities', async () => {
-  for (const options of [{ authStatus: 401 }, { authStatus: 403 }, { authBody: {} }, { authBody: { id: '' } }, { authThrows: true }]) {
+test('respond authenticates via the balance RPC and rejects auth errors without OpenAI', async () => {
+  for (const options of [{ balanceStatus: 401 }, { balanceStatus: 403 }, { balanceStatus: 401, balanceInvalidJson: true },
+    ...['42501', 'PGRST301', 'PGRST302', 'PGRST303', '28000', '28P01'].map(code => ({ balanceStatus: 400, balanceBody: { code } }))]) {
     const f = fixture(options);
-    assert.equal((await f.run()).status, 401);
+    const response = await f.run();
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: 'unauthorized' });
     assert.equal(f.calls.length, 1);
-    assert.equal(f.calls[0].method, 'GET');
+    assert.equal(f.calls[0].method, 'POST');
+    assert.ok(f.calls[0].url.endsWith('/rpc/get_my_ai_balance'));
+    assert.equal(aiCalls(f).length, 0);
   }
 });
 
@@ -96,7 +97,7 @@ test('respond refuses exhausted and zero credit without calling OpenAI or record
     const response = await f.run(request(), { AI_USER_CREDIT_USD: credit });
     assert.equal(response.status, 402);
     assert.deepEqual(await response.json(), { error: 'credit_exhausted' });
-    assert.equal(f.calls.length, 2);
+    assert.equal(f.calls.length, 1);
     assert.equal(aiCalls(f).length, 0);
     assert.equal(records(f).length, 0);
   }
@@ -113,7 +114,7 @@ test('respond validates JSON, combined length and text-only kinds after auth and
     const response = await f.run(req);
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), { error: 'invalid_input' });
-    assert.equal(f.calls.length, 2);
+    assert.equal(f.calls.length, 1);
   }
 });
 
@@ -133,7 +134,8 @@ test('respond fails closed for missing selected keys or invalid numeric configur
 
 test('respond never calls OpenAI if the balance cannot be read or validated', async () => {
   for (const options of [
-    { balanceStatus: 500 }, { balanceBody: [] }, { balanceBody: [{ spent: '-1' }] },
+    { balanceStatus: 500 }, { balanceThrows: true }, { balanceInvalidJson: true },
+    { balanceStatus: 400, balanceBody: { code: 'PGRST300', message: 'PRIVATE_ERROR' } }, { balanceBody: [] }, { balanceBody: [{ spent: '-1' }] },
     { balanceBody: [{ spent: 'NaN' }] }, { balanceBody: {} },
   ]) {
     const f = fixture(options);
@@ -142,8 +144,8 @@ test('respond never calls OpenAI if the balance cannot be read or validated', as
   }
 });
 
-test('respond authenticates, checks balance, generates, records, then reads the latest balance', async () => {
-  const f = fixture();
+test('respond authenticates, checks balance, generates, records, then computes the updated balance', async () => {
+  const f = fixture({ spent: '0.1' });
   const response = await f.run();
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
@@ -151,18 +153,17 @@ test('respond authenticates, checks balance, generates, records, then reads the 
   assert.equal(result.text, 'A useful coaching response');
   assert.deepEqual(result.usage, { inputTokens: 1_000_000, outputTokens: 500_000 });
   assert.equal(result.cost, 0.8);
-  assert.equal(result.balance.spent, 0.8);
+  assert.equal(result.balance.spent, 0.9);
   assert.equal(result.balance.credit, 1);
-  assert.ok(Math.abs(result.balance.balance - 0.2) < 1e-15);
+  assert.ok(Math.abs(result.balance.balance - 0.1) < 1e-15);
   assert.deepEqual(f.calls.map(call => call.url), [
-    `${env.SUPABASE_URL}/auth/v1/user`, `${env.SUPABASE_URL}/rest/v1/rpc/get_my_ai_balance`,
-    'https://api.openai.com/v1/responses', `${env.SUPABASE_URL}/rest/v1/rpc/record_ai_usage`,
     `${env.SUPABASE_URL}/rest/v1/rpc/get_my_ai_balance`,
+    'https://api.openai.com/v1/responses', `${env.SUPABASE_URL}/rest/v1/rpc/record_ai_usage`,
   ]);
   for (const call of f.calls.filter(call => call.url.startsWith(env.SUPABASE_URL))) {
     assert.equal(call.headers.get('apikey'), env.SUPABASE_PUBLISHABLE_KEY);
     assert.equal(call.headers.get('Authorization'), authorization);
-    assert.equal(call.method, call.url.endsWith('/auth/v1/user') ? 'GET' : 'POST');
+    assert.equal(call.method, 'POST');
   }
   const entry = records(f)[0].body;
   assert.deepEqual({ ...entry, p_duration_ms: 0 }, {
@@ -273,6 +274,7 @@ test('respond retains AI results when recording fails and logs only redacted dia
     const result = await response.json();
     assert.equal(result.text, 'A useful coaching response');
     assert.equal(result.cost, 0.8);
+    assert.equal(result.balance, null);
     assert.equal(aiCalls(f).length, 1);
     assert.equal(records(f).length, 1);
     assert.ok(f.logs.length > 0);
@@ -284,14 +286,17 @@ test('respond retains AI results when recording fails and logs only redacted dia
   }
 });
 
-test('respond retains AI results with an unknown balance if the final balance refresh fails', async () => {
-  const f = fixture({ refreshThrows: true });
-  const response = await f.run();
-  assert.equal(response.status, 200);
-  const result = await response.json();
-  assert.equal(result.text, 'A useful coaching response');
-  assert.equal(result.balance, null);
-  assert.ok(f.logs.length > 0);
+test('respond sends numeric-only Server-Timing on success and all error paths', async () => {
+  for (const [options, req, overrides] of [
+    [{}, request(), {}], [{}, request({}, { headers: { Authorization: '' } }), {}],
+    [{}, request({}, { method: 'GET' }), {}], [{}, request(), { AI_USER_CREDIT_USD: '-1' }],
+    [{ balanceStatus: 401 }, request(), {}], [{ balanceStatus: 500 }, request(), {}],
+    [{ spent: '1' }, request(), {}], [{}, request({ kind: 'invalid' }), {}],
+    [{ openaiThrows: new Error('PRIVATE') }, request(), {}], [{ recordStatus: 500 }, request(), {}],
+  ]) {
+    const f = fixture(options);
+    assertTiming(await f.run(req, overrides), ['balance', 'openai', 'record', 'total']);
+  }
 });
 
 test('Vercel entry exports a POST Web handler returning a Response', async () => {

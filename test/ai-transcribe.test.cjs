@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const { assertTiming } = require('./helpers/server-timing.cjs');
 
 const env = {
   CHATGPT_PREVIEW_KEY: 'preview-placeholder', CHATGPT_PRODUCTION_KEY: 'production-placeholder',
@@ -30,21 +31,16 @@ function request(values = {}, options = {}) {
 
 function fixture(options = {}) {
   const calls = [], logs = [];
-  let reads = 0;
   const fetch = async (url, init) => {
     const entry = {
       url, method: init.method, headers: new Headers(init.headers), signal: init.signal,
       body: init.body instanceof FormData ? init.body : init.body ? JSON.parse(init.body) : null,
     };
     calls.push(entry);
-    if (url.endsWith('/auth/v1/user')) {
-      if (options.authThrows) throw new Error('Simulated auth network failure');
-      return Response.json(options.authBody ?? { id: '00000000-0000-0000-0000-000000000001' }, { status: options.authStatus ?? 200 });
-    }
     if (url.endsWith('/rpc/get_my_ai_balance')) {
-      reads += 1;
-      if (options.balanceThrows || (reads > 1 && options.refreshThrows)) throw new Error('Simulated balance failure');
-      return Response.json(options.balanceBody ?? [{ spent: reads === 1 ? (options.spent ?? '0') : '1' }], { status: options.balanceStatus ?? 200 });
+      if (options.balanceInvalidJson) return new Response('invalid-json', { status: options.balanceStatus ?? 200 });
+      if (options.balanceThrows) throw new Error('Simulated balance failure');
+      return Response.json(options.balanceBody ?? [{ spent: options.spent ?? '0' }], { status: options.balanceStatus ?? 200 });
     }
     if (url === 'https://api.openai.com/v1/audio/transcriptions') {
       if (options.honorAbort) init.signal?.throwIfAborted();
@@ -88,11 +84,17 @@ test('transcribe rejects non-POST methods and invalid credentials before service
   }
 });
 
-test('transcribe rejects unverifiable identities before checking balance or parsing multipart', async () => {
-  for (const options of [{ authStatus: 401 }, { authStatus: 403 }, { authBody: {} }, { authBody: { id: '' } }, { authThrows: true }]) {
+test('transcribe authenticates via the balance RPC and rejects auth errors without OpenAI', async () => {
+  for (const options of [{ balanceStatus: 401 }, { balanceStatus: 403 }, { balanceStatus: 401, balanceInvalidJson: true },
+    ...['42501', 'PGRST301', 'PGRST302', 'PGRST303', '28000', '28P01'].map(code => ({ balanceStatus: 400, balanceBody: { code } }))]) {
     const f = fixture(options);
-    assert.equal((await f.run(request({}, { rawBody: 'invalid multipart' }))).status, 401);
+    const response = await f.run();
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: 'unauthorized' });
     assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0].method, 'POST');
+    assert.ok(f.calls[0].url.endsWith('/rpc/get_my_ai_balance'));
+    assert.equal(aiCalls(f).length, 0);
   }
 });
 
@@ -102,14 +104,14 @@ test('transcribe refuses exhausted credit before validating input and never call
     const response = await f.run(request({}, { rawBody: 'invalid multipart' }), { AI_USER_CREDIT_USD: credit });
     assert.equal(response.status, 402);
     assert.deepEqual(await response.json(), { error: 'credit_exhausted' });
-    assert.equal(f.calls.length, 2);
+    assert.equal(f.calls.length, 1);
     assert.equal(aiCalls(f).length, 0);
     assert.equal(records(f).length, 0);
   }
 });
 
 test('transcribe fails closed when initial balance is unavailable or malformed', async () => {
-  for (const options of [{ balanceStatus: 500 }, { balanceThrows: true }, { balanceBody: [] }, { balanceBody: {} }, { balanceBody: [{ spent: '-1' }] }, { balanceBody: [{ spent: 'NaN' }] }]) {
+  for (const options of [{ balanceStatus: 400, balanceBody: { code: 'PGRST300', message: 'PRIVATE_ERROR' } }, { balanceInvalidJson: true }, { balanceStatus: 500 }, { balanceThrows: true }, { balanceBody: [] }, { balanceBody: {} }, { balanceBody: [{ spent: '-1' }] }, { balanceBody: [{ spent: 'NaN' }] }]) {
     const f = fixture(options);
     assert.equal((await f.run()).status, 503);
     assert.equal(aiCalls(f).length, 0);
@@ -138,7 +140,7 @@ test('transcribe rejects an audio file over 4 MiB after authentication and balan
   const response = await f.run(request({ file: new Blob([new Uint8Array(4 * 1024 * 1024 + 1)]) }));
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), { error: 'invalid_input' });
-  assert.equal(f.calls.length, 2);
+  assert.equal(f.calls.length, 1);
 });
 
 test('transcribe accepts exactly 4 MiB and a 2000-character prompt', async () => {
@@ -151,7 +153,7 @@ test('transcribe accepts exactly 4 MiB and a 2000-character prompt', async () =>
 test('transcribe rejects a prompt longer than 2000 characters without contacting OpenAI', async () => {
   const f = fixture();
   assert.equal((await f.run(request({ prompt: 'x'.repeat(2001) }))).status, 400);
-  assert.equal(f.calls.length, 2);
+  assert.equal(f.calls.length, 1);
 });
 
 test('transcribe rejects missing or empty files, missing prompts, wrong kinds and malformed multipart', async () => {
@@ -161,11 +163,11 @@ test('transcribe rejects missing or empty files, missing prompts, wrong kinds an
   ]) {
     const f = fixture();
     assert.equal((await f.run(request(fields))).status, 400);
-    assert.equal(f.calls.length, 2);
+    assert.equal(f.calls.length, 1);
   }
   const f = fixture();
   assert.equal((await f.run(request({}, { rawBody: 'invalid multipart' }))).status, 400);
-  assert.equal(f.calls.length, 2);
+  assert.equal(f.calls.length, 1);
 });
 
 test('transcribe sends only multipart file, server model, prompt and json format with a 60-second signal', async () => {
@@ -190,25 +192,24 @@ test('transcribe sends only multipart file, server model, prompt and json format
   }
 });
 
-test('transcribe records voice token costs and returns the latest balance with the text', async () => {
-  const f = fixture();
+test('transcribe records voice token costs and returns the computed balance with the text', async () => {
+  const f = fixture({ spent: '0.25' });
   const response = await f.run();
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
   const result = await response.json();
   assert.deepEqual(result, {
     text: 'Transcribed practice speech', usage: { inputTokens: 1_000_000, outputTokens: 500_000, audioSeconds: 0 }, cost: 1,
-    balance: { spent: 1, credit: 1, balance: 0, exhausted: true },
+    balance: { spent: 1.25, credit: 1, balance: 0, exhausted: true },
   });
   assert.deepEqual(f.calls.map(call => call.url), [
-    `${env.SUPABASE_URL}/auth/v1/user`, `${env.SUPABASE_URL}/rest/v1/rpc/get_my_ai_balance`,
-    'https://api.openai.com/v1/audio/transcriptions', `${env.SUPABASE_URL}/rest/v1/rpc/record_ai_usage`,
     `${env.SUPABASE_URL}/rest/v1/rpc/get_my_ai_balance`,
+    'https://api.openai.com/v1/audio/transcriptions', `${env.SUPABASE_URL}/rest/v1/rpc/record_ai_usage`,
   ]);
   for (const call of f.calls.filter(call => call.url.startsWith(env.SUPABASE_URL))) {
     assert.equal(call.headers.get('apikey'), env.SUPABASE_PUBLISHABLE_KEY);
     assert.equal(call.headers.get('Authorization'), authorization);
-    assert.equal(call.method, call.url.endsWith('/auth/v1/user') ? 'GET' : 'POST');
+    assert.equal(call.method, 'POST');
   }
   const entry = records(f)[0].body;
   assert.deepEqual({ ...entry, p_duration_ms: 0 }, {
@@ -351,6 +352,7 @@ test('transcribe keeps paid results if accounting fails and logs no keys or upst
     const result = await response.json();
     assert.equal(result.text, 'Transcribed practice speech');
     assert.equal(result.cost, 1);
+    assert.equal(result.balance, null);
     assert.equal(aiCalls(f).length, 1);
     assert.equal(records(f).length, 1);
     assert.ok(f.logs.length > 0);
@@ -361,12 +363,17 @@ test('transcribe keeps paid results if accounting fails and logs no keys or upst
   }
 });
 
-test('transcribe preserves results and reports unknown balance when the final refresh fails', async () => {
-  const f = fixture({ refreshThrows: true });
-  const response = await f.run();
-  assert.equal(response.status, 200);
-  assert.equal((await response.json()).balance, null);
-  assert.ok(f.logs.length > 0);
+test('transcribe sends numeric-only Server-Timing on success and all error paths', async () => {
+  for (const [options, req, overrides] of [
+    [{}, request(), {}], [{}, request({}, { headers: { Authorization: '' } }), {}],
+    [{}, request({}, { method: 'GET' }), {}], [{}, request(), { AI_USER_CREDIT_USD: '-1' }],
+    [{ balanceStatus: 401 }, request(), {}], [{ balanceStatus: 500 }, request(), {}],
+    [{ spent: '1' }, request(), {}], [{}, request({ kind: 'invalid' }), {}],
+    [{ openaiThrows: new Error('PRIVATE') }, request(), {}], [{ recordStatus: 500 }, request(), {}],
+  ]) {
+    const f = fixture(options);
+    assertTiming(await f.run(req, overrides), ['balance', 'openai', 'record', 'total']);
+  }
 });
 
 test('transcribe Vercel entry exports a POST Web handler', async () => {
