@@ -24,6 +24,10 @@
     return !Number.isSafeInteger(size) || size < 0 || size > 4 * 1024 * 1024;
   }
 
+  function recorderOptions(mimeType) {
+    return { audioBitsPerSecond: 32000, ...(mimeType ? { mimeType } : {}) };
+  }
+
   function failure(result) {
     return Object.assign(new Error(result.messageKey), result);
   }
@@ -73,5 +77,5 @@
     };
   }
 
-  return { selectProvider, interpretResponse, isAudioTooLarge, createClient };
+  return { selectProvider, interpretResponse, isAudioTooLarge, recorderOptions, createClient };
 });

@@ -2,6 +2,14 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const api = () => require('../public/system-ai.js');
 
+test('recorder options request 32 kbps audio and preserve an optional MIME type', () => {
+  assert.deepEqual(api().recorderOptions(), { audioBitsPerSecond: 32000 });
+  assert.deepEqual(api().recorderOptions(''), { audioBitsPerSecond: 32000 });
+  assert.deepEqual(api().recorderOptions('audio/webm;codecs=opus'), {
+    audioBitsPerSecond: 32000, mimeType: 'audio/webm;codecs=opus',
+  });
+});
+
 test('system balance client makes a credentialed GET and accepts exhausted balances without AI usage', async () => {
   const calls = [];
   const expected = { spent: 1, credit: 1, balance: 0, exhausted: true };
