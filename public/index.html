@@ -39,6 +39,7 @@
         </select>
       </div>
     </header>
+    <section id="systemAiNotice" class="sync-status" role="status"><span id="systemAiNoticeText"></span> <button type="button" class="secondary" id="systemAiSigninButton"></button></section>
 
     <main id="homeView" class="app-view active-view">
       <section class="home-hero">
@@ -248,6 +249,7 @@
       <div class="dialog-head"><div><p class="eyebrow">API COST LEDGER</p><h2>API 費用明細</h2></div><button class="dialog-close" id="closeApiUsageButton" type="button" aria-label="關閉">×</button></div>
       <p class="dialog-intro">每一筆呼叫分別列出輸入與輸出 Token、套用費率及估算費用。Google 雲端模式下，紀錄會依登入帳號分開同步。</p>
       <div class="api-ledger-toolbar"><label>顯示期間<select id="apiUsagePeriod"><option value="month">本月</option><option value="7">最近 7 天</option><option value="30">最近 30 天</option><option value="all">全部</option></select></label><label>API 類型<select id="apiUsageKind"><option value="all">全部</option><option value="agent">文字 Agent</option><option value="transcription">語音轉文字</option></select></label><button class="text-button danger-text" id="clearApiUsageButton" type="button">清除全部紀錄</button></div>
+      <p id="systemAiBalance" role="status"></p>
       <div class="api-usage-summary"><article><strong id="apiUsageCalls">0</strong><span>呼叫次數</span></article><article><strong id="apiUsageInputTokens">0</strong><span>輸入 Token</span></article><article><strong id="apiUsageOutputTokens">0</strong><span>輸出 Token</span></article><article><strong id="apiUsageTotalCost">US$0.000000</strong><span>合計費用</span></article></div>
       <div class="api-ledger-table-wrap"><table class="api-ledger-table"><thead><tr><th>時間／專案</th><th>模型</th><th>輸入成本</th><th>輸出成本</th><th>單次總計</th><th>狀態</th></tr></thead><tbody id="apiUsageList"><tr><td colspan="6" class="empty">還沒有 API 呼叫紀錄。</td></tr></tbody></table></div>
       <p class="api-ledger-note">費用為依 API 回傳 Token 數與你設定的費率計算之估算值；最終金額請以供應商帳單為準。</p>
@@ -300,6 +302,8 @@
   <script src="cloud.js" defer></script>
   <script src="coach-result-utils.js" defer></script>
   <script src="speech-utils.js" defer></script>
+  <script src="system-ai.js" defer></script>
+  <script src="usage-stats.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>
