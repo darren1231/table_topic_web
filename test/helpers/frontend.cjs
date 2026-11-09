@@ -42,7 +42,9 @@ function browser() {
     dispatchEvent(event) { for (const listener of events.get(event.type) || []) listener(event); },
   };
   const context = vm.createContext({
-    window, document: { querySelector: get, querySelectorAll: () => [], getElementById: id => get(`#${id}`), createElement: tag => new Element(tag), addEventListener() {} },
+    window, document: { visibilityState: 'visible', querySelector: get, querySelectorAll: () => [], getElementById: id => get(`#${id}`), createElement: tag => new Element(tag),
+      addEventListener(name, listener) { const key = `document:${name}`; events.set(key, [...(events.get(key) || []), listener]); },
+      dispatchEvent(event) { for (const listener of events.get(`document:${event.type}`) || []) listener(event); } },
     localStorage, sessionStorage: localStorage, console, Blob, FormData, Response, Request, URL, Intl,
     CustomEvent: class { constructor(type, options = {}) { this.type = type; this.detail = options.detail; } },
     setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1,
@@ -51,6 +53,8 @@ function browser() {
       questionTemplates: () => [topic => `Question about ${topic}`],
       translate(key, variables = {}) { return Object.entries(variables).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), messages[key] || key); } },
     SpeechUtils: require('../../public/speech-utils.js'), CoachResultUtils: require('../../public/coach-result-utils.js'),
+    WakeLock: require('../../public/wake-lock.js'),
+    RecordingSession: require('../../public/recording-session.js'),
   });
   window.I18n = context.I18n;
   return { context, nodes, storage, get, run: source => vm.runInContext(source, context) };

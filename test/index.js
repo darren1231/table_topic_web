@@ -14,6 +14,9 @@ require('./usage-stats.test.cjs');
 require('./admin.test.cjs');
 require('./system-ai.test.cjs');
 require('./system-ai-integration.test.cjs');
+require('./wake-lock.test.cjs');
+require('./recording-integration.test.cjs');
+require('./recording-session.test.cjs');
 
 test('test environment can query an in-memory PostgreSQL database', async () => {
   const { PGlite } = require('@electric-sql/pglite');
