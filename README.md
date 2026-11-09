@@ -119,7 +119,9 @@ npm test
    where lower(email) = lower('admin@example.invalid');
    ```
 
-管理員必須已登入，且登入帳號的 email 已驗證；名單比對不分大小寫。非管理員或查詢失敗時，後台只會顯示「沒有權限」。管理員資格變更後，請重新整理後台。
+已執行過 `0001` 的資料庫，需再於 SQL Editor 執行 [`supabase/migrations/0002_fix_admin_email_type.sql`](supabase/migrations/0002_fix_admin_email_type.sql)；此修正可安全重複執行。
+
+管理員必須已登入，且登入帳號的 email 已驗證；名單比對不分大小寫。未登入時顯示「請先登入」，非管理員顯示「沒有權限」，其他查詢錯誤顯示「載入失敗」。管理員資格變更後，請重新整理後台。
 
 ### 可查看的內容
 

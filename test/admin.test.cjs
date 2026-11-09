@@ -41,15 +41,30 @@ test('admin page is independent and the main site exposes no admin link', () => 
   assert.ok(html.includes('api-ledger-table'));
 });
 
-test('visitors and failed admin RPCs see only permission denial with empty hidden data', async () => {
-  for (const options of [{ signedIn: false }, { rpc: async () => ({ error: { message: 'PRIVATE_BODY' } }) }, { rpc: async () => { throw new Error('PRIVATE_BODY'); } }]) {
+test('admin distinguishes signed-out, forbidden and load failure states without exposing tokens', async t => {
+  const logs = [];
+  t.mock.method(console, 'error', (...args) => logs.push(args));
+  const cases = [
+    [{ signedIn: false }, 'admin.signInRequired'],
+    [{ rpc: async () => ({ error: { code: '42501', message: 'Admin access required' } }) }, 'admin.denied'],
+    [{ rpc: async () => ({ error: { code: '42804', message: 'Query type mismatch', token: 'PRIVATE_TOKEN' } }) }, 'admin.loadFailed'],
+    [{ rpc: async () => { throw Object.assign(new Error('Network failure'), { code: 'NETWORK', token: 'PRIVATE_TOKEN' }); } }, 'admin.loadFailed'],
+  ];
+  for (const [options, expected] of cases) {
     const f = fixture(options); await f.controller.initialize();
-    assert.equal(f.nodes.get('adminStatus').textContent, 'admin.denied');
+    assert.equal(f.nodes.get('adminStatus').textContent, expected);
+    f.controller.render();
+    assert.equal(f.nodes.get('adminStatus').textContent, expected);
     assert.equal(f.nodes.get('adminData').classList.contains('hidden'), true);
     assert.equal(f.nodes.get('adminUserRows').children.length, 0);
     assert.equal(f.nodes.get('adminUsageRows').children.length, 0);
     if (options.signedIn === false) assert.equal(f.calls.length, 0);
   }
+  assert.equal(logs.length, 2);
+  assert.ok(JSON.stringify(logs).includes('42804'));
+  assert.ok(JSON.stringify(logs).includes('Query type mismatch'));
+  assert.ok(JSON.stringify(logs).includes('Network failure'));
+  assert.ok(!JSON.stringify(logs).includes('PRIVATE_TOKEN'));
 });
 
 test('admin loads the protected RPC, displays totals and treats database text literally', async () => {

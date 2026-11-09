@@ -374,6 +374,8 @@
     "systemAi.usageIntro": "سجلات الاستخدام المحلية. تعتمد تكاليف ذكاء النظام على المبالغ التي يعيدها الخادم.",
     "admin.title": "إدارة استخدام الذكاء الاصطناعي",
     "admin.denied": "ليس لديك صلاحية",
+    "admin.signInRequired": "يرجى تسجيل الدخول أولاً",
+    "admin.loadFailed": "فشل التحميل",
     "admin.signIn": "تسجيل الدخول باستخدام Google",
     "admin.signOut": "تسجيل الخروج",
     "admin.refresh": "تحديث",

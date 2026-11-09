@@ -374,6 +374,8 @@
     "systemAi.usageIntro": "顯示本機使用紀錄；系統 AI 的費用採用伺服器回傳金額。",
     "admin.title": "AI 使用紀錄管理",
     "admin.denied": "沒有權限",
+    "admin.signInRequired": "請先登入",
+    "admin.loadFailed": "載入失敗",
     "admin.signIn": "使用 Google 登入",
     "admin.signOut": "登出",
     "admin.refresh": "重新整理",

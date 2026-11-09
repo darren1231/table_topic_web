@@ -155,7 +155,7 @@ begin
     select usage.id, usage.user_id, usage.created_at, usage.provider, usage.model,
       usage.kind, usage.status, usage.error, usage.input_tokens, usage.output_tokens,
       usage.input_rate, usage.output_rate, usage.estimated_cost, usage.duration_ms, usage.audio_seconds,
-      account.email
+      account.email::text
     from public.ai_usage as usage
     join auth.users as account on account.id = usage.user_id
     where p_since is null or usage.created_at >= p_since

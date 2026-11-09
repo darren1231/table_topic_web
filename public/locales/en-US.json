@@ -374,6 +374,8 @@
     "systemAi.usageIntro": "Local usage records. System AI costs use the amounts returned by the server.",
     "admin.title": "AI Usage Administration",
     "admin.denied": "Access denied",
+    "admin.signInRequired": "Please sign in first",
+    "admin.loadFailed": "Failed to load",
     "admin.signIn": "Sign in with Google",
     "admin.signOut": "Sign out",
     "admin.refresh": "Refresh",

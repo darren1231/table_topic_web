@@ -46,7 +46,7 @@ describe('AI usage migration', { concurrency: false }, () => {
       CREATE SCHEMA auth;
       CREATE TABLE auth.users (
         id uuid PRIMARY KEY,
-        email text,
+        email varchar(255),
         email_confirmed_at timestamptz
       );
       CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE
@@ -278,6 +278,40 @@ describe('AI usage migration', { concurrency: false }, () => {
     for (const fn of functions) {
       assert.equal(fn.prosecdef, true, fn.proname);
       assert.deepEqual(fn.proconfig, ['search_path=""'], fn.proname);
+    }
+  });
+
+  test('0002 repairs the legacy varchar email query and is safe to rerun with restricted privileges', async () => {
+    await record(users.member);
+    await database.exec('RESET ROLE');
+    const initial = await readFile(path.join(__dirname, '../supabase/migrations/0001_ai_usage.sql'), 'utf8');
+    const definition = initial.slice(initial.indexOf('create function public.admin_list_ai_usage'),
+      initial.indexOf('revoke all on function public.record_ai_usage'));
+    // Reproduce the deployed 0001 body, before its explicit email cast was added.
+    assert.ok(definition.includes('return query'));
+    await database.exec(definition.replace('create function', 'create or replace function').replace('account.email::text', 'account.email'));
+    await asRole('authenticated', users.admin);
+    await assert.rejects(database.query('SELECT * FROM public.admin_list_ai_usage()'), { code: '42804' });
+    const repair = await readFile(path.join(__dirname, '../supabase/migrations/0002_fix_admin_email_type.sql'), 'utf8');
+    for (let run = 0; run < 2; run++) {
+      await database.exec('RESET ROLE');
+      await database.exec(repair);
+      await asRole('authenticated', users.admin);
+      assert.deepEqual((await database.query('SELECT email FROM public.admin_list_ai_usage()')).rows,
+        [{ email: 'member@example.invalid' }]);
+      assert.deepEqual((await database.query("SELECT email FROM public.admin_list_ai_usage('2100-01-01')")).rows, []);
+      await asRole('authenticated', users.member, 'admin@example.invalid');
+      await assert.rejects(database.query('SELECT * FROM public.admin_list_ai_usage()'), { code: '42501' });
+      await asRole('authenticated', users.unconfirmed);
+      await assert.rejects(database.query('SELECT * FROM public.admin_list_ai_usage()'), { code: '42501' });
+      for (const role of ['anon', 'public_only']) {
+        await asRole(role, users.admin);
+        await assert.rejects(database.query('SELECT * FROM public.admin_list_ai_usage()'), { code: '42501' });
+      }
+      await database.exec('RESET ROLE');
+      const { rows: [fn] } = await database.query("SELECT prosecdef, proconfig FROM pg_proc WHERE oid = 'public.admin_list_ai_usage(timestamptz)'::regprocedure");
+      assert.equal(fn.prosecdef, true);
+      assert.deepEqual(fn.proconfig, ['search_path=""']);
     }
   });
 

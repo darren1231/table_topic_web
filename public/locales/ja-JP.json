@@ -380,6 +380,8 @@
     "systemAi.usageIntro": "ローカルの利用記録です。システム AI の費用はサーバーから返された金額を使います。",
     "admin.title": "AI 利用記録の管理",
     "admin.denied": "アクセス権がありません",
+    "admin.signInRequired": "先にログインしてください",
+    "admin.loadFailed": "読み込みに失敗しました",
     "admin.signIn": "Google でログイン",
     "admin.signOut": "ログアウト",
     "admin.refresh": "更新",

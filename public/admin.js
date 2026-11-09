@@ -25,7 +25,7 @@
   function createAdminController({ client, document, t, getLocale = () => 'zh-TW', onLocaleChange = () => {},
     now = () => new Date(), schedule = fn => setTimeout(fn, 0), redirectTo }) {
     const byId = id => document.getElementById(id);
-    let records = [], session = null, authorized = false, version = 0;
+    let records = [], session = null, authorized = false, version = 0, statusKey = 'admin.signInRequired';
     const money = value => `US$${Number(value).toFixed(6)}`;
     const number = value => new Intl.NumberFormat(getLocale()).format(value);
     const dateText = value => {
@@ -48,15 +48,28 @@
       byId('adminSignIn').classList.toggle('hidden', Boolean(session?.user));
       byId('adminSignOut').classList.toggle('hidden', !session?.user);
     }
-    function deny() {
+    function deny(key = statusKey) {
+      statusKey = key;
       authorized = false; records = [];
       byId('adminData').classList.add('hidden');
-      byId('adminStatus').textContent = t('admin.denied');
+      byId('adminStatus').textContent = t(statusKey);
       byId('adminUserRows').replaceChildren();
       byId('adminUsageRows').replaceChildren();
       byId('adminUserFilter').replaceChildren(option('all', t('admin.allUsers')));
       byId('adminUserFilter').value = 'all';
       for (const id of ['adminCalls', 'adminInputTokens', 'adminOutputTokens', 'adminCost', 'adminAudioSeconds']) byId(id).textContent = '0';
+    }
+    function loadError(error) {
+      if (error?.code === '42501') return deny('admin.denied');
+      const clean = value => {
+        let text = typeof value === 'string' ? value : '';
+        for (const token of [session?.access_token, session?.refresh_token]) {
+          if (token) text = text.split(token).join('[redacted]');
+        }
+        return text.replace(/Bearer\s+\S+|eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi, '[redacted]');
+      };
+      console.error('Admin usage load failed', { code: clean(error?.code), message: clean(error?.message) });
+      deny('admin.loadFailed');
     }
     function userOptions() {
       const select = byId('adminUserFilter'), selected = select.value;
@@ -91,14 +104,14 @@
     }
     async function loadSession(nextSession) {
       const ticket = ++version;
-      session = nextSession; deny(); buttons();
+      session = nextSession; deny(session?.user ? 'admin.loadFailed' : 'admin.signInRequired'); buttons();
       if (!client || !session?.user) return;
       try {
         const { data, error } = await client.rpc('admin_list_ai_usage');
         if (ticket !== version) return;
-        if (error || !Array.isArray(data)) return deny();
+        if (error || !Array.isArray(data)) return loadError(error || { code: 'INVALID_RESPONSE', message: 'Expected usage records' });
         records = data; authorized = true; userOptions(); render();
-      } catch { if (ticket === version) deny(); }
+      } catch (error) { if (ticket === version) loadError(error); }
     }
     async function refresh() {
       const ticket = ++version;
@@ -106,17 +119,18 @@
       try {
         const { data, error } = await client.auth.getSession();
         if (ticket !== version) return;
-        return loadSession(error ? null : data?.session || null);
-      } catch { if (ticket === version) { session = null; deny(); buttons(); } }
+        if (error) return loadError(error);
+        return loadSession(data?.session || null);
+      } catch (error) { if (ticket === version) { loadError(error); session = null; buttons(); } }
     }
     async function signIn() {
       try {
         const { error } = await client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo, queryParams: { prompt: 'select_account' } } });
-        if (error) deny();
-      } catch { deny(); }
+        if (error) loadError(error);
+      } catch (error) { loadError(error); }
     }
     async function signOut() {
-      version++; session = null; deny(); buttons();
+      version++; session = null; deny('admin.signInRequired'); buttons();
       try { await client.auth.signOut(); } catch {}
     }
     async function initialize() {
@@ -126,7 +140,7 @@
       byId('adminSignIn').onclick = signIn; byId('adminSignOut').onclick = signOut; byId('adminRefresh').onclick = refresh;
       byId('adminLanguage').onchange = () => { onLocaleChange(byId('adminLanguage').value); if (authorized) userOptions(); render(); };
       if (client) client.auth.onAuthStateChange((event, nextSession) => {
-        const ticket = ++version; session = nextSession; deny(); buttons();
+        const ticket = ++version; session = nextSession; deny(session?.user ? 'admin.loadFailed' : 'admin.signInRequired'); buttons();
         // Keep RPC calls outside Supabase's auth callback lock.
         return schedule(() => { if (ticket === version) return loadSession(nextSession); });
       });
