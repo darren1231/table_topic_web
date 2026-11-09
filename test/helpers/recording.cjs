@@ -25,17 +25,19 @@ function recordingBrowser(mode = 'api', fetch) {
     start() { this.state = 'recording'; }
     stop() {
       this.stops++; this.state = 'inactive';
-      queueMicrotask(() => { this.ondataavailable?.({ data: new Blob([`segment-${recorders.indexOf(this) + 1}`]) }); this.onstop?.(); });
+      this.finishStop = () => { this.ondataavailable?.({ data: this.finalBlob || new Blob([`segment-${recorders.indexOf(this) + 1}`]) }); this.onstop?.(); };
+      if (!this.deferStop) queueMicrotask(this.finishStop);
     }
   }
   b.context.MediaRecorder = b.window.MediaRecorder = MediaRecorder;
   b.window.SpeechRecognition = class { start() {} stop() {} abort() {} };
   const wake = { acquires: 0, releases: 0, acquire() { this.acquires++; }, release() { this.releases++; } };
   b.context.WakeLock = wake;
-  b.run(`getActiveProject().transcriptionMode = '${mode}';`);
+  b.run(`getActiveProject().transcriptionMode = '${mode}'; getActiveProject().smartCorrection = false;`);
   return { ...b, recorders, streams, timers, wake,
     tick(seconds) { for (let i = 0; i < seconds; i++) for (const fn of [...timers.values()]) fn(); },
-    async settle() { for (let i = 0; i < 30; i++) await Promise.resolve(); },
+    visible(value) { b.context.document.visibilityState = value ? 'visible' : 'hidden'; b.context.document.dispatchEvent({ type: 'visibilitychange' }); },
+    async settle() { for (let i = 0; i < 30; i++) await Promise.resolve(); await new Promise(setImmediate); },
   };
 }
 

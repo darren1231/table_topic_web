@@ -123,6 +123,7 @@
             <button class="record-control danger-control" id="restartRecordButton" type="button"><span>↻</span> 重新錄製</button>
             <button class="record-control resume-control" id="resumeRecordButton" type="button"><span>●</span> 繼續錄製</button>
             <button class="record-control pause-control" id="pauseRecordButton" type="button" disabled><span>Ⅱ</span> 暫停錄製</button>
+            <button class="record-control pause-control hidden" id="stopRecordButton" type="button"></button>
           </div>
           <label class="transcription-mode-picker"><span>轉錄方式</span><select id="transcriptionModeQuick"><option value="browser">瀏覽器即時辨識</option><option value="api">API 高品質轉錄</option></select></label>
           <div class="transcription-api-status" id="transcriptionApiStatus">目前使用瀏覽器即時辨識，不會呼叫 Audio API。</div>
@@ -303,6 +304,7 @@
   <script src="coach-result-utils.js" defer></script>
   <script src="speech-utils.js" defer></script>
   <script src="wake-lock.js" defer></script>
+  <script src="recording-session.js" defer></script>
   <script src="system-ai.js" defer></script>
   <script src="usage-stats.js" defer></script>
   <script src="app.js" defer></script>

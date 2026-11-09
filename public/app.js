@@ -680,6 +680,7 @@ function showQuestion() {
 }
 
 function resetRecorderForQuestion() {
+  discardApiRecording();
   WakeLock.release();
   if (state.recognition) { try { state.recognition.abort(); } catch {} }
   state.discardAudio=true;if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){try{state.mediaRecorder.stop();}catch{}}stopMediaStream();state.audioChunks=[];
@@ -720,12 +721,161 @@ function setupRecognition() {
 
 function activeTranscriptionMode(){const project=getActiveProject();return project.provider==='builtin'?'browser':project.transcriptionMode||'browser';}
 let transcriptionQueue=Promise.resolve();
-function queueAudioTranscription(blob,project){const run=()=>transcribeAudioBlobV2(blob,project);transcriptionQueue=transcriptionQueue.then(run,run);return transcriptionQueue;}
+function queueAudioTranscription(blob,project,shouldUpload=()=>true){const run=async()=>await shouldUpload()?transcribeAudioBlobV2(blob,project):undefined;transcriptionQueue=transcriptionQueue.then(run,run);return transcriptionQueue;}
 async function startApiRecording(){
   const project=getActiveProject();if(project.provider!=='system'&&(!project.apiKey||!project.transcriptionEndpoint||!project.transcriptionModel)){toast(ui('請先在 AI 專案設定完成 Audio-to-Text API','Configure the Audio-to-Text API in AI project settings first'));return false;}
   if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){toast(ui('這個瀏覽器不支援音訊錄製','This browser does not support audio recording'));return false;}
-  try{state.discardAudio=false;const chunks=[];state.audioChunks=chunks;const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});state.mediaStream=stream;const preferred=['audio/webm;codecs=opus','audio/mp4','audio/webm'];const mimeType=preferred.find(t=>MediaRecorder.isTypeSupported?.(t))||'';const recorder=new MediaRecorder(stream,SystemAI.recorderOptions(mimeType));state.mediaRecorder=recorder;recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};recorder.onstop=async()=>{WakeLock.release();const captured=[...chunks],type=recorder.mimeType||captured[0]?.type||'audio/webm',discard=state.discardAudio;stream.getTracks().forEach(track=>track.stop());if(state.mediaStream===stream)state.mediaStream=null;if(discard||!captured.length){if(discard)state.discardAudio=false;return;}const unexpectedlyEnded=state.isRecording&&activeTranscriptionMode()==='api';if(unexpectedlyEnded){$('#recordStatus').textContent=ui('錄音連線已自動重接，正在保存上一段⋯','Recording reconnected automatically; saving the previous segment…');const restarted=await startApiRecording();if(!restarted){state.isRecording=false;clearInterval(state.timerId);state.timerId=null;state.isPaused=true;updateRecorderControls();}}await queueAudioTranscription(new Blob(captured,{type}),project);if(unexpectedlyEnded&&state.isRecording)$('#recordStatus').textContent=ui('已接續錄音，上一段已安全轉錄','Recording continues; the previous segment was transcribed safely.');};recorder.start(500);WakeLock.acquire();return true;}catch(e){stopMediaStream();toast(`${ui('無法啟動麥克風','Could not start microphone')}: ${e.message}`);return false;}
+  return beginApiSegment(project);
 }
+let apiRecordingSession = RecordingSession.create();
+let apiCapture = null, apiStarting = null, apiGeneration = 0;
+const apiSegments = new Map();
+const apiUploadWaiters = new Set();
+
+function renderApiInterrupted() {
+  if (activeTranscriptionMode() !== 'api' || apiRecordingSession.status !== 'interrupted' || state.isRecording || document.visibilityState === 'hidden') return;
+  $('#recordStatus').textContent = t('recording.interrupted', { time: formatTimer(apiRecordingSession.totalSeconds) });
+}
+
+function flushApiSegments() {
+  if (document.visibilityState === 'hidden' || apiCapture) return;
+  for (const wake of apiUploadWaiters) wake();
+  apiUploadWaiters.clear();
+  const pending = RecordingSession.takePending(apiRecordingSession);
+  apiRecordingSession = pending.session;
+  const generation = apiGeneration;
+  for (const segment of pending.segments) {
+    const audio = apiSegments.get(segment.sequence);
+    apiSegments.delete(segment.sequence);
+    if (audio) queueAudioTranscription(audio.blob, audio.project, () => {
+      if (generation !== apiGeneration) return false;
+      if (document.visibilityState !== 'hidden') return true;
+      // Hold the queue in order until the next explicit Continue/Stop, or discard.
+      return new Promise(resolve => apiUploadWaiters.add(() => {
+        resolve(generation === apiGeneration && document.visibilityState !== 'hidden');
+      }));
+    })
+      .finally(renderApiInterrupted).catch(() => {});
+  }
+}
+
+function closeApiSegment(capture, action, stopRecorder = true) {
+  if (!capture || capture.discarded || capture !== apiCapture) return;
+  if (!capture.closed) {
+    capture.closed = true; capture.action = action;
+    const seconds = Math.max(0, state.seconds - capture.startSeconds);
+    apiRecordingSession = action === 'stop' ? RecordingSession.stop(apiRecordingSession, seconds)
+      : RecordingSession.interrupt(apiRecordingSession, seconds);
+    state.isRecording = false; state.isPaused = true;
+    clearInterval(state.timerId); state.timerId = null;
+    WakeLock.release();
+    if (stopRecorder && capture.recorder.state !== 'inactive') {
+      try { capture.recorder.stop(); } catch { finishApiSegment(capture); }
+    }
+    capture.stream.getTracks().forEach(track => track.stop());
+    updateRecorderControls();
+  } else if (action === 'stop') {
+    capture.action = action;
+    apiRecordingSession = RecordingSession.stop(apiRecordingSession);
+  }
+  return capture.finished;
+}
+
+function finishApiSegment(capture) {
+  if (capture.finalized) return;
+  if (!capture.closed && !capture.discarded) closeApiSegment(capture, 'interrupted', false);
+  capture.finalized = true;
+  capture.stream.getTracks().forEach(track => track.stop());
+  if (!capture.discarded && capture.generation === apiGeneration && capture.chunks.length) {
+    const type = capture.recorder.mimeType || capture.chunks[0]?.type || 'audio/webm';
+    apiSegments.set(capture.sequence, { blob: new Blob(capture.chunks, { type }), project: capture.project });
+  }
+  if (state.mediaRecorder === capture.recorder) state.mediaRecorder = null;
+  if (state.mediaStream === capture.stream) state.mediaStream = null;
+  if (apiCapture === capture) apiCapture = null;
+  capture.resolve();
+  if (!capture.discarded && capture.generation === apiGeneration) {
+    if (capture.action === 'pause' || capture.action === 'stop') flushApiSegments();
+    updateRecorderControls();
+  }
+}
+
+function interruptApiRecording() {
+  if (apiStarting) { apiStarting.cancelled = true; WakeLock.release(); }
+  if (apiCapture) closeApiSegment(apiCapture, 'interrupted');
+}
+
+function discardApiRecording() {
+  apiGeneration++;
+  if (apiStarting) apiStarting.cancelled = true;
+  apiStarting = null;
+  const capture = apiCapture;
+  if (capture) {
+    capture.discarded = true;
+    if (capture.recorder.state !== 'inactive') {
+      try { capture.recorder.stop(); } catch { finishApiSegment(capture); }
+    }
+    capture.stream.getTracks().forEach(track => track.stop());
+    if (state.mediaRecorder === capture.recorder) state.mediaRecorder = null;
+    if (state.mediaStream === capture.stream) state.mediaStream = null;
+    apiCapture = null;
+  }
+  apiSegments.clear(); apiRecordingSession = RecordingSession.create();
+  for (const wake of apiUploadWaiters) wake();
+  apiUploadWaiters.clear();
+}
+
+async function beginApiSegment(project) {
+  if (apiStarting || document.visibilityState === 'hidden') return false;
+  const ticket = { generation: apiGeneration, cancelled: false };
+  apiStarting = ticket; updateRecorderControls();
+  let stream;
+  try {
+    if (apiCapture) await apiCapture.finished;
+    if (ticket.cancelled || ticket.generation !== apiGeneration || document.visibilityState === 'hidden') return false;
+    flushApiSegments();
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    if (ticket.cancelled || ticket.generation !== apiGeneration || document.visibilityState === 'hidden') {
+      stream.getTracks().forEach(track => track.stop()); return false;
+    }
+    const mimeType = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find(type => MediaRecorder.isTypeSupported?.(type)) || '';
+    const recorder = new MediaRecorder(stream, SystemAI.recorderOptions(mimeType));
+    const capture = { recorder, stream, project, chunks: [], startSeconds: state.seconds,
+      sequence: apiRecordingSession.segments.length + 1, generation: apiGeneration };
+    capture.finished = new Promise(resolve => { capture.resolve = resolve; });
+    apiCapture = capture; state.mediaStream = stream; state.mediaRecorder = recorder; state.audioChunks = capture.chunks;
+    recorder.ondataavailable = event => { if (!capture.discarded && event.data?.size) capture.chunks.push(event.data); };
+    recorder.onstop = () => finishApiSegment(capture);
+    recorder.onerror = () => { if (apiCapture === capture && !capture.closed) interruptApiRecording(); };
+    for (const track of stream.getAudioTracks()) {
+      for (const event of ['ended', 'mute']) track.addEventListener(event, () => {
+        if (apiCapture === capture && !capture.closed) interruptApiRecording();
+      });
+    }
+    recorder.start(500);
+    apiRecordingSession = RecordingSession.resume(apiRecordingSession);
+    WakeLock.acquire();
+    return true;
+  } catch (error) {
+    stream?.getTracks().forEach(track => track.stop());
+    if (ticket.generation === apiGeneration) {
+      if (apiCapture && apiCapture.stream === stream) { apiCapture.resolve(); apiCapture = null; state.mediaRecorder = null; state.mediaStream = null; }
+      $('#recordStatus').textContent = t('recording.startFailed');
+      toast(t('recording.startFailed')); WakeLock.release();
+    }
+    return false;
+  } finally {
+    if (apiStarting === ticket) apiStarting = null;
+    updateRecorderControls();
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') interruptApiRecording();
+  else renderApiInterrupted();
+});
+window.addEventListener('pagehide', interruptApiRecording);
+
 function stopMediaStream(){state.mediaStream?.getTracks().forEach(track=>track.stop());state.mediaStream=null;}
 async function transcribeAudioBlob(blob,project){
   if (!ENABLE_BYOK || project.provider === 'system') return transcribeWithSystem(blob, project);
@@ -742,22 +892,32 @@ async function transcribeAudioBlobV2(blob,project){
   try{const type=blob.type||'audio/webm';const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const form=new FormData();form.append('file',blob,`recording.${ext}`);form.append('model',project.transcriptionModel);form.append('prompt','Use natural punctuation and preserve all spoken content. Automatically detect each spoken language. Never translate. Keep Chinese as Chinese, English as English, and preserve mixed Chinese-English sentences.');const startedAt=Date.now();const response=await fetch(project.transcriptionEndpoint,{method:'POST',headers:{Authorization:`Bearer ${project.apiKey}`},body:form});const data=await response.json().catch(()=>({}));const transcriptionError=data?.error?.message||data?.message||`HTTP ${response.status}`;recordApiUsage({...project,model:project.transcriptionModel},{usage:data?.usage,status:response.ok?'success':'error',error:response.ok?'':transcriptionError,kind:'transcription',startedAt});if(!response.ok)throw new Error(transcriptionError);const rawText=String(data.text||data.transcript||data.output_text||'').trim();if(!rawText)throw new Error(ui('Audio API 沒有回傳逐字稿','Audio API returned no transcript'));let finalText=rawText;if(project.smartCorrection!==false){$('#recordStatus').textContent=ui('第二階段：Agent 正在校正文字與標點⋯','Stage 2: Agent is correcting text and punctuation…');setTranscriptionApiStatus(ui(`Audio API 成功，正在使用 Agent 智慧校正⋯`,`Audio API succeeded; Agent cleanup in progress…`),'calling');finalText=await polishTranscriptWithAgent(rawText,project);}const previous=$('#transcript').value.trim();$('#transcript').value=previous?`${previous}\n${finalText}`:finalText;updateCharCount();const time=new Intl.DateTimeFormat(state.language,{hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date());setTranscriptionApiStatus(ui(`✓ Audio API 已成功調用 · ${project.transcriptionModel} · ${time} · ${((Date.now()-startedAt)/1000).toFixed(1)} 秒`,`✓ Audio API called successfully · ${project.transcriptionModel} · ${time} · ${((Date.now()-startedAt)/1000).toFixed(1)}s`),'success');$('#recordStatus').textContent=ui('智慧轉錄完成，可繼續錄製','Smart transcription complete. You can continue recording.');}catch(e){setTranscriptionApiStatus(`${ui('Audio API 調用失敗','Audio API call failed')}: ${e.message}`,'error');toast(`${ui('Audio-to-Text 失敗','Audio-to-Text failed')}: ${e.message}`);$('#recordStatus').textContent=ui('轉錄失敗，請檢查 Endpoint、模型與 API Key','Transcription failed. Check endpoint, model, and API key.');}finally{state.isTranscribing=false;state.audioChunks=[];updateRecorderControls();}
 }
 async function startRecording() {
-  if (state.isRecording||state.isTranscribing) return;
+  if (state.isRecording||apiStarting||(state.isTranscribing&&activeTranscriptionMode()!=='api')) return;
   const mode=activeTranscriptionMode();
-  if(mode==='api'){const started=await startApiRecording();if(!started)return;}else{state.browserFinalText=$('#transcript').value;state.recognition = setupRecognition();if (!state.recognition) { toast(ui('這個瀏覽器不支援即時辨識，請改用 API 高品質轉錄','Live recognition is unavailable. Try API transcription.')); return; }try{state.recognition.start();}catch{return pauseRecording();}}
+  if(mode==='api'){const started=await startApiRecording();if(!started||apiRecordingSession.status!=='recording')return;}else{state.browserFinalText=$('#transcript').value;state.recognition = setupRecognition();if (!state.recognition) { toast(ui('這個瀏覽器不支援即時辨識，請改用 API 高品質轉錄','Live recognition is unavailable. Try API transcription.')); return; }try{state.recognition.start();}catch{return pauseRecording();}}
   const scrollPosition=window.scrollY; state.isRecording = true; state.isPaused = false; WakeLock.acquire(); updateRecorderControls(); $('#recordStatus').textContent = mode==='api'?ui('正在錄製音訊，暫停後會自動轉錄','Recording audio. It will transcribe when paused.'):ui('正在聽你說話⋯','Listening…');
   state.timerId = setInterval(() => { state.seconds++; $('#timer').textContent = formatTimer(state.seconds); }, 1000);requestAnimationFrame(()=>window.scrollTo({top:scrollPosition,behavior:'auto'}));
 }
 function pauseRecording() {
   WakeLock.release();
   if (!state.isRecording) return;
-  const mode=activeTranscriptionMode();state.isRecording = false; clearInterval(state.timerId);clearTimeout(state.recognitionRestartTimer);state.recognitionRestartTimer=null; state.timerId = null;state.isPaused = true;updateRecorderControls();
-  if(mode==='api'&&state.mediaRecorder?.state!=='inactive'){state.isTranscribing=true;updateRecorderControls();state.mediaRecorder.stop();$('#recordStatus').textContent=ui('正在準備 API 轉錄⋯','Preparing API transcription…');}
-  else{if (state.recognition) { try { state.recognition.stop(); } catch {} }$('#recordStatus').textContent = ui('已暫停，可繼續錄製或重新開始','Paused. Continue recording or start over.');}
+  const mode=activeTranscriptionMode();
+  if(mode==='api')return closeApiSegment(apiCapture,'pause');
+  state.isRecording = false; clearInterval(state.timerId);clearTimeout(state.recognitionRestartTimer);state.recognitionRestartTimer=null; state.timerId = null;state.isPaused = true;updateRecorderControls();
+  if (state.recognition) { try { state.recognition.stop(); } catch {} }$('#recordStatus').textContent = ui('已暫停，可繼續錄製或重新開始','Paused. Continue recording or start over.');
 }
-function stopRecording() { pauseRecording(); }
-function resumeRecording() { startRecording(); }
+function stopRecording() {
+  if(activeTranscriptionMode()!=='api')return pauseRecording();
+  WakeLock.release();
+  if(apiStarting)apiStarting.cancelled=true;
+  if(apiCapture)return closeApiSegment(apiCapture,'stop');
+  apiRecordingSession=RecordingSession.stop(apiRecordingSession);
+  flushApiSegments();
+  updateRecorderControls();
+}
+function resumeRecording() { return startRecording(); }
 function resetRecording() {
+  discardApiRecording();
   WakeLock.release();
   clearTimeout(state.recognitionRestartTimer);state.recognitionRestartTimer=null;
   if (state.recognition) { try { state.recognition.abort(); } catch {} }
@@ -770,9 +930,13 @@ function updateRecorderControls() {
   $('#recordVisual').classList.toggle('recording', state.isRecording);
   $('#recordVisual').classList.toggle('paused', state.isPaused && !state.isRecording);
   $('#recordVisual').classList.toggle('transcribing',state.isTranscribing);
-  $('#resumeRecordButton').disabled = state.isRecording||state.isTranscribing;
+  $('#resumeRecordButton').disabled = state.isRecording||Boolean(apiStarting)||(state.isTranscribing&&activeTranscriptionMode()!=='api');
   $('#pauseRecordButton').disabled = !state.isRecording;
-  $('#restartRecordButton').disabled=state.isTranscribing;
+  $('#restartRecordButton').disabled=state.isTranscribing&&activeTranscriptionMode()!=='api';
+  $('#stopRecordButton').classList.toggle('hidden', activeTranscriptionMode()!=='api'||apiRecordingSession.status!=='interrupted');
+  $('#stopRecordButton').textContent = t('recording.finish');
+  $('#stopRecordButton').onclick = stopRecording;
+  renderApiInterrupted();
 }
 function updateCharCount() { const n=$('#transcript').value.trim().length; $('#charCount').textContent = state.language==='en-US'?`${n} characters`:`${n} 字`; }
 
