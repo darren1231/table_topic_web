@@ -18,6 +18,7 @@ require('./wake-lock.test.cjs');
 require('./recording-integration.test.cjs');
 require('./recording-session.test.cjs');
 require('./i18n.test.cjs');
+require('./cloud.test.cjs');
 
 test('test environment can query an in-memory PostgreSQL database', async () => {
   const { PGlite } = require('@electric-sql/pglite');
