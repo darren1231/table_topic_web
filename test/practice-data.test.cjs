@@ -23,13 +23,13 @@ test('legacy practice data gains version 5 collections and existing history defa
   assert.deepEqual(data, {
     history: [{ id: 'legacy_2026-11-09_0', date: '2026-11-09', question: '今天的練習', answer: '分享一個故事',
       language: 'zh-TW', completedAt: '2026-11-09T12:00:00' }],
-    custom: 'keep', version: 5, reviewCards: [], reviewEvents: [], scripts: [], apiUsage: [],
+    custom: 'keep', reviewSettings: { newCardsPerDay: 10 }, version: 5, reviewCards: [], reviewEvents: [], scripts: [], apiUsage: [],
   });
 });
 
 test('schema migration resets invalid roots and collections while preserving existing valid fields', () => {
   for (const data of [null, false, 'invalid', 42]) {
-    assert.deepEqual(api().ensureDataSchema(data), { history: [], reviewCards: [], reviewEvents: [], scripts: [], apiUsage: [], version: 5 });
+    assert.deepEqual(api().ensureDataSchema(data), { history: [], reviewCards: [], reviewEvents: [], scripts: [], apiUsage: [], reviewSettings: { newCardsPerDay: 10 }, version: 5 });
   }
   const entry = { id: 'practice-existing', date: '2026-11-08', language: 'ja-JP', completedAt: 'existing-time' };
   const data = { history: [entry], reviewCards: null, reviewEvents: {}, scripts: false, apiUsage: 'invalid', version: 1 };
@@ -52,7 +52,7 @@ test('schema migration recovers English review grammar and normalizes manuscript
   api().ensureDataSchema(data);
   assert.deepEqual(data.reviewCards[0], {
     sourceHistoryId: 'source', language: 'en-US', before: 'I agree!', tags: [], createdAt: now, updatedAt: now,
-    status: 'active', isGrammarCorrect: false, grammarIssue: 'Capitalization', grammarExplanation: 'Capitalize I',
+    status: 'active', introducedAt: now, isGrammarCorrect: false, grammarIssue: 'Capitalization', grammarExplanation: 'Capitalize I',
     grammarRule: 'Use I', grammarExample: 'I agree.',
   });
   assert.equal(data.reviewCards[1].grammarRule, 'keep');

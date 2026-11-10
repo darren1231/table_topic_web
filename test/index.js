@@ -25,6 +25,7 @@ require('./practice-data.test.cjs');
 require('./coach-parsing.test.cjs');
 require('./builtin-coach.test.cjs');
 require('./review-cards.test.cjs');
+require('./review-queue.test.cjs');
 require('./html-utils.test.cjs');
 require('./html-security.test.cjs');
 require('./i18n.test.cjs');

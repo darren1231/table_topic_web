@@ -117,7 +117,7 @@ test('easy ratings retain first-review four days, later interval scaling and the
   }
 });
 
-test('KNOWN ISSUE: again schedules ten minutes but retains the previous intervalDays', () => {
+test('again schedules ten minutes and resets intervalDays to zero', () => {
   const card = { repetitions: 4, intervalDays: 7, lapses: 2, easeFactor: 1.35 };
   const ticks = [now, now + 5];
   assert.equal(api().rateReview(card, 'again', () => ticks.shift()), 7);
@@ -125,8 +125,7 @@ test('KNOWN ISSUE: again schedules ten minutes but retains the previous interval
   assert.equal(card.repetitions, 0);
   assert.equal(card.lapses, 3);
   assert.equal(card.easeFactor, 1.3);
-  // KNOWN ISSUE: the again branch does not assign intervalDays, so the previous interval remains.
-  assert.equal(card.intervalDays, 7);
+  assert.equal(card.intervalDays, 0);
   assert.equal(card.lastRating, 'again');
   assert.equal(card.lastReviewedAt, '2026-11-10T04:00:00.005Z');
   assert.equal(card.updatedAt, card.lastReviewedAt);

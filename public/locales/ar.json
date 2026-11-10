@@ -417,7 +417,15 @@
     "admin.localeZh": "繁體中文",
     "admin.localeEn": "English",
     "admin.localeJa": "日本語",
-    "admin.localeAr": "العربية"
+    "admin.localeAr": "العربية",
+    "review.dailyNewLimit": "البطاقات الجديدة يوميًا",
+    "review.dailyNewHelp": "المراجعات الأولى يوميًا (0–200). الصفر يوقف البطاقات الجديدة. المراجعات المستحقة بلا حد، ولا تُرحّل الحصة غير المستخدمة.",
+    "review.newToday": "الجديدة اليوم",
+    "review.dueReviews": "المراجعات المستحقة",
+    "review.queued": "في قائمة الانتظار",
+    "review.currentLanguageCounts": "اللغة الحالية: {count} بطاقة",
+    "review.allLanguageCounts": "كل اللغات: {count} بطاقة",
+    "review.addedToQueue": "أُضيفت إلى قائمة البطاقات الجديدة"
   },
   "placeholders": {
     "placeholder.001": "مثلاً: السفر، الشجاعة، شيء تعلمته…",

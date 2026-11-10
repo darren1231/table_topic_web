@@ -417,7 +417,15 @@
     "admin.localeZh": "繁體中文",
     "admin.localeEn": "English",
     "admin.localeJa": "日本語",
-    "admin.localeAr": "العربية"
+    "admin.localeAr": "العربية",
+    "review.dailyNewLimit": "Daily new cards",
+    "review.dailyNewHelp": "First reviews per day (0–200). Zero pauses new cards. Due reviews are unlimited; unused slots do not carry over.",
+    "review.newToday": "New today",
+    "review.dueReviews": "Due reviews",
+    "review.queued": "Queued",
+    "review.currentLanguageCounts": "Current language: {count} cards",
+    "review.allLanguageCounts": "All languages: {count} cards",
+    "review.addedToQueue": "Added to the new-card queue"
   },
   "placeholders": {
     "placeholder.001": "For example: travel, courage, something I learned…",
