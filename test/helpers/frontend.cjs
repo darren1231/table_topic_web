@@ -67,7 +67,7 @@ function browser({ storageEntries = [], now, createElement = tag => new Element(
     };
   }
   window.I18n = context.I18n;
-  return { context, nodes, storage, get, run: source => vm.runInContext(source, context) };
+  return { context, nodes, storage, get, run: (source, options) => vm.runInContext(source, context, options) };
 }
 
 function app({ signedIn = true, fetch = async () => { throw new Error('Unexpected test fetch'); }, balanceFetch, ...browserOptions } = {}) {
@@ -92,12 +92,12 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
     }
     return fetch(url, init);
   };
-  b.run(fs.readFileSync(path.join(publicDir, 'practice-stats.js'), 'utf8'));
-  b.run(fs.readFileSync(path.join(publicDir, 'review-cards.js'), 'utf8'));
-  b.run(fs.readFileSync(path.join(publicDir, 'practice-data.js'), 'utf8'));
-  b.run(fs.readFileSync(path.join(publicDir, 'coach-parsing.js'), 'utf8'));
-  b.run(fs.readFileSync(path.join(publicDir, 'builtin-coach.js'), 'utf8'));
-  b.run(fs.readFileSync(path.join(publicDir, 'app.js'), 'utf8'));
+  b.run(fs.readFileSync(path.join(publicDir, 'practice-stats.js'), 'utf8'), { filename: path.join(publicDir, 'practice-stats.js') });
+  b.run(fs.readFileSync(path.join(publicDir, 'review-cards.js'), 'utf8'), { filename: path.join(publicDir, 'review-cards.js') });
+  b.run(fs.readFileSync(path.join(publicDir, 'practice-data.js'), 'utf8'), { filename: path.join(publicDir, 'practice-data.js') });
+  b.run(fs.readFileSync(path.join(publicDir, 'coach-parsing.js'), 'utf8'), { filename: path.join(publicDir, 'coach-parsing.js') });
+  b.run(fs.readFileSync(path.join(publicDir, 'builtin-coach.js'), 'utf8'), { filename: path.join(publicDir, 'builtin-coach.js') });
+  b.run(fs.readFileSync(path.join(publicDir, 'app.js'), 'utf8'), { filename: path.join(publicDir, 'app.js') });
   b.run('ensureDataSchema(); initSystemAi();');
   b.setUser = value => { user = value; b.window.dispatchEvent({ type: 'tabletopics:auth' }); };
   return b;

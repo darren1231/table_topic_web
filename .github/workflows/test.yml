@@ -24,3 +24,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Report test coverage
+        continue-on-error: true
+        shell: bash
+        run: |
+          coverage_status=0
+          npm run coverage 2>&1 | tee "$RUNNER_TEMP/coverage.log" || coverage_status=$?
+          {
+            echo '### Test coverage'
+            echo '```text'
+            sed -n '/start of coverage report/,/end of coverage report/p' "$RUNNER_TEMP/coverage.log"
+            echo '```'
+            if [ "$coverage_status" -ne 0 ]; then
+              echo "Coverage command exited with status $coverage_status; see the step log for details."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$coverage_status"

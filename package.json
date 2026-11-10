@@ -6,7 +6,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node scripts/check-i18n.mjs && node scripts/test-coach-result-utils.cjs && node scripts/test-speech-utils.cjs && node --test test/"
+    "test": "node scripts/check-i18n.mjs && node --test test/",
+    "coverage": "node --test --experimental-test-coverage test/"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.15"

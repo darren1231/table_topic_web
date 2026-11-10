@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
+require('./coach-result-utils.test.cjs');
+require('./speech-utils.test.cjs');
 require('./ai-usage.test.cjs');
 require('./ai-config.test.cjs');
 require('./ai-billing.test.cjs');
