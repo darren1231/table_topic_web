@@ -49,6 +49,8 @@ npx playwright install chromium webkit
 npm run e2e
 ```
 
+CI 的 e2e job 使用已包含瀏覽器與系統依賴的官方映像 `mcr.microsoft.com/playwright:v1.64.1-noble`，不再另外執行瀏覽器安裝。升級 `@playwright/test` 時，必須同步更新 `.github/workflows/test.yml` 的映像版本，讓套件與映像版本一致。
+
 Linux 若缺少瀏覽器系統套件，改用 `npx playwright install --with-deps chromium webkit`。只安裝 Chromium 與 WebKit；本機與 CI 的 workers 都固定為 2，以限制記憶體用量。兩個專案分別是桌面 `chromium` 與使用 iPhone 13 設定的 `webkit-iphone`。錄音測試只在 Chromium 使用假麥克風，WebKit 的兩項錄音測試會標記 skip 並列出原因。
 
 Playwright 會自動啟動 `scripts/serve-public.mjs`，只在 `127.0.0.1:4173` 提供 `public/`，包含 `/admin` 對應 `admin.html`，不需要另開伺服器。需要固定日期的流程使用 `page.clock`。每項測試都有獨立、乾淨的瀏覽器環境；登入測試在瀏覽器儲存假 Supabase session，讓實際的 `cloud.js` 與 `admin.js` 執行登入後流程。
