@@ -28,6 +28,7 @@ class Element {
   close() { this.open = false; }
   scrollIntoView(options) { this.lastScroll = options; }
   focus() { this.focused = true; }
+  insertAdjacentHTML(position, html) { if (position !== 'beforeend') throw new Error('Unsupported test position'); this.innerHTML = this.innerHTML + html; }
 }
 
 function browser({ storageEntries = [], now, createElement = tag => new Element(tag) } = {}) {
@@ -70,7 +71,7 @@ function browser({ storageEntries = [], now, createElement = tag => new Element(
   return { context, nodes, storage, get, run: (source, options) => vm.runInContext(source, context, options) };
 }
 
-function app({ signedIn = true, fetch = async () => { throw new Error('Unexpected test fetch'); }, balanceFetch, ...browserOptions } = {}) {
+function app({ signedIn = true, fetch = async () => { throw new Error('Unexpected test fetch'); }, balanceFetch, enableByok = false, ...browserOptions } = {}) {
   const b = browser(browserOptions);
   b.storage.set('tableTopicsAIProjects.v1', JSON.stringify({ activeId: 'legacy', projects: [
     { id: 'legacy', name: 'Legacy project', provider: 'openai', apiKey: 'legacy-placeholder', endpoint: 'https://legacy.example.invalid' },
@@ -98,7 +99,9 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
   b.run(fs.readFileSync(path.join(publicDir, 'practice-data.js'), 'utf8'), { filename: path.join(publicDir, 'practice-data.js') });
   b.run(fs.readFileSync(path.join(publicDir, 'coach-parsing.js'), 'utf8'), { filename: path.join(publicDir, 'coach-parsing.js') });
   b.run(fs.readFileSync(path.join(publicDir, 'builtin-coach.js'), 'utf8'), { filename: path.join(publicDir, 'builtin-coach.js') });
-  b.run(fs.readFileSync(path.join(publicDir, 'app.js'), 'utf8'), { filename: path.join(publicDir, 'app.js') });
+  const source = fs.readFileSync(path.join(publicDir, 'app.js'), 'utf8');
+  // Exercise hidden BYOK renderers without changing the production feature flag.
+  b.run(enableByok ? source.replace('const ENABLE_BYOK = false;', 'const ENABLE_BYOK = true;') : source, { filename: path.join(publicDir, 'app.js') });
   b.run('ensureDataSchema(); initSystemAi();');
   b.setUser = value => { user = value; b.window.dispatchEvent({ type: 'tabletopics:auth' }); };
   return b;

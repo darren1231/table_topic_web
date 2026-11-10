@@ -10,6 +10,7 @@
     "coverage": "node --test --experimental-test-coverage test/"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.15"
+    "@electric-sql/pglite": "0.5.15",
+    "parse5": "8.1.1"
   }
 }
