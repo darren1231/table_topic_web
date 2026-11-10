@@ -11,6 +11,6 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.15",
-    "parse5": "8.1.1"
+    "parse5": "8.0.1"
   }
 }
