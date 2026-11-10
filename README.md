@@ -30,11 +30,14 @@ python -m http.server 8000 --directory public
 ```bash
 npm install
 npm test
+npm run coverage
 ```
 
-`npm test` 依序執行語系檢查、既有教練與語音工具測試，再執行 `test/` 下的測試。測試以假的 fetch 與本機記憶體中的 PGlite 資料庫驗證功能，不需要正式金鑰，也不會呼叫真實 OpenAI 或 Supabase API。
+`npm test` 先執行語系檢查，再以 `node:test` 執行 `test/` 下的所有測試（包含教練與語音工具測試）。測試以假的 fetch 與本機記憶體中的 PGlite 資料庫驗證功能，不需要正式金鑰，也不會呼叫真實 OpenAI 或 Supabase API。
 
-PR 會由 GitHub Actions 自動執行 `npm test`。
+`npm run coverage` 使用 Node.js 內建的 `--experimental-test-coverage`，輸出行、分支與函式涵蓋率。測試 helper 在透過 `vm.runInContext` 載入 `public/app.js` 時指定實際檔名，因此也能將它納入報告；未指定檔名的匿名 VM 程式碼不會列為該檔案的涵蓋率。報告只反映測試載入的程式，不能視為整個網站的完整涵蓋率。
+
+PR 會由 GitHub Actions 自動執行 `npm test`，再執行 coverage 並將涵蓋率摘要寫入工作流程摘要；不設涵蓋率門檻，coverage 步驟失敗不會讓 CI 失敗。
 
 ## 新增或修改語言
 

@@ -57,7 +57,7 @@ function browser() {
     RecordingSession: require('../../public/recording-session.js'),
   });
   window.I18n = context.I18n;
-  return { context, nodes, storage, get, run: source => vm.runInContext(source, context) };
+  return { context, nodes, storage, get, run: (source, options) => vm.runInContext(source, context, options) };
 }
 
 function app({ signedIn = true, fetch = async () => { throw new Error('Unexpected test fetch'); }, balanceFetch } = {}) {
@@ -82,7 +82,7 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
     }
     return fetch(url, init);
   };
-  b.run(fs.readFileSync(path.join(publicDir, 'app.js'), 'utf8'));
+  b.run(fs.readFileSync(path.join(publicDir, 'app.js'), 'utf8'), { filename: path.join(publicDir, 'app.js') });
   b.run('ensureDataSchema(); initSystemAi();');
   b.setUser = value => { user = value; b.window.dispatchEvent({ type: 'tabletopics:auth' }); };
   return b;
