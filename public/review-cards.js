@@ -10,7 +10,7 @@
     const first = new Map();
     for(const event of reviewEvents){const time=new Date(event.reviewedAt).getTime();if(Number.isFinite(time)&&(!first.has(event.cardId)||time<first.get(event.cardId)))first.set(event.cardId,time);}
     const today=localDateKey(now);
-    const used=cards.filter(card=>card.status!=='trashed'&&first.has(card.id)&&localDateKey(first.get(card.id))===today).length;
+    const used=cards.filter(card=>card.status!=='trashed'&&card.introducedAt!=null&&localDateKey(card.introducedAt)===today&&first.has(card.id)&&localDateKey(first.get(card.id))===today).length;
     return cards.filter(card=>card.status==='active'&&card.introducedAt===null&&matchesLanguage(card,language)).sort(byCreated).slice(0,Math.max(0,dailyLimit(newCardsPerDay)-used));
   }
   function markIntroduced(card,now) { if(card.introducedAt===null)card.introducedAt=new Date(now).toISOString(); }

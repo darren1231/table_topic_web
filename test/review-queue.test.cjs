@@ -23,6 +23,23 @@ test('new-card slots are consumed only by first review events and reset the next
   assert.deepEqual(ids(api.todaysNewCards(cards, { ...options, now: now + day })), ids(cards.slice(10, 20)));
 });
 
+test('daily quota requires both introduction and first review on the current local day', () => {
+  const cards = queued(5);
+  cards[0].introducedAt = new Date(now - day).toISOString();
+  cards[0].dueAt = new Date(now - day).toISOString();
+  const reviewEvents = [{ cardId: cards[0].id, reviewedAt: new Date(now).toISOString() }];
+  const options = { now, newCardsPerDay: 2, reviewEvents };
+  // A migrated old card's first-ever review is a due review, not a new-card slot.
+  assert.deepEqual(ids(api.todaysNewCards(cards, options)), ['new-01', 'new-02']);
+  // A newly queued card first reviewed today does consume a slot.
+  api.markIntroduced(cards[1], now);
+  reviewEvents.push({ cardId: cards[1].id, reviewedAt: new Date(now).toISOString() });
+  assert.deepEqual(ids(api.todaysNewCards(cards, options)), ['new-02']);
+  // Explicit scheduling today creates an introduction but no review event.
+  api.bulkSetDueDate(cards, new Set([cards[2].id]), '2026-11-12', () => now);
+  assert.deepEqual(ids(api.todaysNewCards(cards, options)), ['new-03']);
+});
+
 test('viewing cards never mutates or advances the queue even after five days away', () => {
   const cards = queued(25), before = structuredClone(cards);
   for (const offset of [0, 1, 5]) {
