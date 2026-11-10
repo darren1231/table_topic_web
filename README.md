@@ -39,6 +39,36 @@ npm run coverage
 
 PR 會由 GitHub Actions 自動執行 `npm test`，再執行 coverage 並將涵蓋率摘要寫入工作流程摘要；不設涵蓋率門檻，coverage 步驟失敗不會讓 CI 失敗。
 
+## 瀏覽器整合測試
+
+Playwright 固定使用 `1.64.1`，直接開啟網站並操作按鈕、輸入欄位與檔案下載，驗證練習、歷史紀錄、日曆、複習卡、四種語言、備份還原、系統 AI 額度及管理員後台。`npm test` 仍只執行原有的單元與整合測試，瀏覽器測試獨立執行：
+
+```bash
+npm ci
+npx playwright install chromium webkit
+npm run e2e
+```
+
+CI 的 e2e job 使用已包含瀏覽器與系統依賴的官方映像 `mcr.microsoft.com/playwright:v1.64.1-noble`，不再另外執行瀏覽器安裝。升級 `@playwright/test` 時，必須同步更新 `.github/workflows/test.yml` 的映像版本，讓套件與映像版本一致。
+
+Linux 若缺少瀏覽器系統套件，改用 `npx playwright install --with-deps chromium webkit`。只安裝 Chromium 與 WebKit；本機與 CI 的 workers 都固定為 2，以限制記憶體用量。兩個專案分別是桌面 `chromium` 與使用 iPhone 13 設定的 `webkit-iphone`。錄音測試只在 Chromium 使用假麥克風，WebKit 的兩項錄音測試會標記 skip 並列出原因。
+
+Playwright 會自動啟動 `scripts/serve-public.mjs`，只在 `127.0.0.1:4173` 提供 `public/`，包含 `/admin` 對應 `admin.html`，不需要另開伺服器。需要固定日期的流程使用 `page.clock`。每項測試都有獨立、乾淨的瀏覽器環境；登入測試在瀏覽器儲存假 Supabase session，讓實際的 `cloud.js` 與 `admin.js` 執行登入後流程。
+
+測試 fixture 攔截 Supabase auth／RPC 與 `/api/ai/*`，使用假資料模擬 AI 成功、額度用完及登入過期，不會連到真正的 Supabase 或 OpenAI，也不需要任何 secret。唯一允許連外的資源是頁面原有的 Supabase SDK CDN：`https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2`；因此執行時仍需要能存取此 CDN。Google Fonts 的裝飾性連結在 fixture 回傳 HTML 時移除，使用系統字型；其他未模擬的外部網址或 API 請求會使測試失敗。
+
+備份測試使用瀏覽器下載流程，不測作業系統的原生儲存視窗；錄音使用真實 MediaRecorder 與假音源，只有頁面隱藏／顯示事件由測試模擬。這些測試不能取代真實 Google 登入、真實 OpenAI 回覆、iPhone 實機錄音與螢幕鎖定／背景暫停，以及排版美觀的人工驗收。
+
+每個流程結束時會檢查可見文字沒有未解碼的 HTML 實體，並檢查 console error 與 JavaScript 錯誤。既有 i18n 的特定錯誤例外與重現方式記錄在 [E2E 已知問題](e2e/KNOWN_ISSUES.md)；測試刻意模擬的 HTTP 401、402、403 資源錯誤則只在對應案例中允許，其他錯誤仍會失敗。本次不修正網站的既有問題。
+
+PR 與推送到 main 時，GitHub Actions 的 `test` 與 `e2e` job 平行執行。E2E 在 CI 失敗時重試一次；最終失敗仍會使 job 失敗，並上傳保存 7 天的 `playwright-report`，包含失敗截圖與 trace。下載並解壓縮報告後，可在本機查看：
+
+```bash
+npx playwright show-report playwright-report
+```
+
+本機執行也會產生報告，但不會自動開啟；`test-results/` 與 `playwright-report/` 不納入 Git。一般改動先檢查兩個 CI job，涉及登入、錄音或明顯的畫面調整時，再到 preview 網址人工驗收。CI 的實際執行結果須等推送後才能確認。
+
 ## 新增或修改語言
 
 所有可翻譯的靜態介面文字、placeholder、內建主題與題目模板都集中在 `public/locales/`。`zh-TW.json` 是預設及 fallback 語系；每個語系檔案使用相同的 message key，因此新增語言時不需要修改畫面中的判斷邏輯。
