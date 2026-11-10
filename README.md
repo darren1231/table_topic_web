@@ -1,307 +1,336 @@
 # Table Topic Practice
 
-一個支援中文與英文的表達能力練習網站，可在「問題練習」與「自由講稿」之間切換。
+即興演講（Table Topics）與備稿演講的練習網站。輸入主題就能產生題目，錄音或打字作答後，由 AI 教練給予結構、內容與流暢度的回饋，並把需要加強的句子做成複習卡。
+
+- **目前版本**：2.0.0（[版本紀錄](CHANGELOG.md)）
+- **支援語言**：繁體中文、English、日本語、العربية
+- **網站架構**：靜態前端（`public/`）＋ Vercel Functions（`api/`）＋ Supabase（登入、同步、AI 用量）
+
+## 目錄
+
+- [主要功能](#主要功能)
+- [架構總覽](#架構總覽)
+- [開發者快速開始](#開發者快速開始)
+- [測試](#測試)
+- [部署與設定（網站擁有者）](#部署與設定網站擁有者)
+- [系統 AI 與額度](#系統-ai-與額度)
+- [管理員後台](#管理員後台)
+- [資料與隱私](#資料與隱私)
+- [新增或修改語言](#新增或修改語言)
+- [版本與變更紀錄](#版本與變更紀錄)
+- [文件索引](#文件索引)
+- [常見問題](#常見問題)
 
 ## 主要功能
 
-- 依照主題由 AI 產生即興題目
-- 自由講稿錄音或文字輸入
-- 瀏覽器即時語音辨識或 API Audio-to-Text
-- AI 表達回饋、逐句改善及英文文法解說
-- 練習日曆、連續打卡與複習資料庫
-- Google 登入後即可使用系統 AI，不需要自備金鑰
-- 完整資料匯出與匯入
-- 可選擇純本機模式，或使用 Google 登入與 Supabase 跨裝置同步
+**練習**
+- 即興問答：依主題產生題目，限時作答。
+- 自由講稿：自訂演講標題，錄音或打字。
+- 講稿工作區：分段撰寫、段落版本與全文檢查。
 
-## 本機執行
+**語音**
+- 瀏覽器即時語音辨識，或錄音後交給 AI 轉成文字。
+- 手機錄音時螢幕保持開啟；錄音被中斷時會保留已錄內容，可以接著錄。
+- 改進後的文章可以用瀏覽器語音朗讀。
 
-網站的靜態前端放在 `public/`，系統 AI 與額度端點放在 `api/`，需要 Vercel Functions 執行。由於語系 JSON 透過 `fetch` 載入，靜態預覽請以 `public/` 為根目錄啟動本機伺服器（不要用 `file://` 直接開啟）：
+**回饋與複習**
+- AI 教練：評分、優點、逐句改善與英文文法解說。
+- 內建教練：不需要登入、不呼叫 AI，提供基本回饋。
+- 複習卡：依間隔重複排程；卡片庫可以搜尋、篩選與批次管理。
 
-```powershell
-python -m http.server 8000 --directory public
+**紀錄**
+- 練習日曆、連續打卡、成績趨勢與 API 費用明細。
+- 完整資料匯出與匯入。
+- 本機模式，或用 Google 登入跨裝置同步。
+
+**AI 與管理**
+- 登入 Google 後使用網站提供的系統 AI，不需要自備 API key。
+- 每人 1 美元累計額度，用完自動改用內建教練。
+- 管理員後台（`/admin`）查看每位使用者的用量與費用。
+
+## 架構總覽
+
+```text
+瀏覽器（public/）
+  ├─ 靜態網頁、練習邏輯、語系檔 ──────────── Vercel 靜態網站
+  ├─ /api/ai/respond、/transcribe、/balance ── Vercel Functions（api/）
+  │                                              ├─ OpenAI（key 只在伺服器）
+  │                                              └─ Supabase（以使用者本人的登入憑證呼叫）
+  └─ Google 登入、雲端同步、後台查詢 ────────── Supabase
 ```
 
-然後開啟 <http://localhost:8000>。
+| 目錄或檔案 | 內容 |
+| --- | --- |
+| `public/` | 網站本體，Vercel 只發布這個資料夾 |
+| `public/app.js` | 主程式 |
+| `public/*.js` | 從主程式拆出的模組：`practice-stats`、`practice-data`、`coach-parsing`、`builtin-coach`、`review-cards`、`html-utils`、`system-ai`、`usage-stats`、`wake-lock`、`recording-session`、`speech-utils`、`coach-result-utils` |
+| `public/cloud.js` | Google 登入與雲端同步 |
+| `public/i18n.js`、`public/locales/` | 多語系 |
+| `public/admin.html`、`public/admin.js` | 管理員後台 |
+| `api/ai/` | 三個 Vercel Functions 入口 |
+| `api/_lib/` | 伺服器共用邏輯：設定、計費、額度、輸入驗證、錯誤處理 |
+| `supabase.sql` | 同步用資料表 `user_data` 與 RLS |
+| `supabase/migrations/` | AI 用量、管理員名單與資料庫函式 |
+| `test/` | 單元測試（`node:test`） |
+| `e2e/` | 瀏覽器整合測試（Playwright） |
+| `docs/` | 決策紀錄、實作計畫、版本管理 |
 
-`python http.server` 只能測前端，不能執行 `/api/ai/respond`、`/api/ai/transcribe` 或 `/api/ai/balance`。需要測試完整系統 AI 流程時，請使用具備 Vercel Functions 的部署，或在安裝並設定 Vercel CLI 後使用 `vercel dev`；本機 `development` 環境使用 `CHATGPT_PREVIEW_KEY`。
+## 開發者快速開始
 
-開發與自動化測試需要 Node.js 20 以上版本。在儲存庫根目錄安裝依賴並執行測試：
+需要 **Node.js 20 以上**。
 
 ```bash
 npm install
-npm test
-npm run coverage
+npm test        # 單元測試
+npm run e2e     # 瀏覽器整合測試（第一次需先安裝瀏覽器，見「測試」）
 ```
 
-`npm test` 先執行語系檢查，再以 `node:test` 執行 `test/` 下的所有測試（包含教練與語音工具測試）。測試以假的 fetch 與本機記憶體中的 PGlite 資料庫驗證功能，不需要正式金鑰，也不會呼叫真實 OpenAI 或 Supabase API。
-
-`npm run coverage` 使用 Node.js 內建的 `--experimental-test-coverage`，輸出行、分支與函式涵蓋率。測試 helper 在透過 `vm.runInContext` 載入 `public/app.js` 時指定實際檔名，因此也能將它納入報告；未指定檔名的匿名 VM 程式碼不會列為該檔案的涵蓋率。報告只反映測試載入的程式，不能視為整個網站的完整涵蓋率。
-
-PR 會由 GitHub Actions 自動執行 `npm test`，再執行 coverage 並將涵蓋率摘要寫入工作流程摘要；不設涵蓋率門檻，coverage 步驟失敗不會讓 CI 失敗。
-
-## 瀏覽器整合測試
-
-Playwright 固定使用 `1.64.1`，直接開啟網站並操作按鈕、輸入欄位與檔案下載，驗證練習、歷史紀錄、日曆、複習卡、四種語言、備份還原、系統 AI 額度及管理員後台。`npm test` 仍只執行原有的單元與整合測試，瀏覽器測試獨立執行：
+**只看前端畫面**：語系檔透過 `fetch` 載入，不能用 `file://` 直接開啟。以 `public/` 為根目錄啟動本機伺服器：
 
 ```bash
-npm ci
-npx playwright install chromium webkit
+python -m http.server 8000 --directory public
+```
+
+然後開啟 <http://localhost:8000>。這種方式**不能**執行 `/api/*`，所以系統 AI 無法使用。
+
+**測試完整的系統 AI**：使用 Vercel 的 Preview 部署，或安裝 Vercel CLI 後執行 `vercel dev`。本機 `development` 環境使用 `CHATGPT_PREVIEW_KEY`。
+
+**新增檔案時**：網站要用的檔案放進 `public/`，伺服器端函式放在 `api/`，不要放在儲存庫根目錄。
+
+## 測試
+
+每個 PR 與每次推送到 `main`，GitHub Actions 會平行執行兩個 job，**兩個都通過才合併**：
+
+| Job | 指令 | 內容 | 時間 |
+| --- | --- | --- | --- |
+| `test` | `npm test` | 語系檢查與 `test/` 下的單元測試 | 約 15 秒 |
+| `e2e` | `npm run e2e` | Chromium 與 WebKit（iPhone）實際操作網站 | 約 1 分鐘 |
+
+### 單元測試
+
+```bash
+npm test
+npm run coverage   # 涵蓋率報告
+```
+
+- 測試使用假的 `fetch` 與記憶體中的 PGlite 資料庫，不需要任何金鑰，也不會呼叫真正的 OpenAI 或 Supabase。
+- 涵蓋率摘要會顯示在 GitHub Actions 每次執行的 Summary 頁面。不設門檻，數字低不會讓 CI 失敗。
+
+### 瀏覽器整合測試
+
+```bash
+npx playwright install chromium webkit   # 第一次執行前安裝瀏覽器
 npm run e2e
 ```
 
-CI 的 e2e job 使用已包含瀏覽器與系統依賴的官方映像 `mcr.microsoft.com/playwright:v1.64.1-noble`，不再另外執行瀏覽器安裝。升級 `@playwright/test` 時，必須同步更新 `.github/workflows/test.yml` 的映像版本，讓套件與映像版本一致。
+- Playwright 固定使用 `1.64.1`。CI 使用官方映像 `mcr.microsoft.com/playwright:v1.64.1-noble`，**升級 `@playwright/test` 時要同步更新** `.github/workflows/test.yml` 的映像版本。
+- 測試會自動用 `scripts/serve-public.mjs` 在 `127.0.0.1:4173` 啟動網站。
+- 所有對外請求都被攔截：Supabase 與 `/api/*` 由測試模擬，只允許從 jsDelivr 載入 Supabase SDK。其他未模擬的外部請求會讓測試失敗。
+- 錄音測試只在 Chromium 使用假麥克風；WebKit 的兩項錄音測試會略過。
+- CI 失敗時會上傳 `playwright-report`，保留 7 天。下載解壓縮後用 `npx playwright show-report playwright-report` 查看截圖與 trace。
+- 既有問題記錄在 [e2e/KNOWN_ISSUES.md](e2e/KNOWN_ISSUES.md)。
 
-Linux 若缺少瀏覽器系統套件，改用 `npx playwright install --with-deps chromium webkit`。只安裝 Chromium 與 WebKit；本機與 CI 的 workers 都固定為 2，以限制記憶體用量。兩個專案分別是桌面 `chromium` 與使用 iPhone 13 設定的 `webkit-iphone`。錄音測試只在 Chromium 使用假麥克風，WebKit 的兩項錄音測試會標記 skip 並列出原因。
+### 自動化測不到、需要人工確認的部分
 
-Playwright 會自動啟動 `scripts/serve-public.mjs`，只在 `127.0.0.1:4173` 提供 `public/`，包含 `/admin` 對應 `admin.html`，不需要另開伺服器。需要固定日期的流程使用 `page.clock`。每項測試都有獨立、乾淨的瀏覽器環境；登入測試在瀏覽器儲存假 Supabase session，讓實際的 `cloud.js` 與 `admin.js` 執行登入後流程。
+真實的 Google 登入、真實的 OpenAI 回覆、iPhone 實機錄音與螢幕鎖定，以及排版是否美觀。PR 有改動這些部分時，請在 Preview 網址人工確認。
 
-測試 fixture 攔截 Supabase auth／RPC 與 `/api/ai/*`，使用假資料模擬 AI 成功、額度用完及登入過期，不會連到真正的 Supabase 或 OpenAI，也不需要任何 secret。唯一允許連外的資源是頁面原有的 Supabase SDK CDN：`https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2`；因此執行時仍需要能存取此 CDN。Google Fonts 的裝飾性連結在 fixture 回傳 HTML 時移除，使用系統字型；其他未模擬的外部網址或 API 請求會使測試失敗。
+## 部署與設定（網站擁有者）
 
-備份測試使用瀏覽器下載流程，不測作業系統的原生儲存視窗；錄音使用真實 MediaRecorder 與假音源，只有頁面隱藏／顯示事件由測試模擬。這些測試不能取代真實 Google 登入、真實 OpenAI 回覆、iPhone 實機錄音與螢幕鎖定／背景暫停，以及排版美觀的人工驗收。
+`vercel.json` 設定只發布 `public/`，`api/` 由 Vercel Functions 執行。`main` 有新的合併時，Vercel 會自動部署正式網站；每個 PR 也會產生一個 Preview 網址。
 
-每個流程結束時會檢查可見文字沒有未解碼的 HTML 實體，並檢查 console error 與 JavaScript 錯誤。既有 i18n 的特定錯誤例外與重現方式記錄在 [E2E 已知問題](e2e/KNOWN_ISSUES.md)；測試刻意模擬的 HTTP 401、402、403 資源錯誤則只在對應案例中允許，其他錯誤仍會失敗。本次不修正網站的既有問題。
+### 首次部署檢查清單
 
-PR 與推送到 main 時，GitHub Actions 的 `test` 與 `e2e` job 平行執行。E2E 在 CI 失敗時重試一次；最終失敗仍會使 job 失敗，並上傳保存 7 天的 `playwright-report`，包含失敗截圖與 trace。下載並解壓縮報告後，可在本機查看：
+依序完成以下步驟，詳細操作見後面各小節：
 
-```bash
-npx playwright show-report playwright-report
-```
+1. 建立 Supabase 專案（[Supabase 設定](#supabase-設定)第 1 步）。
+2. 在 SQL Editor 依序執行：
+   1. `supabase.sql`
+   2. `supabase/migrations/0001_ai_usage.sql`
+   3. `supabase/migrations/0002_fix_admin_email_type.sql`
+3. 把管理員 email 加入 `public.app_admins`（[管理員後台](#管理員後台)）。
+4. 在 Google Cloud 建立 OAuth client，並在 Supabase 開啟 Google 登入。
+5. 在 Supabase 的 URL Configuration 加入正式網址與 Preview 網址。
+6. 把 Supabase 的公開 URL 與 publishable key 填入 `public/supabase-config.js`。
+7. 在 Vercel 設定環境變數（[下一節](#vercel-環境變數)）。
 
-本機執行也會產生報告，但不會自動開啟；`test-results/` 與 `playwright-report/` 不納入 Git。一般改動先檢查兩個 CI job，涉及登入、錄音或明顯的畫面調整時，再到 preview 網址人工驗收。CI 的實際執行結果須等推送後才能確認。
-
-## 新增或修改語言
-
-所有可翻譯的靜態介面文字、placeholder、內建主題與題目模板都集中在 `public/locales/`。`zh-TW.json` 是預設及 fallback 語系；每個語系檔案使用相同的 message key，因此新增語言時不需要修改畫面中的判斷邏輯。
-
-1. 複製 `public/locales/zh-TW.json`，以 BCP 47 language tag 命名（例如 `fr-FR.json`）。
-2. 保留所有 JSON key 與題目模板中的 `{topic}`，只翻譯 value。
-3. 在 `public/i18n.js` 的 `supportedLocales` 與 `public/index.html` 的語言選單加入新語系。
-4. 在 `public/app.js` 的 `CONFIG.languages` 加入語系；topics 會直接由 JSON catalog 取得。
-5. 執行語系完整性檢查：
-
-   ```bash
-   node scripts/check-i18n.mjs
-   ```
-
-尚未翻譯的 message 可以暫時省略，介面會安全地回退至繁體中文；正式發布前建議補齊全部 key。
-
-## 部署
-
-專案包含 `vercel.json`，設定靜態輸出目錄 `outputDirectory` 為 `public`。`api/ai/` 下的入口由 Vercel Functions 提供 `/api/ai/*` 端點；`docs/`、`scripts/`、`supabase.sql` 等開發用檔案不會作為靜態網站內容發布。
-
-新增公開靜態檔案時放進 `public/`，伺服器端函式則放在 `api/`。
-
-## 資料與 API Key
-
-練習資料保存在瀏覽器 `localStorage`，並可選擇雲端同步。系統 AI 的 OpenAI key 只設定在伺服器環境變數，不會交給前端。舊的自備金鑰專案仍保留在裝置上，但目前不能啟用；不要把任何私人金鑰提交到 GitHub。
-
-## 系統 AI 與額度
-
-使用者必須先登入 Google，才能使用系統 AI 產生題目、分析回饋與語音轉文字；訪客仍可使用內建教練。登入資格與雲端同步模式分開判斷，登入後即使選擇本機模式，也能使用系統 AI。
-
-每位使用者的額度預設為 **1 美元，累計使用、不會重置**。額度用完時會顯示「AI 額度已用完，請聯絡管理員」，回饋改由內建教練完成。瀏覽器語音辨識仍可使用；系統 AI 轉錄音檔上限為 4 MB（4 × 1024 × 1024 bytes），超過時請改用瀏覽器語音辨識。
-
-登入後、開啟 API 費用視窗時，以及系統 AI 呼叫完成後，都會更新「已用 / 額度」。數字以伺服器紀錄為準，清除本機費用紀錄不會重置額度。
-
-目前 `public/app.js` 的 `ENABLE_BYOK = false`，因此自備金鑰的 provider、端點、金鑰、模型、價格及測試連線欄位均已隱藏；舊專案資料保留，但不能選為使用中的專案。
+升級既有部署時，請看 [CHANGELOG.md](CHANGELOG.md) 中每個版本的「升級注意事項」。
 
 ### Vercel 環境變數
 
-由網站擁有者在 Vercel 對應的 Preview／Production 環境設定以下變數，不要把私人金鑰寫進前端或儲存庫。
+在 Vercel 專案的 **Settings → Environment Variables** 設定。不要把私人金鑰寫進前端程式或儲存庫。
 
-| 名稱 | 必填／選填 | 預設值與用途 |
+| 名稱 | 必填 | 預設值與用途 |
 | --- | --- | --- |
-| `CHATGPT_PREVIEW_KEY` | 必填 | 非 `production` 環境使用的 OpenAI key，包含 Preview 與本機 Development；無預設值。 |
-| `CHATGPT_PRODUCTION_KEY` | 必填 | `VERCEL_ENV=production` 時使用的 OpenAI key；無預設值。 |
-| `AI_MODEL` | 選填 | `gpt-5.6-luna`，文字回饋與出題模型。 |
-| `AI_TRANSCRIBE_MODEL` | 選填 | `gpt-transcribe`，語音轉文字模型。 |
-| `AI_INPUT_USD_PER_MTOK` | 選填 | `0.2`，文字模型每百萬輸入 token 的美元單價。 |
-| `AI_OUTPUT_USD_PER_MTOK` | 選填 | `1.2`，文字模型每百萬輸出 token 的美元單價。 |
-| `AI_TRANSCRIBE_USD_PER_MINUTE` | 選填 | `0.0045`，語音 duration usage 的每分鐘美元單價。 |
-| `AI_TRANSCRIBE_INPUT_USD_PER_MTOK` | 選填 | 無預設值；語音回傳 tokens usage 時，必須設定每百萬輸入 token 的美元單價。 |
-| `AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK` | 選填 | 無預設值；語音回傳 tokens usage 時，必須設定每百萬輸出 token 的美元單價。 |
-| `AI_USER_CREDIT_USD` | 選填 | `1`，每位使用者的累計美元額度。 |
-| `SUPABASE_URL` | 選填 | 預設使用 `api/_lib/supabase-defaults.js` 的 `url`，與 `public/supabase-config.js` 一致。 |
-| `SUPABASE_PUBLISHABLE_KEY` | 選填 | 預設使用 `api/_lib/supabase-defaults.js` 的 `anonKey`，與前端的公開 publishable key 一致。 |
+| `CHATGPT_PREVIEW_KEY` | 必填 | Preview 與本機 Development 使用的 OpenAI key |
+| `CHATGPT_PRODUCTION_KEY` | 必填 | Production 使用的 OpenAI key |
+| `AI_MODEL` | 選填 | `gpt-5.6-luna`，出題與回饋的模型 |
+| `AI_TRANSCRIBE_MODEL` | 選填 | `gpt-transcribe`，語音轉文字的模型 |
+| `AI_INPUT_USD_PER_MTOK` | 選填 | `0.2`，文字模型每百萬輸入 token 的美元單價 |
+| `AI_OUTPUT_USD_PER_MTOK` | 選填 | `1.2`，文字模型每百萬輸出 token 的美元單價 |
+| `AI_TRANSCRIBE_USD_PER_MINUTE` | 選填 | `0.0045`，語音轉文字每分鐘的美元單價 |
+| `AI_TRANSCRIBE_INPUT_USD_PER_MTOK` | 選填 | 無預設值。語音服務改以 token 計費時才需要 |
+| `AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK` | 選填 | 無預設值。語音服務改以 token 計費時才需要 |
+| `AI_USER_CREDIT_USD` | 選填 | `1`，每位使用者的累計額度（美元） |
+| `SUPABASE_URL` | 選填 | 預設與 `public/supabase-config.js` 相同 |
+| `SUPABASE_PUBLISHABLE_KEY` | 選填 | 預設與 `public/supabase-config.js` 相同 |
 
-在 Preview 與 Production 分別配置對應的 OpenAI key；目前環境的 key 缺少時，AI 請求回 503，不會借用另一個環境的 key。唯讀額度端點不需要 OpenAI key。
+- 目前環境的 OpenAI key 沒有設定時，AI 請求會回 503，不會借用另一個環境的 key。
+- 數字設定必須是有限、非負的數值，否則視為設定錯誤。
+- 語音的預設單價取自 [OpenAI 官方價格頁](https://developers.openai.com/api/docs/pricing)（2026-11-08 查詢）。
+- **不需要、也不可以設定 Supabase 的 service role 或 secret key。** 伺服器以使用者本人的登入憑證呼叫資料庫函式，決策原因見 [ADR 0001](docs/adr/0001-system-ai-key-without-service-role.md)。
+- 換用其他 Supabase 專案時，`public/supabase-config.js` 與 `api/_lib/supabase-defaults.js` 必須同步修改。測試會檢查兩者是否一致。
 
-所有數字設定必須是有限且非負的數值；空白、負數、NaN 或 Infinity 都視為設定錯誤。語音每分鐘預設單價依 [OpenAI 官方價格頁](https://developers.openai.com/api/docs/pricing)於 2026-11-08 的資料設定，可透過環境變數覆寫。Duration usage 以秒數除以 60 再乘單價計費；tokens usage 則需要兩個 token 單價。缺少 usage、usage 不合法，或 tokens usage 缺少任一單價時，會記錄失敗並回 502，不回傳轉錄結果。
+### Supabase 設定
 
-**不需要也不可以設定 Supabase service role 或 secret key。** 使用公開 publishable key 搭配使用者本人的登入憑證即可；管理員名單放在資料庫，不放在 Vercel 環境變數。
+#### 1. 建立專案
 
-若改用其他 Supabase 專案，前端 `public/supabase-config.js` 與伺服器設定必須指向同一個專案；使用內建伺服器預設值時，需同步更新 `api/_lib/supabase-defaults.js`。測試會確認兩份公開設定一致。
+1. 在 [Supabase Dashboard](https://supabase.com/dashboard) 選 **New project**，選擇離使用者較近的 region。
+2. 記下 **Project Ref**。Google OAuth 的 callback URL 是：
+
+   ```text
+   https://<PROJECT_REF>.supabase.co/auth/v1/callback
+   ```
+
+#### 2. 建立資料表
+
+在 **SQL Editor** 依序執行以下三個檔案，每次都貼上完整內容後按 **Run**：
+
+1. [`supabase.sql`](supabase.sql)：同步用的 `user_data` 與 RLS。
+2. [`supabase/migrations/0001_ai_usage.sql`](supabase/migrations/0001_ai_usage.sql)：AI 用量 `ai_usage`、管理員名單 `app_admins` 與資料庫函式。
+3. [`supabase/migrations/0002_fix_admin_email_type.sql`](supabase/migrations/0002_fix_admin_email_type.sql)：後台查詢的型別修正，可以安全地重複執行。
+
+部署網站**不會**自動執行這些 SQL。請勿關閉 RLS，也不要建立讓 `anon` 讀取全部資料的 policy。
+
+#### 3. 在 Google Cloud 設定 OAuth
+
+1. 在 [Google Cloud Console](https://console.cloud.google.com/) 的 **Google Auth Platform** 完成 OAuth consent screen。測試期間要把登入用的帳號加入 **Test users**。
+2. 建立 **OAuth client ID**，類型選 **Web application**。
+3. **Authorized JavaScript origins**：加入網站 origin，不含路徑與結尾的 `/`，例如 `http://localhost:8000`、`https://你的正式網域`。
+4. **Authorized redirect URIs**：加入第 1 步的 Supabase callback URL。
+5. Client secret 只填入 Supabase，不可放進本專案。
+
+#### 4. 在 Supabase 開啟 Google 登入
+
+**Authentication → Providers → Google**：開啟並貼上 Client ID 與 Client secret。
+
+#### 5. 設定登入後返回的網址
+
+**Authentication → URL Configuration**：
+
+- **Site URL**：正式網站首頁。
+- **Redirect URLs**：加入所有會使用的網址，包含 Preview 的萬用字元，例如：
+
+  ```text
+  http://localhost:8000/**
+  https://你的正式網域/**
+  https://*-darrendarren1232-1921s-projects.vercel.app/**
+  ```
+
+登入時會以目前頁面的網址作為返回網址；不在清單中的網址會被導回 Site URL。
+
+#### 6. 前端公開金鑰
+
+從 **Project Settings → API Keys** 複製 Project URL 與 publishable key，填入 [`public/supabase-config.js`](public/supabase-config.js)。**絕對不可**填入 service role 或 secret key，前端程式碼所有訪客都看得到。
+
+### 正式上線檢查
+
+- Google Cloud 的 origins 與 redirect URI 都已加入正式網址。
+- Supabase 的 Redirect URLs 已加入正式網址與 Preview 萬用字元。
+- `public/supabase-config.js` 使用的是 publishable key。
+- `user_data` 的 RLS 仍為啟用狀態。
+- 三個 SQL 檔都已執行，`app_admins` 中有管理員。
+- Vercel 的 Preview 與 Production 都已設定對應的 OpenAI key。
+- Google OAuth 若仍為 Testing，正式開放前要完成 publishing。
+
+## 系統 AI 與額度
+
+- **誰可以用**：用 Google 登入的使用者。沒有登入時使用內建教練。是否能用 AI 只看有沒有登入，與是否開啟雲端同步無關。
+- **額度**：每人預設 **1 美元，累計使用、不會重置**。用完後顯示「AI 額度已用完，請聯絡管理員」，回饋改由內建教練完成。
+- **用量顯示**：登入後、打開「API 費用」畫面時，以及每次呼叫 AI 之後，會更新「已用 / 額度」。數字以伺服器紀錄為準，清除本機紀錄不會重置額度。
+- **錄音上限**：AI 轉錄的單段音檔上限 4 MB。錄音品質固定為 32 kbps，大約可以錄 17 分鐘；被中斷的錄音會分段保留，每段各自計算上限。
+- **自備金鑰（BYOK）**：目前隱藏（`public/app.js` 的 `ENABLE_BYOK = false`）。舊的設定仍保留在使用者的裝置上，但不會被使用。
 
 ## 管理員後台
 
-部署後直接開啟 **`/admin`**，以 Google 登入。主網站不提供後台連結。後台使用獨立的 Supabase client 查詢資料，不需載入主網站的同步或練習程式。
+部署後開啟 **`/admin`**，用 Google 登入。主網站上沒有後台的連結。
 
-### 建立資料表與管理員名單
+**新增管理員**：在 Supabase SQL Editor 執行，把 email 換成管理員登入 Google 用的帳號：
 
-1. 網站擁有者開啟 Supabase 專案的 **SQL Editor**，建立新查詢。
-2. 初次設定先執行根目錄的 [`supabase.sql`](supabase.sql)，建立練習資料同步所需資料表。
-3. 再將 [`supabase/migrations/0001_ai_usage.sql`](supabase/migrations/0001_ai_usage.sql) 的完整內容貼入新查詢並執行一次，建立 `ai_usage`、`app_admins` 及相關函式。部署網站不會自動執行這個 migration。
-4. 在 SQL Editor 新增管理員。下列為假 email，請在自己的 SQL Editor 替換為管理員實際登入 Google 的 email：
+```sql
+insert into public.app_admins (email) values ('admin@example.invalid');
+```
 
-   ```sql
-   insert into public.app_admins (email) values ('admin@example.invalid');
-   ```
+**移除管理員**：
 
-5. 要移除管理員資格時，在 SQL Editor 執行：
+```sql
+delete from public.app_admins where lower(email) = lower('admin@example.invalid');
+```
 
-   ```sql
-   delete from public.app_admins
-   where lower(email) = lower('admin@example.invalid');
-   ```
+**權限**：
+- 登入的帳號必須在名單上，而且 email 已驗證；比對不分大小寫。
+- 畫面會顯示「請先登入」、「沒有權限」或「載入失敗」。變更名單後請重新整理後台。
 
-已執行過 `0001` 的資料庫，需再於 SQL Editor 執行 [`supabase/migrations/0002_fix_admin_email_type.sql`](supabase/migrations/0002_fix_admin_email_type.sql)；此修正可安全重複執行。
+**可以看到的內容**：依期間（本月、最近 7 天、最近 30 天、全部）、用途、使用者篩選，查看呼叫次數、輸入與輸出 token、音訊秒數、費用；以及每位使用者的累計已用金額與最後使用時間。
 
-管理員必須已登入，且登入帳號的 email 已驗證；名單比對不分大小寫。未登入時顯示「請先登入」，非管理員顯示「沒有權限」，其他查詢錯誤顯示「載入失敗」。管理員資格變更後，請重新整理後台。
+**後台只能查看，不能修改**使用紀錄或額度。
 
-### 可查看的內容
+## 資料與隱私
 
-後台可依本月、最近 7 天、最近 30 天或全部期間，以及用途、使用者篩選。總計與明細包含呼叫次數、輸入／輸出 token、音訊秒數與費用；另有每位使用者的全部期間已用金額與最後使用時間。期間與用途篩選套用於總計及明細，不會將每人的累計已用金額改成單月金額。
+| 資料 | 存放位置 |
+| --- | --- |
+| 練習紀錄、講稿、複習卡 | 使用者的瀏覽器；開啟雲端同步時，也會存一份在 Supabase 中該使用者自己的資料列 |
+| 語言、朗讀等裝置偏好 | 只存在使用者的瀏覽器 |
+| AI 使用紀錄（時間、用途、模型、token、音訊秒數、費用） | Supabase `ai_usage`，使用者只能讀取自己的紀錄 |
+| OpenAI API key | 只在 Vercel 環境變數 |
+| 錄音檔 | 只暫存在瀏覽器記憶體，轉成文字後即丟棄；伺服器與資料庫都不保存 |
 
-**後台只能查看，不能修改**使用紀錄或額度，也沒有新增或刪除使用紀錄的按鈕。新增／移除管理員由網站擁有者在 SQL Editor 操作。
+- 呼叫 OpenAI 時設定 `store: false`，不讓 OpenAI 保存內容。
+- 後台不顯示講稿或回饋內容，只顯示用量與費用。
 
-## 設定 Google 登入與 Supabase 同步
+**雲端同步的行為**：
+- 帳號在雲端已有資料時，登入後會以雲端資料載入目前裝置。
+- 帳號在雲端還沒有資料時，會把目前裝置的資料作為第一份雲端資料。
+- 隨時可以切回「僅限這台裝置」停止同步，先前的雲端資料不會被刪除。
 
-資料庫初次設定請先執行根目錄的 `supabase.sql`，再另外執行
-[`supabase/migrations/0001_ai_usage.sql`](supabase/migrations/0001_ai_usage.sql) 一次。
-後者建立 AI 使用紀錄、管理員名單及受權限保護的資料庫函式，不會自動執行，
-也不需要 service role key。migration 由網站擁有者在 SQL Editor 手動執行。
+## 新增或修改語言
 
-以下設定需要同時操作 **Supabase Dashboard**、**Google Cloud Console** 與本專案。建議先用本機網址完成測試，再加入正式網址。
+所有介面文字、placeholder、內建主題與題目模板都在 `public/locales/`。`zh-TW.json` 是預設與備援語系，每個語系檔使用相同的 key。
 
-### 1. 建立 Supabase 專案
+1. 複製 `public/locales/zh-TW.json`，以 BCP 47 語言標籤命名，例如 `fr-FR.json`。
+2. 保留所有 key 與題目模板中的 `{topic}`，只翻譯內容。
+3. 在 `public/i18n.js` 的 `supportedLocales` 與 `public/index.html` 的語言選單加入新語系。
+4. 在 `public/app.js` 的 `CONFIG.languages` 加入新語系。
+5. 執行 `npm test`，其中的語系檢查會確認每個語系的 key 都齊全。
 
-1. 登入 [Supabase Dashboard](https://supabase.com/dashboard)，選擇 **New project**。
-2. 選擇 organization、輸入專案名稱與資料庫密碼，並選擇離主要使用者較近的 region。
-3. 等待專案建立完成，記下網址列或 Project Settings 中的 **Project Ref**，例如 `abcdefghijklm`。
-4. 此專案的 Google OAuth callback URL 會是：
+## 版本與變更紀錄
 
-   ```text
-   https://<PROJECT_REF>.supabase.co/auth/v1/callback
-   ```
+- [CHANGELOG.md](CHANGELOG.md)：每個版本的使用者變更、技術變更與升級注意事項。
+- [docs/versioning.md](docs/versioning.md)：版本號規則、平常怎麼記錄、發布步驟。
+- 每個版本都有 Git 標籤（例如 `v2.0.0`），可以在 GitHub 的 **Tags** 頁面查看當時的程式碼。
+- 網站內的「設定 → 版本紀錄」顯示精簡的使用者說明。
 
-   後續在 Google Cloud 設定 redirect URI 時，必須使用這個 Supabase callback，而不是網站首頁。
+## 文件索引
 
-### 2. 建立資料表與存取規則
+| 文件 | 內容 |
+| --- | --- |
+| [GLOSSARY.md](GLOSSARY.md) | 名詞表：使用者、管理員、額度、使用紀錄等 |
+| [docs/adr/](docs/adr/) | 重要決策紀錄 |
+| [docs/plans/](docs/plans/) | 各階段的實作計畫 |
+| [docs/versioning.md](docs/versioning.md) | 版本管理與發布流程 |
+| [e2e/KNOWN_ISSUES.md](e2e/KNOWN_ISSUES.md) | 瀏覽器測試發現、尚未修正的問題 |
 
-1. 在 Supabase 左側選擇 **SQL Editor**，按 **New query**。
-2. 複製 [`supabase.sql`](supabase.sql) 的完整內容、貼上後按 **Run**。
-3. 執行成功後到 **Table Editor**，確認已有 `public.user_data`，欄位包含 `user_id`、`payload`、`updated_at`。
-4. 到 **Authentication > Policies**（或 Table Editor 的 policies 頁籤），確認 `user_data` 已啟用 RLS，且有 select、insert、update 三條 policy。
-
-這些 policy 都以 `auth.uid() = user_id` 限制資料，因此登入者只能操作自己的資料列。請勿關閉 RLS，也不要另外建立允許 `anon` 讀取全部資料的 policy。
-
-### 3. 在 Google Cloud 設定 OAuth
-
-1. 開啟 [Google Cloud Console](https://console.cloud.google.com/)，建立或選擇一個 project。
-2. 進入 **Google Auth Platform**。如果是第一次使用，先完成 Branding / OAuth consent screen：
-   - 填入 App name、User support email 與 Developer contact information。
-   - Audience 通常選 **External**；若只限同一 Google Workspace 組織才選 Internal。
-   - 測試期間若 publishing status 是 Testing，請把實際要登入的 Google 帳號加入 **Test users**。
-3. 進入 **Clients**（舊版介面可能位於 **APIs & Services > Credentials**），建立 **OAuth client ID**。
-4. Application type 選 **Web application**。
-5. 在 **Authorized JavaScript origins** 加入網站 origin，不要包含路徑或結尾 `/`：
-
-   ```text
-   http://localhost:8000
-   https://你的正式網域.example
-   ```
-
-6. 在 **Authorized redirect URIs** 加入第 1 步取得的 Supabase callback URL：
-
-   ```text
-   https://<PROJECT_REF>.supabase.co/auth/v1/callback
-   ```
-
-7. 儲存後，複製 Google 提供的 **Client ID** 與 **Client secret**。Client secret 只填入 Supabase，不可放進本專案或提交到 Git。
-
-### 4. 在 Supabase 開啟 Google Provider
-
-1. 回到 Supabase，進入 **Authentication > Providers > Google**。
-2. 開啟 **Enable Sign in with Google**。
-3. 將上一節取得的 Google Client ID 與 Client secret 貼入對應欄位並儲存。
-4. 若頁面有顯示 Callback URL，確認它與 Google Cloud 的 Authorized redirect URI 完全一致。
-
-### 5. 設定允許返回的網站網址
-
-在 Supabase 進入 **Authentication > URL Configuration**：
-
-1. **Site URL**：正式環境填正式首頁，例如 `https://table-topic.example.com`。還沒部署時可暫填 `http://localhost:8000`。
-2. **Redirect URLs**：把所有會測試或部署的網址加入 allow list，例如：
-
-   ```text
-   http://localhost:8000/**
-   https://table-topic.example.com/**
-   https://你的-vercel-preview-domain.vercel.app/**
-   ```
-
-3. 本專案登入時會以目前頁面的 `origin + pathname` 作為 `redirectTo`；該網址不在 allow list 時，Supabase 可能改回 Site URL，造成登入後回到錯誤頁面。
-
-### 6. 將 Supabase 公開金鑰接到前端
-
-1. 在 Supabase 的 **Project Settings > API**（新版介面可能顯示 **API Keys**）複製：
-   - Project URL，例如 `https://<PROJECT_REF>.supabase.co`
-   - 公開的 `anon` key；若專案只顯示新版 key，使用可公開於瀏覽器的 publishable key。
-2. 編輯 [`public/supabase-config.js`](public/supabase-config.js)：
-
-   ```js
-   window.SUPABASE_CONFIG = {
-     url: 'https://<PROJECT_REF>.supabase.co',
-     anonKey: '你的公開 anon 或 publishable key'
-   };
-   ```
-
-3. **絕對不可**在此填入 `service_role` 或 secret key。前端原始碼對所有訪客可見；真正的資料隔離由登入 JWT 與 RLS policy 負責。
-4. 若這是公開 repository，建議在部署流程產生正式的 `supabase-config.js`，不要把正式 key 直接提交。Supabase 的 anon / publishable key 本來就是前端可公開的，但分開管理仍可避免誤放 secret key。
-
-### 7. 本機測試前端與同步
-
-以下使用靜態伺服器驗證前端與 Google／Supabase 同步；系統 AI 的 `/api` 流程需要 Vercel Functions，請另依「本機執行」段落的說明測試。
-
-1. 以 `public/` 為根目錄啟動網站；不要直接使用 `file://` 開啟：
-
-   ```bash
-   python -m http.server 8000 --directory public
-   ```
-
-2. 開啟 <http://localhost:8000>，按右上角 **本機資料 / 資料模式**。
-3. 確認預設是「僅限這台裝置」，且畫面顯示目前未上傳資料。
-4. 按 **使用 Google 登入**，完成 Google 授權後應回到網站，右上角顯示帳號名稱或 email。
-5. 新增一筆練習或講稿，等待狀態顯示「已同步」。
-6. 回到 Supabase **Table Editor > user_data**，應看到一筆以登入者 UUID 為 `user_id` 的資料。
-7. 用無痕視窗或另一台裝置登入同一 Google 帳號，應自動載入同一份資料。
-8. 再用另一個 Google 帳號登入，確認看不到第一個帳號的資料，以驗證 RLS。
-9. 切換成 **使用本機模式** 後新增資料，確認它只留在目前瀏覽器且不再更新 Supabase。
-
-### 8. 正式部署檢查清單
-
-- Google Cloud 的 Authorized JavaScript origins 已加入正式 origin。
-- Supabase URL Configuration 已加入正式網址與必要的 preview URLs。
-- Supabase Google provider 已啟用，Google Client ID / secret 沒有填反。
-- `supabase-config.js` 使用公開 anon / publishable key，而非 `service_role` / secret key。
-- `user_data` 的 RLS 仍為啟用狀態。
-- 若 Google 應用仍為 Testing，實際登入帳號已列在 Test users；要提供給所有人使用時，依 Google 要求完成 publishing / verification。
-
-### 同步範圍與行為
-
-登入後，練習紀錄、講稿、複習卡等 `tableTopicsPractice.v1` 資料會同步到該使用者自己的資料列。AI API Key 與語言等裝置偏好刻意保留在本機，不會上傳。
-
-- 該帳號雲端已有資料時，登入後會以雲端資料載入目前裝置。
-- 該帳號尚無雲端資料時，會把目前裝置資料作為第一份雲端資料。
-- 使用者可隨時切回「僅限這台裝置」，停止後續同步；這不會刪除先前的雲端資料。
-
-### 常見問題
+## 常見問題
 
 | 狀況 | 優先檢查 |
 | --- | --- |
-| 畫面顯示「尚未設定 Supabase」 | `supabase-config.js` 的 URL 與公開 key 是否仍為空字串；瀏覽器是否成功載入該檔案。 |
-| Google 顯示 `redirect_uri_mismatch` | Google Cloud 的 Authorized redirect URI 是否為完整的 Supabase `/auth/v1/callback`，包含正確 Project Ref 且沒有多餘 `/`。 |
-| 登入成功卻回到錯誤網址 | Supabase Site URL 與 Redirect URLs 是否包含目前實際網址。 |
-| 顯示 `Invalid API key` | 是否複製到其他專案的 key、漏字，或誤用非瀏覽器用的 secret key。 |
-| 同步出現 `row-level security` 錯誤 | 是否已執行 `supabase.sql`、RLS policies 是否存在、目前 session 是否仍登入。 |
-| 第二台裝置沒有資料 | 是否登入同一個 Google 帳號、第一台是否顯示「已同步」、第二台是否選擇雲端模式。 |
-| Google 測試帳號無法登入 | OAuth consent screen 是否仍為 Testing，以及該 email 是否已加入 Test users。 |
+| 畫面顯示「尚未設定 Supabase」 | `public/supabase-config.js` 的 URL 與 key 是否填寫；瀏覽器是否成功載入該檔案 |
+| Google 顯示 `redirect_uri_mismatch` | Google Cloud 的 redirect URI 是否為完整的 Supabase `/auth/v1/callback` |
+| 登入後回到錯誤的網址 | Supabase 的 Site URL 與 Redirect URLs 是否包含目前的網址（Preview 需要萬用字元） |
+| 有多個 Google 帳號，想換另一個 | 先在網站登出，再登入一次，會出現選擇帳號的畫面 |
+| 顯示 `Invalid API key` | 是否複製到其他專案的 key，或誤用 secret key |
+| 同步出現 `row-level security` 錯誤 | 是否已執行 `supabase.sql`；登入是否已過期 |
+| 第二台裝置沒有資料 | 是否登入同一個帳號；第一台是否顯示「已同步」；第二台是否開啟雲端模式 |
+| 顯示「系統 AI 尚未就緒」 | Vercel 是否設定了目前環境（Preview 或 Production）的 OpenAI key |
+| 後台一直顯示「沒有權限」 | email 是否在 `app_admins`；是否已執行 `0002` migration |
+| 顯示「音檔超過 4 MB」 | 單段錄音太長。改用瀏覽器語音辨識，或分段錄製 |
+| Google 測試帳號無法登入 | OAuth consent screen 是否仍為 Testing，帳號是否在 Test users |
