@@ -20,6 +20,8 @@
 6. **一天的界線**：使用者裝置的本地時間午夜（沿用 `PracticeStats.localDateKey`）。
 7. **現有卡片**：資料升級時，所有已存在的卡片視為「已引入」，`introducedAt` 設為原本的 `createdAt`，到期狀態不變。
 8. **計數一致**：首頁、選單徽章與複習頁面使用同一個函式計算。首頁與徽章計算所有語言；複習頁面依語言篩選時，同時顯示「目前語言」與「全部語言」的數量。
+10. **語言篩選**：每日新卡數是所有語言共用的一個名額。複習頁面選了某個語言時，先篩選該語言的佇列，再從前端取剩餘名額。例：名額剩 2 張、佇列為「中文 A、中文 B、英文 C」，選英文時顯示英文 C；之後切回中文只剩 1 張名額可用。
+11. **新卡的批次設定下次複習日期**：與 Anki 相同，對佇列中的新卡設定日期時，會把它轉成已引入的卡（`introducedAt = now`），並在指定日期到期。這種轉換不佔用今天的新卡名額。
 9. **修正「再一次」**：按「再一次」時把 `intervalDays` 設為 0（目前保留舊值，測試中已標記 KNOWN ISSUE）。
 
 ## 資料模型
@@ -44,8 +46,8 @@
 - 純邏輯放在 `public/review-cards.js`（已有模組），新增並匯出：
   - `todaysNewCards(cards, { now, newCardsPerDay, language })`：回傳今天可顯示的新卡（不修改卡片）。
   - `markIntroduced(card, now)`：第一次評分時呼叫，設定 `introducedAt`。
-  - `buildReviewQueue(cards, { now, language })`：回傳依規則排序的今日佇列。
-  - `reviewCounts(cards, { now, language })`：回傳 `{ relearning, review, newToday, queued }`，首頁、徽章、複習頁面共用。
+  - `buildReviewQueue(cards, { now, language, newCardsPerDay })`：回傳依規則排序的今日佇列，包含今日名額內的新卡。
+  - `reviewCounts(cards, { now, language, newCardsPerDay })`：回傳 `{ relearning, review, newToday, queued }`，首頁、徽章、複習頁面共用。
   - 修正 `rateReview` 的「再一次」。
 - 自動建立卡片的邏輯抽成純函式（例如 `cardsFromAnalysis(result, history, now)`），放在 `review-cards.js` 並測試；`app.js` 只負責在保存分析後呼叫並 `persist()`。
 - `ensureDataSchema` 的升級規則放在 `public/practice-data.js`。
@@ -60,7 +62,7 @@
 - 新卡名額：佇列 25 張、每日 10 張 → 今天顯示 10 張；複習其中 4 張後，今天剩 6 張可顯示；當天全部複習完不會再出現第 11 張；隔天再顯示 10 張。
 - 沒複習就不消耗名額：顯示了 10 張但一張都沒複習，隔天仍顯示同樣這 10 張（佇列最前面），不會變成到期複習；中間 4 天沒打開，回來那天仍只顯示 10 張。
 - 每日新卡數為 0 時不引入；超出範圍或非整數時回到預設值。
-- 佇列中的卡片不計入到期數量，也不會出現在 `buildReviewQueue`。
+- 超出今日名額的佇列卡片不計入任何數量，也不會出現在 `buildReviewQueue`；今日名額內的新卡會出現（見排序）。
 - 排序：重新學習 → 到期複習（舊到新）→ 新卡平均穿插。用 R=40、N=10 與 R=3、N=5、R=0、N=4 驗證位置。
 - 計數：`reviewCounts` 的結果在首頁、徽章、複習頁面一致；語言篩選正確。
 - 「再一次」把 `intervalDays` 設為 0，並把原本的 KNOWN ISSUE 測試改成正確的預期結果。
