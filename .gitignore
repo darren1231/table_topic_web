@@ -23,3 +23,6 @@ Thumbs.db
 
 # Security review reports: keep local until the findings are fixed
 docs/code-review/
+
+test-results/
+playwright-report/
