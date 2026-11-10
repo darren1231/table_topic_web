@@ -92,6 +92,9 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
     }
     return fetch(url, init);
   };
+  b.run(fs.readFileSync(path.join(publicDir, 'practice-stats.js'), 'utf8'));
+  b.run(fs.readFileSync(path.join(publicDir, 'practice-data.js'), 'utf8'));
+  b.run(fs.readFileSync(path.join(publicDir, 'coach-parsing.js'), 'utf8'));
   b.run(fs.readFileSync(path.join(publicDir, 'app.js'), 'utf8'));
   b.run('ensureDataSchema(); initSystemAi();');
   b.setUser = value => { user = value; b.window.dispatchEvent({ type: 'tabletopics:auth' }); };
