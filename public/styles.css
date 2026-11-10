@@ -66,3 +66,5 @@
 .admin-page .api-usage-summary{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
 .admin-page .api-ledger-table th{text-align:start}
 .admin-page main{padding-bottom:40px}
+
+.guide-entry{margin-bottom:14px}.guide-toc ol{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:8px;list-style:none;padding:0}.guide-toc button{text-align:start;white-space:normal;line-height:1.6}.guide-section{scroll-margin-top:110px;overflow-wrap:anywhere}.guide-section h2{margin-top:0;font-size:22px}.guide-section li,.guide-section p,.guide-section dd{line-height:1.9}.guide-section li+li{margin-top:10px}.guide-section dt{font-weight:700;margin-top:18px}.guide-section dd{margin:6px 0 0}.guide-section ul,.guide-section ol{padding-inline-start:24px}.guide-actions{padding-bottom:28px;flex-wrap:wrap}
