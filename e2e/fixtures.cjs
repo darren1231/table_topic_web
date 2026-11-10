@@ -6,6 +6,11 @@ const session = {
   refresh_token: 'fake-refresh-token', token_type: 'bearer', expires_in: 3600, expires_at: 4102444800, user,
 };
 
+async function checkVisibleText(page) {
+  const text = await page.locator('body').innerText();
+  expect(text, 'Visible text must not contain undecoded HTML entities').not.toMatch(/&(?:amp|lt|gt|quot|#39|#x27);/i);
+}
+
 const test = base.extend({
   sandbox: [async ({ context }, use) => {
     // KNOWN ISSUE: I18n's MutationObserver translates detached text nodes after
@@ -71,8 +76,7 @@ const test = base.extend({
     await use(sandbox);
     for (const page of context.pages()) {
       if (!page.isClosed() && page.url().startsWith('http://127.0.0.1')) {
-        const text = await page.locator('body').innerText();
-        expect(text, 'Visible text must not contain undecoded HTML entities').not.toMatch(/&(?:amp|lt|gt|quot|#39|#x27);/i);
+        await checkVisibleText(page);
       }
     }
     expect(unexpected, 'All external and API requests must be explicitly mocked').toEqual([]);
@@ -83,6 +87,7 @@ const test = base.extend({
     await expect(page.locator('#suggestions button')).toHaveCount(5);
     await expect.poll(() => page.evaluate(() => Boolean(window.tableTopicsCloud?.isSignedIn()))).toBe(false);
     await use(page);
+    await checkVisibleText(page);
   },
   signedInPage: async ({ page, context, sandbox }, use) => {
     await context.addInitScript(value => {
@@ -92,6 +97,7 @@ const test = base.extend({
     await expect(page.locator('#suggestions button')).toHaveCount(5);
     await expect.poll(() => page.evaluate(() => window.tableTopicsCloud?.isSignedIn())).toBe(true);
     await use(page);
+    await checkVisibleText(page);
   },
 });
 
