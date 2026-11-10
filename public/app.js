@@ -435,8 +435,8 @@ function renderSystemUsageDashboard() {
   $('.api-ledger-note').textContent = t('systemAi.ledgerNote');
   renderSystemBalance();
 }
-function extractJson(text) { const clean = String(text).replace(/```json|```/gi,'').trim(); const start = Math.min(...['{','['].map(c => { const i=clean.indexOf(c); return i<0?Infinity:i; })); if (!Number.isFinite(start)) throw new Error('Agent 未回傳 JSON'); return JSON.parse(clean.slice(start)); }
-function normalizeApiUsage(usage={}){return{inputTokens:Number(usage.input_tokens??usage.prompt_tokens??usage.inputTokens??0)||0,outputTokens:Number(usage.output_tokens??usage.completion_tokens??usage.outputTokens??0)||0};}
+function extractJson(text) { return CoachParsing.extractJson(text); }
+function normalizeApiUsage(usage={}){return CoachParsing.normalizeApiUsage(usage);}
 function recordApiUsage(project,{usage={},status='success',error='',kind='agent',startedAt=Date.now()}={}){const tokens=normalizeApiUsage(usage),inputRate=Math.max(0,Number(project.inputTokenRate)||0),outputRate=Math.max(0,Number(project.outputTokenRate)||0),cost=tokens.inputTokens/1e6*inputRate+tokens.outputTokens/1e6*outputRate;saved.apiUsage.unshift({id:makeId('usage'),createdAt:new Date().toISOString(),projectId:project.id||'',projectName:project.name||'',provider:project.provider||'',model:project.model||'',kind,status,error:String(error||''),inputTokens:tokens.inputTokens,outputTokens:tokens.outputTokens,inputRate,outputRate,estimatedCost:cost,priced:Boolean(inputRate||outputRate),durationMs:Date.now()-startedAt});saved.apiUsage=saved.apiUsage.slice(0,2000);persist();renderApiUsageDashboard();}
 async function callAgent(instruction, project = getActiveProject(), kind = 'agent') {
   if (!ENABLE_BYOK) project = getActiveProject();
@@ -487,22 +487,9 @@ async function analyzeScriptParagraphAI(script,paragraph,count){
 }
 async function reviewWholeScriptAI(script){const text=script.paragraphs.map((p,i)=>`${i+1}. ${p.text}`).join('\n\n'),project=getActiveProject();if(project.provider==='builtin')return {summary:ui('整體講稿已有基本架構。請檢查各段是否都服務同一個主旨，並讓開場與結尾彼此呼應。','The manuscript has a workable structure. Make sure every paragraph supports one central message and that the opening and closing echo each other.'),transitions:ui('在段落之間加入清楚的承接句。','Add clear transition sentences between paragraphs.'),repetition:ui('刪除重複觀點，只保留最有力的例子。','Remove repeated ideas and keep the strongest example.'),tone:ui('維持一致的語氣與稱呼。','Keep the tone and form of address consistent.'),opening:ui('開場先交代核心主張或問題。','Open with the central claim or question.'),closing:ui('結尾回扣主旨並留下可記憶的一句話。','Return to the main point and end with a memorable line.')};const output=await callAgent(`Review this complete speech manuscript without rewriting or changing any paragraph. Preserve Chinese-English mixed content and never translate it. Return only JSON with summary, transitions, repetition, tone, opening, closing, and recommendations (array of actionable strings). SCRIPT BRIEF: ${JSON.stringify({title:script.title,topic:script.topic,purpose:script.purpose,audience:script.audience,tone:script.tone})}\nMANUSCRIPT:\n${text}`,project);const result=extractJson(output);result._rawResponse=output;return result;}
 
-function parseScore(value, fallback=0) { if(typeof value==='number'&&Number.isFinite(value)) return Math.max(0,Math.min(100,Math.round(value))); const text=String(value??'').trim(); const match=text.match(/^(\d{1,3})(?:\s*(?:\/\s*100|%))?$/); return match?Math.max(0,Math.min(100,Number(match[1]))):fallback; }
-function baseScoreForCategory(name,r) { const n=String(name||''); if(/結構|邏輯|總結|立場/.test(n))return r.structure; if(/內容|相關|具體|準確/.test(n))return r.detail; if(/語言|流暢|感染|表達/.test(n))return r.fluency; return r.overall; }
-function normalizeCoachResult(r,text='') {
-  r.overall=parseScore(r.overall??r.overallScore??r.total_score,70); r.structure=parseScore(r.structure??r.structureScore,70); r.detail=parseScore(r.detail??r.detailScore??r.accuracy,70); r.fluency=parseScore(r.fluency??r.fluencyScore,70);
-  const comparisonParts=CoachResultUtils.partitionComparisons(r.comparisons);
-  r.summary ||= r.strength; r.improvements = Array.isArray(r.improvements)?r.improvements:[]; r.comparisons=comparisonParts.text; r.rewritten ||= r.rewrittenSpeech||r.improved_answer||text;
-  const rawGrammar=Array.isArray(r.grammarCorrections)?r.grammarCorrections:(Array.isArray(r.grammar_corrections)?r.grammar_corrections:(Array.isArray(r.sentenceCorrections)?r.sentenceCorrections:[]));
-  r.grammarCorrections=rawGrammar.map((item,index)=>({original:String(item.original??item.before??''),corrected:String(item.corrected??item.after??item.original??''),isCorrect:item.isCorrect===true||item.is_correct===true,issue:String(item.issue??item.error??''),explanation:String(item.explanation??item.reason??''),rule:String(item.rule??''),example:String(item.example??''),index})).filter(item=>item.original);
-  if(r.grammarCorrections.length&&!r.comparisons.some(item=>item.grammarExplanation||item.grammarIssue)){const normalized=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]/g,'');r.comparisons=r.grammarCorrections.map((grammar,index)=>{const match=r.comparisons.find(item=>normalized(item.before)===normalized(grammar.original));return {label:match?.label||`Sentence ${index+1}`,before:grammar.original,after:match?.after||grammar.corrected,isGrammarCorrect:grammar.isCorrect,grammarIssue:grammar.issue,grammarExplanation:grammar.explanation,grammarRule:grammar.rule,grammarExample:grammar.example};});}
-  const suppliedScores=Array.isArray(r.scoreDetails)?r.scoreDetails:(Array.isArray(r.scores)?r.scores:[]);
-  const recoveredScores=suppliedScores.length?[]:comparisonParts.scoreOnly.map(x=>({name:x.label??x.name,before:x.before,after:x.after,beforeNote:x.beforeNote,afterNote:x.afterNote}));
-  const rawScores=[...suppliedScores,...recoveredScores];
-  r.scoreDetails=rawScores.map((x,i)=>{const name=x.name||x.category||x.item||`評分項目 ${i+1}`;const base=baseScoreForCategory(name,r);const rawBefore=x.before??x.original??x.originalScore??x.score??x.before_score;const rawAfter=x.after??x.improved??x.improvedScore??x.after_score;const before=parseScore(rawBefore,base);const after=parseScore(rawAfter,Math.min(96,Math.max(before+18,82)));return{name,before,after,beforeNote:x.beforeNote||(typeof rawBefore==='string'&&!/^\s*\d/.test(rawBefore)?rawBefore:''),afterNote:x.afterNote||(typeof rawAfter==='string'&&!/^\s*\d/.test(rawAfter)?rawAfter:'')}});
-  const averageAfter=r.scoreDetails.length?Math.round(r.scoreDetails.reduce((sum,x)=>sum+x.after,0)/r.scoreDetails.length):Math.min(96,r.overall+20);
-  r.improvedOverall=parseScore(r.improvedOverall??r.improved_overall??r.afterOverall,averageAfter); return r;
-}
+function parseScore(value, fallback=0) { return CoachParsing.parseScore(value,fallback); }
+function baseScoreForCategory(name,r) { return CoachParsing.baseScoreForCategory(name,r); }
+function normalizeCoachResult(r,text='') { return CoachParsing.normalizeCoachResult(r,text); }
 function renderCoachReport(r) {
   r=normalizeCoachResult(r);
   const improvements=r.improvements.map(x=>`<article class="improvement-item"><h4>${escapeHtml(x.title||'改善重點')}</h4><p>${escapeHtml(x.detail||'')}</p></article>`).join('');
