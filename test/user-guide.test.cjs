@@ -17,6 +17,39 @@ test('all four guide catalogs have the same nonempty keys and twelve complete se
   }
 });
 
+test('every English Japanese and Arabic guide message is translated from Chinese', () => {
+  for (const locale of ['en-US', 'ja-JP', 'ar']) {
+    for (const key of guideKeys(catalogs['zh-TW'])) {
+      assert.notEqual(catalogs[locale][key], catalogs['zh-TW'][key], `${locale}: untranslated ${key}`);
+    }
+  }
+});
+
+test('guide instructions quote the corresponding labels in each locale catalog', () => {
+  const references = {
+    'guide.home': ['static.009'], 'guide.section2.item1': ['ui.188', 'ui.182'],
+    'guide.section2.item3': ['ui.017', 'ui.155'], 'guide.section3.item1': ['ui.005', 'ui.006'],
+    'guide.section3.item2': ['admin.questions'], 'guide.section4.item1': ['ui.182'],
+    'guide.section4.item2': ['ui.155'], 'guide.section5.item1': ['ui.092'],
+    'guide.section5.item2': ['ui.093'], 'guide.section5.item5': ['ui.091', 'ui.013'],
+    'guide.section6.item1': ['ui.020', 'ui.021', 'ui.022', 'ui.023'],
+    'guide.section6.item2': ['ui.024', 'ui.025'], 'guide.section6.item5': ['ui.052'],
+    'guide.section7.item2': ['ui.071', 'review.reveal', 'review.again', 'review.hard', 'review.good', 'review.easy'],
+    'guide.section7.item3': ['review.again'], 'guide.section7.item4': ['ui.086'],
+    'guide.section8.item1': ['ui.088'], 'guide.section8.item2': ['static.013'],
+    'guide.section8.item3': ['ui.028'], 'guide.section9.item3': ['ui.194'],
+    'guide.section9.item4': ['settings.011'], 'guide.section10.item1': ['ui.199', 'ui.104', 'ui.105'],
+    'guide.section10.item3': ['ui.108'], 'guide.section11.item1': ['ui.004'],
+    'guide.section12.answer2': ['ui.091', 'ui.013'], 'guide.section12.answer5': ['version.001'],
+  };
+  for (const [locale, messages] of Object.entries(catalogs)) {
+    for (const [key, labels] of Object.entries(references)) {
+      for (const label of labels) assert.ok(messages[key].includes(messages[label]), `${locale}: ${key} must include ${label}`);
+    }
+    assert.ok(messages['guide.section7.item1'].includes(locale === 'zh-TW' ? '加入複習' : 'Add to review'));
+  }
+});
+
 function guideApp() {
   const b = app({ signedIn: false });
   b.context.URLSearchParams = URLSearchParams;
