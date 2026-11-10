@@ -25,6 +25,8 @@ require('./practice-data.test.cjs');
 require('./coach-parsing.test.cjs');
 require('./builtin-coach.test.cjs');
 require('./review-cards.test.cjs');
+require('./i18n.test.cjs');
+require('./cloud.test.cjs');
 
 test('test environment can query an in-memory PostgreSQL database', async () => {
   const { PGlite } = require('@electric-sql/pglite');
