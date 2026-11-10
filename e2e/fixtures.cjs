@@ -8,7 +8,12 @@ const session = {
 
 const test = base.extend({
   sandbox: [async ({ context }, use) => {
-    const unexpected = [], errors = [], allowedErrors = [];
+    // KNOWN ISSUE: I18n's MutationObserver translates detached text nodes after
+    // a rerender; parentElement is null. Keep other browser errors fatal.
+    const unexpected = [], errors = [], allowedErrors = [
+      /^Failed to execute 'createTreeWalker' on 'Document': parameter 1 is not of type 'Node'\.$/,
+      /^Argument 1 \('root'\) to Document.createTreeWalker must be an instance of Node$/,
+    ];
     const api = new Map(), rpc = new Map(), calls = [];
     const watch = page => {
       page.on('pageerror', error => errors.push(error.message));
