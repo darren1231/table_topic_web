@@ -139,7 +139,7 @@ test('selecting an analysis comparison creates one linked review card and persis
   toggles[0].onchange();
   assert.equal(snapshot(b).reviewCards.length, 1);
   const reloaded = guest(t, { storageEntries: b.storage });
-  assert.deepEqual(snapshot(reloaded).reviewCards, [card]);
+  assert.deepEqual(snapshot(reloaded).reviewCards, [{ ...card, introducedAt: card.createdAt }]);
 });
 
 test('KNOWN ISSUE F09: unrelated builtin answers receive the same generic technology rewrite', async t => {
