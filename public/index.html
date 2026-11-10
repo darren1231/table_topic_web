@@ -183,7 +183,9 @@
 
     <main id="reviewView" class="app-view hidden">
       <section class="page-hero compact-hero"><button class="back-button" data-nav="home">← <span>返回首頁</span></button><p class="eyebrow">SPACED REVIEW</p><h1>今日複習</h1><p>先回想更好的說法，再揭曉並評估自己的熟練程度。</p></section>
+      <div class="api-ledger-toolbar"><label><span id="newCardsPerDayLabel"></span><input id="newCardsPerDay" type="number" min="0" max="200" step="1" aria-describedby="newCardsPerDayHelp"></label><p id="newCardsPerDayHelp" class="field-help"></p></div>
       <section class="review-summary" id="reviewSummary"></section>
+      <p class="field-help"><span id="reviewCurrentCounts"></span> · <span id="reviewAllCounts"></span></p>
       <div class="language-tabs" id="reviewLanguageFilter"><button class="active" data-language="all">全部</button><button data-language="zh-TW">中文</button><button data-language="en-US">English</button></div>
       <section class="review-session" id="reviewSession"></section>
       <section class="review-library"><div class="section-heading"><div><span class="step">⌁</span><h2>複習資料庫</h2></div><span id="libraryResultCount" class="library-result-count"></span></div>

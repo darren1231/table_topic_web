@@ -113,13 +113,13 @@ test('completing a practice updates history, daily progress, calendar heat and s
   assert.equal(day.classList.contains('heat-1'), true);
 });
 
-test('selecting an analysis comparison creates one linked review card and persists it across reload', async t => {
+test('analysis automatically queues linked cards and checkbox cancellation restores without duplicates', async t => {
   const b = guest(t);
   const entry = await complete(b);
-  assert.equal(snapshot(b).reviewCards.length, 0);
+  assert.equal(snapshot(b).reviewCards.length, 3);
   const toggles = b.get('#coachReport').querySelectorAll('[data-review-index]');
   assert.equal(toggles.length, 3);
-  toggles[0].click();
+  assert.ok(toggles.every(input => input.checked));
   const [card] = snapshot(b).reviewCards;
   assert.equal(card.id, `${entry.id}:0`);
   assert.equal(card.sourceHistoryId, entry.id);
@@ -130,16 +130,65 @@ test('selecting an analysis comparison creates one linked review card and persis
   assert.equal(card.after, 'I agree because people are kind.');
   assert.equal(card.language, 'en-US');
   assert.equal(card.status, 'active');
-  assert.equal(card.dueAt, now);
+  assert.equal(card.dueAt, null);
+  assert.equal(card.introducedAt, null);
   assert.equal(card.createdAt, now);
   assert.equal(card.intervalDays, 0);
   assert.equal(card.repetitions, 0);
-  assert.equal(String(b.get('#dueReviewCount').textContent), '1');
-  assert.equal(String(b.get('#homeDueReviewCount').textContent), '1');
-  toggles[0].onchange();
-  assert.equal(snapshot(b).reviewCards.length, 1);
+  assert.equal(String(b.get('#dueReviewCount').textContent), '3');
+  assert.equal(String(b.get('#homeDueReviewCount').textContent), '3');
+  toggles[0].click();
+  assert.equal(snapshot(b).reviewCards[0].status, 'trashed');
+  toggles[0].click();
+  assert.equal(snapshot(b).reviewCards[0].status, 'active');
+  assert.equal(snapshot(b).reviewCards.length, 3);
   const reloaded = guest(t, { storageEntries: b.storage });
-  assert.deepEqual(snapshot(reloaded).reviewCards, [{ ...card, introducedAt: card.createdAt }]);
+  assert.deepEqual(snapshot(reloaded).reviewCards, snapshot(b).reviewCards);
+});
+
+test('review settings persist and first reviews reduce shared new-card slots', async t => {
+  const b = guest(t);
+  await complete(b);
+  b.run('initReviewLibrary();');
+  b.get('#newCardsPerDay').onchange({ target: { value: '2' } });
+  assert.equal(snapshot(b).reviewSettings.newCardsPerDay, 2);
+  assert.equal(String(b.get('#dueReviewCount').textContent), '2');
+  b.run("rateReview(saved.reviewCards[0],'good');");
+  assert.equal(snapshot(b).reviewCards[0].introducedAt, now);
+  assert.equal(snapshot(b).reviewEvents.length, 1);
+  assert.equal(String(b.get('#dueReviewCount').textContent), '1');
+  b.run("state.reviewLanguage='zh-TW';renderReviewPage();updateReviewBadge();");
+  assert.equal(b.get('#reviewCurrentCounts').textContent, 'Current language: 0 cards');
+  assert.equal(b.get('#reviewAllCounts').textContent, 'All languages: 1 cards');
+  const reloaded = guest(t, { storageEntries: b.storage });
+  assert.equal(snapshot(reloaded).reviewSettings.newCardsPerDay, 2);
+  assert.deepEqual(snapshot(reloaded).reviewEvents, snapshot(b).reviewEvents);
+});
+
+test('invalid new-card limits reset to ten and zero pauses only new cards', async t => {
+  const b = guest(t);
+  await complete(b);
+  b.run('initReviewLibrary();');
+  for (const value of ['201', '-1', '2.5', '', 'Infinity']) {
+    b.get('#newCardsPerDay').onchange({ target: { value } });
+    assert.equal(snapshot(b).reviewSettings.newCardsPerDay, 10);
+  }
+  b.get('#newCardsPerDay').onchange({ target: { value: '0' } });
+  assert.equal(String(b.get('#dueReviewCount').textContent), '0');
+  assert.equal(snapshot(b).reviewCards.length, 3);
+});
+
+test('opening review after midnight refreshes global badges with the new daily quota', async t => {
+  const b = guest(t);
+  await complete(b);
+  b.run('initReviewLibrary();');
+  b.get('#newCardsPerDay').onchange({ target: { value: '2' } });
+  b.run("rateReview(saved.reviewCards[0],'good');rateReview(saved.reviewCards[1],'good');");
+  assert.equal(String(b.get('#dueReviewCount').textContent), '0');
+  b.run(`Date.now=()=>${Date.parse(now) + 86400000};renderReviewPage();`);
+  assert.equal(b.get('#reviewAllCounts').textContent, 'All languages: 3 cards');
+  assert.equal(String(b.get('#dueReviewCount').textContent), '3');
+  assert.equal(String(b.get('#homeDueReviewCount').textContent), '3');
 });
 
 test('KNOWN ISSUE F09: unrelated builtin answers receive the same generic technology rewrite', async t => {

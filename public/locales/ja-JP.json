@@ -423,7 +423,15 @@
     "admin.localeZh": "繁體中文",
     "admin.localeEn": "English",
     "admin.localeJa": "日本語",
-    "admin.localeAr": "العربية"
+    "admin.localeAr": "العربية",
+    "review.dailyNewLimit": "1日の新規カード数",
+    "review.dailyNewHelp": "初めて復習するカードは1日0〜200枚。0は新規カードを休止。期限の来た復習は無制限で、未使用枠は繰り越しません。",
+    "review.newToday": "今日の新規カード",
+    "review.dueReviews": "期限の来た復習",
+    "review.queued": "待機中",
+    "review.currentLanguageCounts": "現在の言語：{count}枚",
+    "review.allLanguageCounts": "すべての言語：{count}枚",
+    "review.addedToQueue": "新規カードの待機列に追加しました"
   },
   "placeholders": {
     "placeholder.001": "例：旅行、勇気、最近学んだこと…",

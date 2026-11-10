@@ -40,13 +40,13 @@ test('completed practice updates the streak and calendar day details', async ({ 
 test('guest adds a review card, rates it, searches and bulk archives it', async ({ guestPage: page }) => {
   await complete(page);
   await page.locator('#coachReport [data-review-index]').first().check();
-  await expect(page.locator('#dueReviewCount')).toHaveText('1');
+  await expect(page.locator('#dueReviewCount')).toHaveText('3');
   await page.locator('#reviewNavButton').click();
   await expect(page.locator('#reviewSession .review-prompt')).not.toBeEmpty();
   await page.locator('#revealAnswerButton').click();
   await expect(page.locator('#reviewSession .review-answer')).toBeVisible();
   await page.locator('[data-rating="good"]').click();
-  await expect(page.locator('#dueReviewCount')).toHaveText('0');
+  await expect(page.locator('#dueReviewCount')).toHaveText('2');
   await page.locator('#librarySearchInput').fill('I am agree');
   await expect(page.locator('#reviewLibrary .library-card-rich')).toHaveCount(1);
   await page.locator('#librarySelectPage').check();
@@ -90,7 +90,7 @@ test('downloaded JSON backup restores practice and review cards after clearing s
   expect(download.suggestedFilename()).toBe('table-topics-backup-2026-11-10.json');
   expect(backup.format).toBe('table-topics-practice-backup');
   expect(backup.data.practice.history).toHaveLength(1);
-  expect(backup.data.practice.reviewCards).toHaveLength(1);
+  expect(backup.data.practice.reviewCards).toHaveLength(3);
   expect(backup.data.practice.history[0].answer).toBe(answer);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
@@ -100,7 +100,7 @@ test('downloaded JSON backup restores practice and review cards after clearing s
   page.once('dialog', dialog => dialog.accept());
   await page.locator('#importBackupInput').setInputFiles(path);
   await expect(page.locator('#backupDialog')).not.toBeVisible();
-  await expect(page.locator('#dueReviewCount')).toHaveText('1');
+  await expect(page.locator('#dueReviewCount')).toHaveText('3');
   await expect(page.locator('#historyList .history-item')).toHaveCount(1);
   await page.locator('#historyList .history-item').click();
   await expect(page.locator('#historyDetailContent .report-answer')).toHaveText(answer);

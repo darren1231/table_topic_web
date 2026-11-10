@@ -417,7 +417,15 @@
     "admin.localeZh": "繁體中文",
     "admin.localeEn": "English",
     "admin.localeJa": "日本語",
-    "admin.localeAr": "العربية"
+    "admin.localeAr": "العربية",
+    "review.dailyNewLimit": "每日新卡數",
+    "review.dailyNewHelp": "每天最多第一次複習幾張新卡（0–200）；0 暫停新卡，到期複習不限量，未複習不補發。",
+    "review.newToday": "今日新卡",
+    "review.dueReviews": "到期複習",
+    "review.queued": "佇列中",
+    "review.currentLanguageCounts": "目前語言：{count} 張",
+    "review.allLanguageCounts": "全部語言：{count} 張",
+    "review.addedToQueue": "已加入新卡佇列"
   },
   "placeholders": {
     "placeholder.001": "例如：旅行、勇氣、最近學到的事⋯",
