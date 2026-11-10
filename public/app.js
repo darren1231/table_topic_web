@@ -142,7 +142,7 @@ function renderVersionHistory(){
   $('#versionTimeline').innerHTML=VERSION_HISTORY.map(release=>`<article class="version-release"><header><h3>v${escapeHtml(release.version)}</h3><time datetime="${release.date}">${release.date}</time></header><ul>${release.changes.map(change=>`<li>${escapeHtml(change)}</li>`).join('')}</ul></article>`).join('');
 }
 
-function escapeHtml(value) { const el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
+function escapeHtml(value) { return HtmlUtils.escapeHtml(value); }
 function basicEnglishGrammarReview(text){return BuiltinCoach.basicEnglishGrammarReview(text);}
 
 // Provider boundary: replace these methods with calls to any AI backend later.

@@ -92,6 +92,7 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
     }
     return fetch(url, init);
   };
+  b.run(fs.readFileSync(path.join(publicDir, 'html-utils.js'), 'utf8'), { filename: path.join(publicDir, 'html-utils.js') });
   b.run(fs.readFileSync(path.join(publicDir, 'practice-stats.js'), 'utf8'), { filename: path.join(publicDir, 'practice-stats.js') });
   b.run(fs.readFileSync(path.join(publicDir, 'review-cards.js'), 'utf8'), { filename: path.join(publicDir, 'review-cards.js') });
   b.run(fs.readFileSync(path.join(publicDir, 'practice-data.js'), 'utf8'), { filename: path.join(publicDir, 'practice-data.js') });
