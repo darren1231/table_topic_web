@@ -39,6 +39,10 @@ async function record(id, overrides = {}) {
 describe('AI usage migration', { concurrency: false }, () => {
   before(async () => {
     database = new PGlite();
+    // Minimal auth.users fixture; types follow Supabase Auth's upstream migrations:
+    // https://github.com/supabase/auth/blob/master/migrations/00_init_auth_schema.up.sql
+    // https://github.com/supabase/auth/blob/master/migrations/20210710035447_alter_users.up.sql
+    // The latter renames confirmed_at (timestamptz) to email_confirmed_at.
     await database.exec(`
       CREATE ROLE anon NOLOGIN;
       CREATE ROLE authenticated NOLOGIN;
@@ -90,6 +94,35 @@ describe('AI usage migration', { concurrency: false }, () => {
     assert.equal(rows[0].input_tokens, 100);
     assert.equal(rows[0].output_tokens, 50);
     assert.equal(rows[0].model, 'test-model');
+  });
+
+  test('0001 followed by 0002 returns the declared PostgreSQL types from all three functions', async () => {
+    // The suite setup applies 0001 to a fresh database with Supabase-compatible auth types.
+    const repair = await readFile(path.join(__dirname, '../supabase/migrations/0002_fix_admin_email_type.sql'), 'utf8');
+    await database.exec(repair);
+
+    // PostgreSQL wire type OIDs: uuid=2950, timestamptz=1184, text=25,
+    // bigint=20, numeric=1700. Check actual results, not just pg_proc declarations.
+    const recorded = await record(users.member);
+    assert.equal(recorded.rows.length, 1);
+    assert.deepEqual(recorded.fields, [{ name: 'id', dataTypeID: 2950 }]);
+
+    const balance = await database.query('SELECT * FROM public.get_my_ai_balance()');
+    assert.deepEqual(balance.rows, [{ spent: '0.25' }]);
+    assert.deepEqual(balance.fields, [{ name: 'spent', dataTypeID: 1700 }]);
+
+    await asRole('authenticated', users.admin);
+    const usage = await database.query('SELECT * FROM public.admin_list_ai_usage()');
+    assert.equal(usage.rows.length, 1);
+    assert.equal(usage.rows[0].id, recorded.rows[0].id);
+    assert.equal(usage.rows[0].email, 'member@example.invalid');
+    assert.deepEqual(usage.fields, [
+      ['id', 2950], ['user_id', 2950], ['created_at', 1184],
+      ['provider', 25], ['model', 25], ['kind', 25], ['status', 25], ['error', 25],
+      ['input_tokens', 20], ['output_tokens', 20], ['input_rate', 1700],
+      ['output_rate', 1700], ['estimated_cost', 1700], ['duration_ms', 20],
+      ['audio_seconds', 1700], ['email', 25],
+    ].map(([name, dataTypeID]) => ({ name, dataTypeID })));
   });
 
   test('cannot directly insert usage or supply another user to the recording function', async () => {
