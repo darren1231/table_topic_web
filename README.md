@@ -34,6 +34,8 @@ npm test
 
 `npm test` 依序執行語系檢查、既有教練與語音工具測試，再執行 `test/` 下的測試。測試以假的 fetch 與本機記憶體中的 PGlite 資料庫驗證功能，不需要正式金鑰，也不會呼叫真實 OpenAI 或 Supabase API。
 
+PR 會由 GitHub Actions 自動執行 `npm test`。
+
 ## 新增或修改語言
 
 所有可翻譯的靜態介面文字、placeholder、內建主題與題目模板都集中在 `public/locales/`。`zh-TW.json` 是預設及 fallback 語系；每個語系檔案使用相同的 message key，因此新增語言時不需要修改畫面中的判斷邏輯。
