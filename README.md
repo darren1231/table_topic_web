@@ -127,6 +127,7 @@ npm run e2e
 
 - Playwright 固定使用 `1.64.1`。CI 使用官方映像 `mcr.microsoft.com/playwright:v1.64.1-noble`，**升級 `@playwright/test` 時要同步更新** `.github/workflows/test.yml` 的映像版本。
 - 測試會自動用 `scripts/serve-public.mjs` 在 `127.0.0.1:4173` 啟動網站。
+- 瀏覽器測試固定使用 Asia/Taipei 時區，Chromium 與 WebKit 皆套用，讓本地日期與排程的判斷不受本機或 CI 主機時區影響。
 - 所有對外請求都被攔截：Supabase 與 `/api/*` 由測試模擬，只允許從 jsDelivr 載入 Supabase SDK。其他未模擬的外部請求會讓測試失敗。
 - 錄音測試只在 Chromium 使用假麥克風；WebKit 的兩項錄音測試會略過。
 - CI 失敗時會上傳 `playwright-report`，保留 7 天。下載解壓縮後用 `npx playwright show-report playwright-report` 查看截圖與 trace。
