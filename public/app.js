@@ -921,8 +921,27 @@ function hasPendingAuthCallback(){
   const query=new URLSearchParams(location.search);
   return hash.has('access_token')||hash.has('refresh_token')||hash.has('error')||query.has('code');
 }
-function navigateTo(view){if(!['home','practice','calendar','review','trends'].includes(view))view='home';state.currentView=view;document.querySelectorAll('.app-view').forEach(v=>{v.classList.toggle('hidden',v.id!==`${view}View`);v.classList.toggle('active-view',v.id===`${view}View`);});document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav===view));if(view==='calendar')renderCalendar();if(view==='review')renderReviewPage();if(view==='trends')renderScoreTrends();if(!hasPendingAuthCallback())location.hash=view==='home'?'':view;window.scrollTo({top:0,behavior:'auto'});}
+function navigateTo(view){if(!['home','practice','calendar','review','trends','guide'].includes(view))view='home';state.currentView=view;document.querySelectorAll('.app-view').forEach(v=>{v.classList.toggle('hidden',v.id!==`${view}View`);v.classList.toggle('active-view',v.id===`${view}View`);});document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav===view));if(view==='calendar')renderCalendar();if(view==='review')renderReviewPage();if(view==='trends')renderScoreTrends();if(view==='guide')renderGuide();if(!hasPendingAuthCallback())location.hash=view==='home'?'':view;window.scrollTo({top:0,behavior:'auto'});}
 
+
+function renderGuide(){
+  const text=(tag,key)=>{const node=document.createElement(tag);node.textContent=t(key);return node;};
+  for(const [id,key] of [['guideEntryTitle','title'],['guideEntryHint','entryHint'],['guideTitle','title'],['guideSubtitle','subtitle'],['guideTocTitle','contents'],['guideBackTop','home'],['guideBackBottom','home'],['guideStart','start']])$(`#${id}`).textContent=t(`guide.${key}`);
+  $('#guideEntry').setAttribute('aria-label',t('guide.title'));
+  const contents=$('#guideToc'),sections=$('#guideSections');contents.replaceChildren();sections.replaceChildren();
+  const lengths=[5,3,4,3,6,5,4,3,5,3,3,0];
+  for(let number=1;number<=12;number++){
+    const prefix=`guide.section${number}`,section=document.createElement('section');section.id=`guide-section-${number}`;section.className='topic-panel guide-section';
+    const heading=text('h2',`${prefix}.title`);heading.textContent=`${number}. ${heading.textContent}`;section.append(heading);
+    const item=document.createElement('li'),button=text('button',`${prefix}.title`);button.type='button';button.className='text-button';button.textContent=`${number}. ${button.textContent}`;button.onclick=()=>section.scrollIntoView({behavior:'smooth',block:'start'});item.append(button);contents.append(item);
+    const list=(from,to,tag='ul')=>{const node=document.createElement(tag);for(let i=from;i<=to;i++)node.append(text('li',`${prefix}.item${i}`));section.append(node);};
+    if(number===5){section.append(text('p',`${prefix}.intro`));list(1,2);section.append(text('p',`${prefix}.tips`));list(3,6);}
+    else if(number===12){const questions=document.createElement('dl');for(let i=1;i<=5;i++)questions.append(text('dt',`${prefix}.question${i}`),text('dd',`${prefix}.answer${i}`));section.append(questions);}
+    else list(1,lengths[number-1],number===2?'ol':'ul');
+    sections.append(section);
+  }
+  $('#guideStart').onclick=()=>startPracticeFlow('question');
+}
 
 function trendEntries(){return PracticeStats.trendEntries(saved.history,state.trendLanguage,state.trendPeriod);}
 function trendSvg(entries,series){const width=900,height=310,pad={l:48,r:24,t:24,b:48},innerW=width-pad.l-pad.r,innerH=height-pad.t-pad.b,x=i=>pad.l+(entries.length===1?innerW/2:i*innerW/(entries.length-1)),y=value=>finiteNumber(pad.t+(100-finiteNumber(value))*innerH/100);const grid=[0,25,50,75,100].map(v=>`<g><line x1="${pad.l}" y1="${y(v)}" x2="${width-pad.r}" y2="${y(v)}"/><text x="${pad.l-10}" y="${y(v)+4}" text-anchor="end">${v}</text></g>`).join('');const lines=series.map(item=>{const points=entries.map((entry,i)=>`${x(i)},${y(item.value(entry))}`).join(' '),dots=entries.map((entry,i)=>`<circle cx="${x(i)}" cy="${y(item.value(entry))}" r="4"><title>${escapeHtml(entry.date)} · ${escapeHtml(item.label)} ${finiteNumber(item.value(entry))}</title></circle>`).join('');return `<g class="chart-series ${safeClass(item.className,['series-overall','series-average','series-structure','series-detail','series-fluency'])}"><polyline points="${points}"/>${dots}</g>`;}).join('');const labels=entries.map((entry,i)=>entries.length>12&&i%Math.ceil(entries.length/8)!==0&&i!==entries.length-1?'':`<text class="chart-date" x="${x(i)}" y="${height-17}" text-anchor="middle">${escapeHtml(String(entry.date??'').slice(5).replace('-','/'))}</text>`).join('');return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><g class="chart-grid">${grid}</g>${lines}${labels}</svg>`;}
@@ -934,7 +953,7 @@ function changePracticeLanguage(language,{announce=false}={}){
   I18n.setLocale(state.language);
   window.tableTopicsCloud?.refreshUi?.();
   if(state.isRecording)pauseRecording();
-  updateTodayLabel();renderSuggestions();updateStats();renderHistory();renderCalendar();renderReviewPage();applyUiLanguage();
+  updateTodayLabel();renderSuggestions();updateStats();renderHistory();renderCalendar();renderReviewPage();renderGuide();applyUiLanguage();
   if(announce)toast(ui('練習語言已切換','Practice language changed'));
 }
 
@@ -1035,7 +1054,8 @@ function init() {
   $('#regenerateButton').onclick = async e => { e.preventDefault(); const button=$('#regenerateButton'); const card=$('.question-card'); if(button.disabled)return; button.disabled=true;card.classList.add('is-loading');pauseRecording();try{const newQuestion=(await aiProvider.generateQuestions(state.topic,state.language,1))[0];state.questions[state.index]=newQuestion;showQuestion();$('#feedbackPanel').classList.add('hidden');requestAnimationFrame(()=>$('#practicePanel').scrollIntoView({behavior:'smooth',block:'start'}));toast('已換一個新題目，錄音已重置');}catch(err){toast(`換題失敗：${err.message}`);}finally{button.disabled=false;card.classList.remove('is-loading');} };
   $('#copyRawResponseButton').onclick=async()=>{try{await navigator.clipboard.writeText($('#rawAgentResponse').textContent);toast('已複製 Agent 原始回覆');}catch{toast('複製失敗，請手動選取文字');}};
   $('#clearHistoryButton').onclick = () => { if (confirm('確定要清除所有練習紀錄嗎？')) { saved.history = []; persist(); renderHistory(); updateStats(); } };
-  const initialView=['practice','calendar','review','trends'].includes(location.hash.slice(1))?location.hash.slice(1):'home';navigateTo(initialView);
+  renderGuide();
+  const initialView=['practice','calendar','review','trends','guide'].includes(location.hash.slice(1))?location.hash.slice(1):'home';navigateTo(initialView);
   applyUiLanguage();
   I18n.observe();
 }

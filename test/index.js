@@ -30,6 +30,7 @@ require('./html-security.test.cjs');
 require('./i18n.test.cjs');
 require('./cloud.test.cjs');
 require('./version-consistency.test.cjs');
+require('./user-guide.test.cjs');
 
 test('test environment can query an in-memory PostgreSQL database', async () => {
   const { PGlite } = require('@electric-sql/pglite');
