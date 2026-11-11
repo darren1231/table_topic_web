@@ -425,6 +425,7 @@
     "admin.localeJa": "日本語",
     "admin.localeAr": "العربية",
     "guide.title": "使い方ガイド",
+    "guide.entryHint": "初めての方へ：3分でわかる練習の始め方",
     "guide.subtitle": "このサイトでできることと、練習の始め方を数分で確認できます。",
     "guide.contents": "目次",
     "guide.home": "ホームに戻る",

@@ -43,7 +43,11 @@
 
     <main id="homeView" class="app-view active-view">
       <section class="home-hero">
-        <button class="text-button guide-entry" id="guideEntry" type="button" data-nav="guide"></button>
+        <button class="entry-card guide-entry" id="guideEntry" type="button" data-nav="guide" aria-describedby="guideEntryHint">
+          <span class="entry-icon" aria-hidden="true">📖</span>
+          <span class="entry-copy"><strong id="guideEntryTitle"></strong><span id="guideEntryHint"></span></span>
+          <span class="entry-arrow" aria-hidden="true">→</span>
+        </button>
         <p class="eyebrow">PRACTICE YOUR WAY</p>
         <h1>今天想練什麼？</h1>
         <p>選一種最適合現在的練習，踏出今天的一小步。</p>

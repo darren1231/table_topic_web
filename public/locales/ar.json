@@ -419,6 +419,7 @@
     "admin.localeJa": "日本語",
     "admin.localeAr": "العربية",
     "guide.title": "دليل الاستخدام",
+    "guide.entryHint": "أول زيارة؟ تعلّم كيف تتدرّب في 3 دقائق",
     "guide.subtitle": "تعرّف خلال دقائق على ما يقدمه هذا الموقع وكيف تبدأ التدريب.",
     "guide.contents": "المحتويات",
     "guide.home": "العودة إلى الرئيسية",

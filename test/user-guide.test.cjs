@@ -95,7 +95,9 @@ test('guide content creates text nodes, never markup from catalog values', () =>
   b.run('renderGuide();');
   const nodes = [];
   const walk = node => { nodes.push(node); for (const child of node.children) walk(child); };
-  for (const id of ['guideTitle', 'guideSubtitle', 'guideTocTitle', 'guideToc', 'guideSections', 'guideBackTop', 'guideBackBottom', 'guideStart', 'guideEntry']) walk(b.get(`#${id}`));
+  for (const id of ['guideTitle', 'guideSubtitle', 'guideTocTitle', 'guideToc', 'guideSections', 'guideBackTop', 'guideBackBottom', 'guideStart', 'guideEntry', 'guideEntryTitle', 'guideEntryHint']) walk(b.get(`#${id}`));
+  assert.equal(b.get('#guideEntryHint').textContent, payload);
+  assert.equal(b.get('#guideEntry').getAttribute('aria-label'), payload);
   assert.ok(nodes.filter(node => node.textContent === payload).length > 50);
   for (const node of nodes) {
     assert.equal(node.htmlWrites, 0);

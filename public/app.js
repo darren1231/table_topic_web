@@ -926,7 +926,8 @@ function navigateTo(view){if(!['home','practice','calendar','review','trends','g
 
 function renderGuide(){
   const text=(tag,key)=>{const node=document.createElement(tag);node.textContent=t(key);return node;};
-  for(const [id,key] of [['guideEntry','title'],['guideTitle','title'],['guideSubtitle','subtitle'],['guideTocTitle','contents'],['guideBackTop','home'],['guideBackBottom','home'],['guideStart','start']])$(`#${id}`).textContent=t(`guide.${key}`);
+  for(const [id,key] of [['guideEntryTitle','title'],['guideEntryHint','entryHint'],['guideTitle','title'],['guideSubtitle','subtitle'],['guideTocTitle','contents'],['guideBackTop','home'],['guideBackBottom','home'],['guideStart','start']])$(`#${id}`).textContent=t(`guide.${key}`);
+  $('#guideEntry').setAttribute('aria-label',t('guide.title'));
   const contents=$('#guideToc'),sections=$('#guideSections');contents.replaceChildren();sections.replaceChildren();
   const lengths=[5,3,4,3,6,5,4,3,5,3,3,0];
   for(let number=1;number<=12;number++){
