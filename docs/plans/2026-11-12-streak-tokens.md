@@ -121,7 +121,7 @@
 
 - `token_ledger`、打卡、漏簽補算、`get_my_token_status`。
 - S2 回傳格式：`record_ai_usage` 回傳 JSON `{ id, checkIn: { checkedIn, reward, streak, balance } }`；`checkedIn` 表示「這一次是否新增打卡」，非成功 analysis 或同日重複分析時為 false，reward 為 0。respond 只轉送這四個打卡欄位，不自行計算代幣；記帳失敗時 checkIn 與 AI balance 均為 null，保留既有的 AI 結果與清理後的錯誤紀錄。
-- `get_my_token_status()` 回傳 JSON `{ balance, streak, checkedIn, canMakeup, makeupCost, reward }`。這裡 checkedIn 表示今天是否已打卡；reward 是今天尚可獲得的獎勵（已打卡則為 0）；canMakeup 同時檢查昨天沒有打卡／補簽且有效餘額至少 200 枚。最後打卡是昨天時保留連續天數，早於昨天則顯示 0。
+- `get_my_token_status()` 回傳 JSON `{ balance, streak, checkedIn, canMakeup, makeupCost, reward }`。這裡 checkedIn 表示今天是否已打卡；reward 是今天尚可獲得的獎勵（已打卡則為 0）；canMakeup 同時檢查昨天沒有打卡／補簽，且退回昨天實際扣點後的有效餘額至少 200 枚（包含尚未寫入的昨天扣點）。最後打卡是昨天時保留連續天數，早於昨天則顯示 0。
 - 查詢餘額會先扣除尚未寫入的漏簽扣點，不寫入帳本；成功 analysis 寫帳時才按日期由早至晚補記每一筆扣點，包含扣到 0 後的零金額紀錄。重複查詢與重複分析都不會重扣。
 - 同一使用者的帳本寫入以交易層 `pg_advisory_xact_lock(hashtextextended(user_id::text, 0))` 序列化，不對 Supabase 管理的 auth.users 取得列鎖；使用紀錄、漏簽與打卡都在同一個交易中提交或回滾。
 - 正式日期函式 `private.token_today()` 固定讀取 `(now() at time zone 'Asia/Taipei')::date`，不讀取可由使用者設定的時鐘。測試僅由測試資料庫擁有者替換此函式，簽章時間窗仍使用真正的資料庫 now()。
@@ -136,6 +136,13 @@
 ### S3：補簽與兌換
 
 - `makeup_yesterday`、`exchange_tokens`、`get_my_ai_balance` 的 `bonus_credit`、三個 `/api/tokens/*` 端點、伺服器額度加上兌換額度。
+- 補簽先補算漏簽，判斷「餘額 + 昨天實際扣點退款」是否至少 200；不符合時整筆交易回滾。補簽不給獎勵；若昨天有 miss_penalty（包含 0），新增等額 penalty_refund。若今天已打卡，新增 check_in_adjust 記錄接回後應得獎勵與已得獎勵的差額，原紀錄一律保留。補簽回傳與 get_my_token_status 相同的 JSON。
+- 兌換簽章內容固定為 `exchange|user_id|units|rate_usd|issued_at|nonce`，以 UTF-8、不加換行，沿用 S1 的 UUID、數字、UTC 毫秒及 64 字元小寫 hex HMAC-SHA256 格式。`exchange` 前綴區隔使用紀錄與兌換的簽章用途。範例：`exchange|00000000-0000-0000-0000-000000000001|2|0.01|2026-11-12T04:05:06.007Z|aaaaaaaa-0000-0000-0000-000000000001`（僅測試資料）。
+- units 是 1–2147483 的整數，以確保 units × 1000 可放進帳本 integer 金額。兌換比例為有限非負數，TOKEN_EXCHANGE_USD_PER_1000 預設 0.01；客戶端提供的比例、user_id 與簽章均不採用。SQL 驗證 auth.uid()、密碼、簽章及前後五分鐘時間窗後，才取得相同的交易層 advisory lock、補算漏簽並扣點。
+- 兌換事件 detail 保存 `{ units, rate_usd, credit_usd, nonce, issued_at }`；exchange 的 nonce 以獨立唯一索引防止跨使用者重送，與 ai_usage 的 nonce 分屬不同簽章用途。SQL 回傳 `{ units, tokensSpent, creditAdded, rateUsd, status }`，status 為更新後的代幣狀態；HTTP 僅回傳這些公開欄位。
+- GET /api/tokens/status 直接呼叫 get_my_token_status（1 次 RPC）；POST /api/tokens/makeup 直接呼叫無參數的 makeup_yesterday（1 次 RPC，不接受補簽日期）；POST /api/tokens/exchange 先用 get_my_token_status 驗證同一枚 JWT，再讀 sub、驗證 `{ units }` 並簽章呼叫 exchange_tokens（共 2 次 RPC）。端點不需要 OpenAI key，也不呼叫 OpenAI。
+- HTTP 錯誤：驗證失敗 401 unauthorized；非法 units／JSON 或一般 SQL 22023 為 400 invalid_input；SQL 22023 的白名單訊息 insufficient_tokens、makeup_unavailable 回 400 同名 error；設定錯誤為 503 configuration_error，其餘 RPC／回應格式錯誤為 503 tokens_unavailable。不轉送其他 SQL 訊息或原始錯誤內容。Server-Timing 分別為 status／makeup／status+exchange，並皆有 total。
+- get_my_ai_balance 現在回傳 spent、bonus_credit 兩個 numeric 欄位，bonus_credit 只加總本人的 exchange.detail.credit_usd。三個 AI 端點都驗證這兩個值，額度使用 AI_USER_CREDIT_USD + bonus_credit；respond／transcribe 記帳後保留同一份加總額度。缺少 bonus_credit 或數值不合法時拒絕，不默認為零。
 - 測試：
   - 先補簽再打卡：連續天數接回，今天獎勵正確。
   - 先打卡再補簽：新增補簽、退回漏簽、獎勵差額三筆，結果與「先補簽再打卡」相同。

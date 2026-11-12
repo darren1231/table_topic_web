@@ -8,7 +8,9 @@ function createRpc({ fetch, baseUrl, headers }) {
       const unauthorized = response.status === 401 || response.status === 403
         || ['42501', 'PGRST301', 'PGRST302', 'PGRST303', '28000', '28P01'].includes(data?.code);
       // Keep upstream bodies and credentials out of public errors and diagnostics.
-      throw Object.assign(new Error(`Supabase RPC failed (HTTP ${response.status})`), { unauthorized });
+      const reason = data?.code === '22023' && ['insufficient_tokens', 'makeup_unavailable'].includes(data?.message)
+        ? data.message : undefined;
+      throw Object.assign(new Error(`Supabase RPC failed (HTTP ${response.status})`), { unauthorized, rpcCode: data?.code, reason });
     }
     return response;
   };

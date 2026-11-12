@@ -46,7 +46,7 @@ function signUsage(userId, record, secret, { issuedAt = new Date().toISOString()
 }
 
 // Decoding is NOT authentication. Call only after PostgREST has successfully
-// authenticated this exact token through get_my_ai_balance (which checks uid).
+// authenticated this exact token through a uid-checking RPC (AI balance or token status).
 function subjectFromVerifiedToken(token) {
   const parts = token.split('.');
   if (parts.length !== 3 || !parts.every(part => /^[A-Za-z0-9_-]+$/.test(part))) throw new TypeError('Invalid verified token');
@@ -54,4 +54,16 @@ function subjectFromVerifiedToken(token) {
   return uuid(claims?.sub);
 }
 
-module.exports = { usagePayload, signUsage, signingSecret, subjectFromVerifiedToken };
+function exchangePayload(userId, args) {
+  if (!Number.isInteger(args.p_units) || args.p_units < 1 || args.p_units > 2147483) throw new TypeError('Invalid exchange units');
+  return ['exchange', uuid(userId), args.p_units, decimal(args.p_rate_usd),
+    new Date(args.p_issued_at).toISOString(), uuid(args.p_nonce)].join('|');
+}
+
+function signExchange(userId, units, rate, secret, { issuedAt = new Date().toISOString(), nonce = randomUUID() } = {}) {
+  signingSecret(secret);
+  const args = { p_units: units, p_rate_usd: rate, p_issued_at: new Date(issuedAt).toISOString(), p_nonce: uuid(nonce) };
+  return { ...args, p_signature: createHmac('sha256', secret).update(exchangePayload(userId, args), 'utf8').digest('hex') };
+}
+
+module.exports = { usagePayload, signUsage, signingSecret, subjectFromVerifiedToken, exchangePayload, signExchange };

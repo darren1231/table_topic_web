@@ -36,3 +36,12 @@ test('missing or short signing secrets fail closed without echoing credentials',
     assert.throws(() => signUsage(userId, record, secret), { code: 'configuration_error' });
   }
 });
+
+test('exchange signatures are domain-separated and bind user, units, rate, time and nonce', () => {
+  const { exchangePayload, signExchange } = require('../api/_lib/signing.js');
+  const args = { p_units: 2, p_rate_usd: 0.01, p_issued_at: record.p_issued_at, p_nonce: record.p_nonce };
+  const expected = `exchange|${userId}|2|0.01|2026-11-12T04:05:06.007Z|aaaaaaaa-0000-0000-0000-000000000001`;
+  assert.equal(exchangePayload(userId, args), expected);
+  const signed = signExchange(userId, 2, 0.01, fakeSecret, { issuedAt: record.p_issued_at, nonce: record.p_nonce });
+  assert.equal(signed.p_signature, createHmac('sha256', fakeSecret).update(expected).digest('hex'));
+});

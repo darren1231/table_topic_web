@@ -68,6 +68,18 @@ language sql immutable security definer set search_path = ''
 as $$ select (array[10, 20, 30, 50, 80, 100])[least(p_streak, 6)] $$;
 revoke all on function private.token_reward(integer) from public, anon, authenticated;
 
+create function private.token_streak(p_user_id uuid, p_day date) returns integer
+language sql stable security definer set search_path = ''
+as $$
+  select count(*)::integer from (
+    select day, row_number() over (order by day desc) as position from (
+      select distinct day from public.token_ledger
+      where user_id = p_user_id and kind in ('check_in', 'makeup') and day <= p_day
+    ) as days
+  ) as consecutive where day = p_day - (position - 1)::integer
+$$;
+revoke all on function private.token_streak(uuid, date) from public, anon, authenticated;
+
 create function private.token_status(p_user_id uuid) returns jsonb
 language plpgsql stable security definer set search_path = ''
 as $$
@@ -78,6 +90,7 @@ declare
   v_pending integer := 0;
   v_streak integer := 0;
   v_checked_in boolean;
+  v_refund integer;
 begin
   select coalesce(sum(amount), 0) into v_balance from public.token_ledger where user_id = p_user_id;
   select max(day) into v_last_day from public.token_ledger
@@ -87,18 +100,20 @@ begin
       from public.token_ledger where user_id = p_user_id and kind = 'miss_penalty'
         and day > v_last_day and day < v_today;
     if v_last_day >= v_today - 1 then
-      select count(*)::integer into v_streak from (
-        select day, row_number() over (order by day desc) as position from (
-          select distinct day from public.token_ledger
-          where user_id = p_user_id and kind in ('check_in', 'makeup') and day <= v_today
-        ) as days
-      ) as consecutive where day = v_last_day - (position - 1)::integer;
+      v_streak := private.token_streak(p_user_id, v_last_day);
     end if;
+  end if;
+  select -amount into v_refund from public.token_ledger
+    where user_id = p_user_id and day = v_today - 1 and kind = 'miss_penalty';
+  if v_refund is null and v_pending > 0 then
+    -- The last unpersisted missed day is yesterday. Earlier days consume the
+    -- balance first, so refund only what yesterday would actually deduct.
+    v_refund := least(50, greatest(0, v_balance - (v_pending - 1)::bigint * 50))::integer;
   end if;
   v_balance := greatest(0, v_balance - v_pending::bigint * 50);
   v_checked_in := coalesce(v_last_day = v_today, false);
   return jsonb_build_object('balance', v_balance, 'streak', v_streak, 'checkedIn', v_checked_in,
-    'canMakeup', v_balance >= 200 and not exists (
+    'canMakeup', v_balance + coalesce(v_refund, 0) >= 200 and not exists (
       select 1 from public.token_ledger where user_id = p_user_id and day = v_today - 1 and kind in ('check_in', 'makeup')
     ), 'makeupCost', 200, 'reward', case when v_checked_in then 0 else private.token_reward(v_streak + 1) end);
 end;
@@ -272,5 +287,118 @@ revoke all on function public.record_ai_usage(text, text, text, text, text, bigi
   from public, anon, authenticated;
 grant execute on function public.record_ai_usage(text, text, text, text, text, bigint, bigint, numeric, numeric, numeric, bigint, timestamptz, uuid, text, numeric)
   to authenticated;
+
+create function public.makeup_yesterday() returns jsonb
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_yesterday date := private.token_today() - 1;
+  v_balance bigint;
+  v_penalty integer;
+  v_streak integer;
+  v_today_reward integer;
+begin
+  perform private.settle_missed_days(v_user_id);
+  if exists (select 1 from public.token_ledger where user_id = v_user_id
+    and day = v_yesterday and kind in ('check_in', 'makeup')) then
+    raise exception 'makeup_unavailable' using errcode = '22023';
+  end if;
+  select -amount into v_penalty from public.token_ledger
+    where user_id = v_user_id and day = v_yesterday and kind = 'miss_penalty';
+  select coalesce(sum(amount), 0) into v_balance from public.token_ledger where user_id = v_user_id;
+  if v_balance + coalesce(v_penalty, 0) < 200 then
+    raise exception 'insufficient_tokens' using errcode = '22023';
+  end if;
+  v_streak := private.token_streak(v_user_id, v_yesterday - 1) + 1;
+  insert into public.token_ledger (user_id, day, kind, amount, streak)
+    values (v_user_id, v_yesterday, 'makeup', -200, v_streak);
+  if v_penalty is not null then
+    insert into public.token_ledger (user_id, day, kind, amount)
+      values (v_user_id, v_yesterday, 'penalty_refund', v_penalty);
+  end if;
+  if exists (select 1 from public.token_ledger where user_id = v_user_id and day = v_yesterday + 1 and kind = 'check_in') then
+    select sum(amount)::integer into v_today_reward from public.token_ledger
+      where user_id = v_user_id and day = v_yesterday + 1 and kind in ('check_in', 'check_in_adjust');
+    insert into public.token_ledger (user_id, day, kind, amount, streak)
+      values (v_user_id, v_yesterday + 1, 'check_in_adjust', private.token_reward(v_streak + 1) - v_today_reward, v_streak + 1);
+  end if;
+  return private.token_status(v_user_id);
+end;
+$$;
+revoke all on function public.makeup_yesterday() from public, anon, authenticated;
+grant execute on function public.makeup_yesterday() to authenticated;
+
+-- Exchange signatures have their own domain and single-use nonce namespace.
+create unique index token_ledger_exchange_nonce_idx on public.token_ledger ((detail ->> 'nonce')) where kind = 'exchange';
+create function private.exchange_signing_payload(p_user_id uuid, p_units integer, p_rate_usd numeric, p_issued_at timestamptz, p_nonce uuid)
+returns text language sql immutable strict security definer set search_path = ''
+as $$ select 'exchange|' || p_user_id::text || '|' || p_units::text || '|'
+  || trim_scale(p_rate_usd)::text || '|' || to_char(p_issued_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') || '|' || p_nonce::text $$;
+revoke all on function private.exchange_signing_payload(uuid, integer, numeric, timestamptz, uuid) from public, anon, authenticated;
+
+create function public.exchange_tokens(p_units integer, p_rate_usd numeric, p_issued_at timestamptz, p_nonce uuid, p_signature text)
+returns jsonb language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_secret text;
+  v_expected text;
+  v_status jsonb;
+  v_credit numeric;
+  v_id uuid;
+begin
+  if v_user_id is null then raise exception 'Authentication required' using errcode = '42501'; end if;
+  -- Ledger amounts are integer: validate before multiplying by 1000.
+  if p_units is null or p_units < 1 or p_units > 2147483 or p_rate_usd is null
+    or p_rate_usd < 0 or p_rate_usd >= 'Infinity'::numeric or p_issued_at is null
+    or not isfinite(p_issued_at) or p_nonce is null then
+    raise exception 'Invalid exchange input' using errcode = '22023';
+  end if;
+  if p_issued_at < now() - interval '5 minutes' or p_issued_at > now() + interval '5 minutes' then
+    raise exception 'Exchange signature outside allowed time window' using errcode = '22023';
+  end if;
+  select secret into v_secret from private.signing_keys where name = 'usage';
+  if v_secret is null or char_length(v_secret) < 32 or btrim(v_secret) = '' then
+    raise exception 'Usage signing unavailable' using errcode = '42501';
+  end if;
+  v_expected := encode(extensions.hmac(private.exchange_signing_payload(v_user_id, p_units, p_rate_usd, p_issued_at, p_nonce), v_secret, 'sha256'), 'hex');
+  if p_signature is null or p_signature !~ '^[0-9a-f]{64}$' or p_signature <> v_expected then
+    raise exception 'Invalid exchange signature' using errcode = '42501';
+  end if;
+  if exists (select 1 from public.token_ledger where kind = 'exchange' and detail ->> 'nonce' = p_nonce::text) then
+    raise exception 'Exchange nonce already used' using errcode = '22023';
+  end if;
+  perform private.settle_missed_days(v_user_id);
+  v_status := private.token_status(v_user_id);
+  if (v_status ->> 'balance')::bigint < p_units::bigint * 1000 then
+    raise exception 'insufficient_tokens' using errcode = '22023';
+  end if;
+  v_credit := p_units::numeric * p_rate_usd;
+  insert into public.token_ledger (user_id, day, kind, amount, detail)
+    values (v_user_id, private.token_today(), 'exchange', -p_units * 1000,
+      jsonb_build_object('units', p_units, 'rate_usd', p_rate_usd, 'credit_usd', v_credit, 'nonce', p_nonce, 'issued_at', p_issued_at))
+    on conflict ((detail ->> 'nonce')) where kind = 'exchange' do nothing returning id into v_id;
+  if v_id is null then raise exception 'Exchange nonce already used' using errcode = '22023'; end if;
+  return jsonb_build_object('units', p_units, 'tokensSpent', p_units * 1000, 'creditAdded', v_credit,
+    'rateUsd', p_rate_usd, 'status', private.token_status(v_user_id));
+end;
+$$;
+revoke all on function public.exchange_tokens(integer, numeric, timestamptz, uuid, text) from public, anon, authenticated;
+grant execute on function public.exchange_tokens(integer, numeric, timestamptz, uuid, text) to authenticated;
+
+drop function public.get_my_ai_balance();
+create function public.get_my_ai_balance() returns table (spent numeric, bonus_credit numeric)
+language plpgsql stable security definer set search_path = ''
+as $$
+begin
+  if auth.uid() is null then raise exception 'Authentication required' using errcode = '42501'; end if;
+  return query select
+    (select coalesce(sum(usage.estimated_cost), 0::numeric) from public.ai_usage as usage where usage.user_id = auth.uid()),
+    (select coalesce(sum((entry.detail ->> 'credit_usd')::numeric), 0::numeric) from public.token_ledger as entry where entry.user_id = auth.uid() and entry.kind = 'exchange');
+end;
+$$;
+revoke all on function public.get_my_ai_balance() from public, anon, authenticated;
+grant execute on function public.get_my_ai_balance() to authenticated;
 
 commit;

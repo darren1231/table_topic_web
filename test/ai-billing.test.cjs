@@ -1,5 +1,14 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+
+test('AI credit includes the database bonus and rejects malformed or overflowing totals', () => {
+  const { getAiCreditBalance } = require('../api/_lib/billing.js');
+  assert.deepEqual(getAiCreditBalance({ spent: '1', bonus_credit: '0.03' }, 1), {
+    spent: 1, credit: 1.03, balance: 0.030000000000000027, exhausted: false,
+  });
+  for (const bonus_credit of [undefined, null, '-1', 'NaN', 'Infinity']) assert.throws(() => getAiCreditBalance({ spent: '0', bonus_credit }, 1));
+  assert.throws(() => getAiCreditBalance({ spent: '0', bonus_credit: 1e308 }, 1e308));
+});
 const calculateCost = (...args) => require('../api/_lib/billing.js').calculateCost(...args);
 const getCreditBalance = (...args) => require('../api/_lib/billing.js').getCreditBalance(...args);
 const calculateTranscriptionCost = (...args) => require('../api/_lib/billing.js').calculateTranscriptionCost(...args);

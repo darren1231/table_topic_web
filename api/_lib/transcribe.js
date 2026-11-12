@@ -3,7 +3,7 @@ const { createServerTiming } = require('./server-timing.js');
 const { createRpc } = require('./supabase-rpc.js');
 const { readConfig } = require('./config.js');
 const supabaseDefaults = require('./supabase-defaults.js');
-const { calculateTranscriptionCost, getCreditBalance } = require('./billing.js');
+const { calculateTranscriptionCost, getCreditBalance, getAiCreditBalance } = require('./billing.js');
 const { validateTranscriptionInput } = require('./validation.js');
 const { sanitizeErrorMessage } = require('./errors.js');
 
@@ -35,7 +35,7 @@ async function handleTranscribe({ request, env, fetch, logger = console }) {
     const response = await rpc('get_my_ai_balance');
     const data = await response.json();
     if (!Array.isArray(data) || data.length !== 1) throw new Error('Invalid balance response');
-    return getCreditBalance(data[0]?.spent, config.credit);
+    return getAiCreditBalance(data[0], config.credit);
   });
 
   let balance;
@@ -112,7 +112,7 @@ async function handleTranscribe({ request, env, fetch, logger = console }) {
   }
 
   if (status === 'error') return json({ error: 'upstream_error' }, 502);
-  balance = recorded ? getCreditBalance(balance.spent + cost, config.credit) : null;
+  balance = recorded ? getCreditBalance(balance.spent + cost, balance.credit) : null;
   return json({ text, usage, cost, balance });
 }
 

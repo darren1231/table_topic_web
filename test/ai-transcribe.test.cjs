@@ -41,7 +41,7 @@ function fixture(options = {}) {
     if (url.endsWith('/rpc/get_my_ai_balance')) {
       if (options.balanceInvalidJson) return new Response('invalid-json', { status: options.balanceStatus ?? 200 });
       if (options.balanceThrows) throw new Error('Simulated balance failure');
-      return Response.json(options.balanceBody ?? [{ spent: options.spent ?? '0' }], { status: options.balanceStatus ?? 200 });
+      return Response.json(options.balanceBody ?? [{ spent: options.spent ?? '0', bonus_credit: options.bonus ?? '0' }], { status: options.balanceStatus ?? 200 });
     }
     if (url === 'https://api.openai.com/v1/audio/transcriptions') {
       if (options.honorAbort) init.signal?.throwIfAborted();
@@ -66,6 +66,19 @@ function fixture(options = {}) {
 
 const aiCalls = f => f.calls.filter(call => call.url === 'https://api.openai.com/v1/audio/transcriptions');
 const records = f => f.calls.filter(call => call.url.endsWith('/rpc/record_ai_usage'));
+
+test('transcribe adds bonus credit before quota checks and retains it after accounting', async () => {
+  const f = fixture({ spent: '1', bonus: '1' });
+  const response = await f.run();
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.balance.credit, 2); assert.equal(result.balance.spent, 2);
+  assert.equal(result.balance.exhausted, true);
+  for (const bonus_credit of [null, '-1', 'NaN', 'Infinity']) {
+    const bad = fixture({ balanceBody: [{ spent: '0', bonus_credit }] });
+    assert.equal((await bad.run()).status, 503); assert.equal(aiCalls(bad).length, 0);
+  }
+});
 
 test('transcribe rejects absent signing configuration and unusable verified subjects without OpenAI', async () => {
   for (const secret of [undefined, '', 'FAKE-short']) {

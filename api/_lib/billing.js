@@ -36,4 +36,9 @@ function calculateTranscriptionCost(raw, prices) {
   return { usage, cost, inputRate: prices.inputRate, outputRate: prices.outputRate };
 }
 
-module.exports = { calculateCost, getCreditBalance, calculateTranscriptionCost };
+function getAiCreditBalance(row, baseCredit) {
+  const bonus = nonNegativeNumber(row?.bonus_credit, { allowString: true });
+  return getCreditBalance(row?.spent, nonNegativeNumber(baseCredit) + bonus);
+}
+
+module.exports = { calculateCost, getCreditBalance, calculateTranscriptionCost, getAiCreditBalance };

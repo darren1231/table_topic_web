@@ -5,7 +5,13 @@ const { assertTiming } = require('./helpers/server-timing.cjs');
 const env = { USAGE_SIGNING_SECRET: fakeSigningSecret, SUPABASE_URL: 'https://database.example.invalid', SUPABASE_PUBLISHABLE_KEY: 'public-placeholder' };
 const handle = args => require('../api/_lib/balance.js').handleBalance(args);
 
-async function run({ method = 'GET', auth = 'Bearer user-placeholder', spent = '0.25', balanceStatus = 200, balanceBody, credit, fail = false, signingSecret = fakeSigningSecret } = {}) {
+test('balance includes bonus credit and rejects invalid bonus totals', async () => {
+  const { response } = await run({ spent: '1', bonus: '0.5' });
+  assert.deepEqual(await response.json(), { spent: 1, credit: 1.5, balance: 0.5, exhausted: false });
+  for (const bonus_credit of [null, '-1', 'NaN', 'Infinity']) assert.equal((await run({ balanceBody: [{ spent: '0', bonus_credit }] })).response.status, 503);
+});
+
+async function run({ method = 'GET', auth = 'Bearer user-placeholder', spent = '0.25', bonus = '0', balanceStatus = 200, balanceBody, credit, fail = false, signingSecret = fakeSigningSecret } = {}) {
   const calls = [];
   const response = await handle({
     request: new Request('https://app.example.invalid/api/ai/balance', { method, headers: { Authorization: auth } }),
@@ -14,7 +20,7 @@ async function run({ method = 'GET', auth = 'Bearer user-placeholder', spent = '
       calls.push({ url, init });
       if (fail) throw new Error('PRIVATE_NETWORK_BODY');
       assert.equal(url, `${env.SUPABASE_URL}/rest/v1/rpc/get_my_ai_balance`);
-      return Response.json(balanceBody ?? [{ spent }], { status: balanceStatus });
+      return Response.json(balanceBody ?? [{ spent, bonus_credit: bonus }], { status: balanceStatus });
     },
   });
   return { response, calls };

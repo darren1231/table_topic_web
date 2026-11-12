@@ -60,4 +60,11 @@ function readBalanceConfig(env = {}, defaults = {}) {
   } catch { throw new ConfigurationError(); }
 }
 
-module.exports = { readConfig, readBalanceConfig };
+function readTokenConfig(env = {}, defaults = {}) {
+  try {
+    return { ...readBalanceConfig(env, defaults), exchangeRate: env.TOKEN_EXCHANGE_USD_PER_1000 === undefined
+      ? 0.01 : nonNegativeNumber(env.TOKEN_EXCHANGE_USD_PER_1000, { allowString: true }) };
+  } catch { throw new ConfigurationError(); }
+}
+
+module.exports = { readConfig, readBalanceConfig, readTokenConfig };
