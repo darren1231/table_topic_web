@@ -1,13 +1,14 @@
 const assert = require('node:assert/strict');
+const { fakeSigningSecret, fakeUserId, fakeAuthorization, fakeJwt } = require('./helpers/signing.cjs');
 const { test } = require('node:test');
 const { assertTiming } = require('./helpers/server-timing.cjs');
 
-const env = {
+const env = { USAGE_SIGNING_SECRET: fakeSigningSecret,
   CHATGPT_PREVIEW_KEY: 'preview-placeholder', CHATGPT_PRODUCTION_KEY: 'production-placeholder',
   SUPABASE_URL: 'https://database.example.invalid', SUPABASE_PUBLISHABLE_KEY: 'public-placeholder',
   AI_TRANSCRIBE_INPUT_USD_PER_MTOK: '0.4', AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK: '1.2',
 };
-const authorization = 'Bearer user-placeholder';
+const authorization = fakeAuthorization;
 const usage = { input_tokens: 1_000_000, output_tokens: 500_000 };
 const handleTranscribe = args => require('../api/_lib/transcribe.js').handleTranscribe(args);
 
@@ -65,6 +66,31 @@ function fixture(options = {}) {
 
 const aiCalls = f => f.calls.filter(call => call.url === 'https://api.openai.com/v1/audio/transcriptions');
 const records = f => f.calls.filter(call => call.url.endsWith('/rpc/record_ai_usage'));
+
+test('transcribe rejects absent signing configuration and unusable verified subjects without OpenAI', async () => {
+  for (const secret of [undefined, '', 'FAKE-short']) {
+    const f = fixture();
+    assert.equal((await f.run(request(), { USAGE_SIGNING_SECRET: secret })).status, 503);
+    assert.equal(f.calls.length, 0);
+  }
+  const f = fixture();
+  assert.equal((await f.run(request({}, { headers: { Authorization: 'Bearer FAKE-not-a-jwt' } }))).status, 401);
+  assert.equal(f.calls.length, 1);
+  assert.equal(aiCalls(f).length, 0);
+});
+
+test('transcribe signs token, duration and failure records', async () => {
+  for (const options of [{}, { openaiBody: { text: 'Speech', usage: { type: 'duration', seconds: 60.5 } } }, { openaiStatus: 500 }]) {
+    const f = fixture(options);
+    await f.run();
+    const entry = records(f)[0].body;
+    assert.match(entry.p_signature ?? '', /^[a-f0-9]{64}$/);
+    const { createHmac } = require('node:crypto');
+    const { usagePayload } = require('../api/_lib/signing.js');
+    assert.equal(entry.p_signature, createHmac('sha256', fakeSigningSecret).update(usagePayload(fakeUserId, entry)).digest('hex'));
+    assert.equal(f.calls.filter(call => call.url.startsWith(env.SUPABASE_URL)).length, 2);
+  }
+});
 
 test('transcribe rejects non-POST methods and invalid credentials before service access', async () => {
   for (const method of ['GET', 'PUT', 'DELETE', 'OPTIONS']) {
@@ -212,7 +238,8 @@ test('transcribe records voice token costs and returns the computed balance with
     assert.equal(call.method, 'POST');
   }
   const entry = records(f)[0].body;
-  assert.deepEqual({ ...entry, p_duration_ms: 0 }, {
+  const { p_issued_at, p_nonce, p_signature, ...accounting } = entry;
+  assert.deepEqual({ ...accounting, p_duration_ms: 0 }, {
     p_provider: 'openai', p_model: 'gpt-transcribe', p_kind: 'transcription', p_status: 'success', p_error: '',
     p_input_tokens: 1_000_000, p_output_tokens: 500_000, p_input_rate: 0.4, p_output_rate: 1.2,
     p_estimated_cost: 1, p_duration_ms: 0, p_audio_seconds: 0,
@@ -344,7 +371,7 @@ test('transcribe uses a 60000ms AbortSignal and accounts timeouts as errors', as
 test('transcribe keeps paid results if accounting fails and logs no keys or upstream bodies', async () => {
   for (const options of [
     { recordStatus: 500, recordBody: { message: `PRIVATE_BODY ${env.CHATGPT_PREVIEW_KEY}` } },
-    { recordThrows: new Error(`${env.CHATGPT_PREVIEW_KEY} ${env.SUPABASE_PUBLISHABLE_KEY} ${authorization}`) },
+    { recordThrows: new Error(`${fakeSigningSecret} ${env.CHATGPT_PREVIEW_KEY} ${env.SUPABASE_PUBLISHABLE_KEY} ${authorization}`) },
   ]) {
     const f = fixture(options);
     const response = await f.run();
@@ -356,7 +383,7 @@ test('transcribe keeps paid results if accounting fails and logs no keys or upst
     assert.equal(aiCalls(f).length, 1);
     assert.equal(records(f).length, 1);
     assert.ok(f.logs.length > 0);
-    for (const secret of [env.CHATGPT_PREVIEW_KEY, env.SUPABASE_PUBLISHABLE_KEY, 'user-placeholder', 'PRIVATE_BODY']) {
+    for (const secret of [env.CHATGPT_PREVIEW_KEY, env.SUPABASE_PUBLISHABLE_KEY, fakeJwt, fakeSigningSecret, 'PRIVATE_BODY']) {
       assert.ok(!f.logs.join(' ').includes(secret));
       assert.ok(!JSON.stringify(result).includes(secret));
     }

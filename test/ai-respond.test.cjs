@@ -1,14 +1,15 @@
 const assert = require('node:assert/strict');
+const { fakeSigningSecret, fakeUserId, fakeAuthorization, fakeJwt } = require('./helpers/signing.cjs');
 const { test } = require('node:test');
 const { assertTiming } = require('./helpers/server-timing.cjs');
 
-const env = {
+const env = { USAGE_SIGNING_SECRET: fakeSigningSecret,
   CHATGPT_PREVIEW_KEY: 'preview-placeholder',
   CHATGPT_PRODUCTION_KEY: 'production-placeholder',
   SUPABASE_URL: 'https://database.example.invalid',
   SUPABASE_PUBLISHABLE_KEY: 'public-placeholder',
 };
-const authorization = 'Bearer user-placeholder';
+const authorization = fakeAuthorization;
 const body = { instructions: 'Coach the speaker', input: 'My practice answer', kind: 'analysis' };
 const usage = { input_tokens: 1_000_000, output_tokens: 500_000 };
 const handleRespond = args => require('../api/_lib/respond.js').handleRespond(args);
@@ -55,6 +56,25 @@ function fixture(options = {}) {
 
 const aiCalls = f => f.calls.filter(call => call.url === 'https://api.openai.com/v1/responses');
 const records = f => f.calls.filter(call => call.url.endsWith('/rpc/record_ai_usage'));
+
+test('respond signs success and upstream-error records with fresh nonces and no secrets in responses', async () => {
+  const nonces = new Set();
+  for (const options of [{}, { openaiStatus: 500 }]) {
+    const f = fixture(options);
+    const response = await f.run();
+    const entry = records(f)[0].body;
+    assert.match(entry.p_signature ?? '', /^[a-f0-9]{64}$/);
+    const { createHmac } = require('node:crypto');
+    const { usagePayload } = require('../api/_lib/signing.js');
+    assert.equal(entry.p_signature, createHmac('sha256', fakeSigningSecret).update(usagePayload(fakeUserId, entry)).digest('hex'));
+    assert.ok(Math.abs(Date.now() - Date.parse(entry.p_issued_at)) < 5000);
+    nonces.add(entry.p_nonce);
+    const text = await response.text();
+    for (const privateValue of [fakeSigningSecret, entry.p_signature, entry.p_nonce]) assert.ok(!text.includes(privateValue));
+    assert.equal(f.calls.filter(call => call.url.startsWith(env.SUPABASE_URL)).length, 2);
+  }
+  assert.equal(nonces.size, 2);
+});
 
 test('respond rejects non-POST requests before any service access', async () => {
   const f = fixture();
@@ -120,6 +140,7 @@ test('respond validates JSON, combined length and text-only kinds after auth and
 
 test('respond fails closed for missing selected keys or invalid numeric configuration', async () => {
   for (const overrides of [
+    { USAGE_SIGNING_SECRET: undefined }, { USAGE_SIGNING_SECRET: 'FAKE-short' },
     { CHATGPT_PREVIEW_KEY: undefined },
     { VERCEL_ENV: 'production', CHATGPT_PRODUCTION_KEY: undefined },
     { AI_INPUT_USD_PER_MTOK: '-1' }, { AI_USER_CREDIT_USD: 'NaN' },
@@ -129,6 +150,16 @@ test('respond fails closed for missing selected keys or invalid numeric configur
     assert.equal(response.status, 503);
     assert.deepEqual(await response.json(), { error: 'configuration_error' });
     assert.equal(f.calls.length, 0);
+  }
+});
+
+test('respond rejects unusable subjects after the balance RPC and never calls OpenAI', async () => {
+  for (const token of ['FAKE-not-a-jwt', 'FAKE.e30.FAKE', `FAKE.${Buffer.from(JSON.stringify({ sub: 'not-a-uuid' })).toString('base64url')}.FAKE`]) {
+    const f = fixture();
+    const response = await f.run(request(body, { headers: { Authorization: `Bearer ${token}` } }));
+    assert.equal(response.status, 401);
+    assert.equal(f.calls.length, 1);
+    assert.equal(aiCalls(f).length, 0);
   }
 });
 
@@ -166,10 +197,11 @@ test('respond authenticates, checks balance, generates, records, then computes t
     assert.equal(call.method, 'POST');
   }
   const entry = records(f)[0].body;
-  assert.deepEqual({ ...entry, p_duration_ms: 0 }, {
+  const { p_issued_at, p_nonce, p_signature, ...accounting } = entry;
+  assert.deepEqual({ ...accounting, p_duration_ms: 0 }, {
     p_provider: 'openai', p_model: 'gpt-5.6-luna', p_kind: 'analysis', p_status: 'success', p_error: '',
     p_input_tokens: 1_000_000, p_output_tokens: 500_000, p_input_rate: 0.2, p_output_rate: 1.2,
-    p_estimated_cost: 0.8, p_duration_ms: 0,
+    p_estimated_cost: 0.8, p_duration_ms: 0, p_audio_seconds: 0,
   });
   assert.ok(Number.isSafeInteger(entry.p_duration_ms) && entry.p_duration_ms >= 0);
   assert.equal(f.logs.length, 0);
@@ -266,7 +298,7 @@ test('respond records network failures and invalid JSON as errors, with no inven
 test('respond retains AI results when recording fails and logs only redacted diagnostics', async () => {
   for (const options of [
     { recordStatus: 500, recordBody: { message: `PRIVATE_BODY ${env.CHATGPT_PREVIEW_KEY}` } },
-    { recordThrows: new Error(`${env.CHATGPT_PREVIEW_KEY} ${env.SUPABASE_PUBLISHABLE_KEY} ${authorization}`) },
+    { recordThrows: new Error(`${fakeSigningSecret} ${env.CHATGPT_PREVIEW_KEY} ${env.SUPABASE_PUBLISHABLE_KEY} ${authorization}`) },
   ]) {
     const f = fixture(options);
     const response = await f.run();
@@ -279,7 +311,7 @@ test('respond retains AI results when recording fails and logs only redacted dia
     assert.equal(records(f).length, 1);
     assert.ok(f.logs.length > 0);
     const logs = f.logs.join(' ');
-    for (const secret of [env.CHATGPT_PREVIEW_KEY, env.SUPABASE_PUBLISHABLE_KEY, 'user-placeholder', 'PRIVATE_BODY']) {
+    for (const secret of [env.CHATGPT_PREVIEW_KEY, env.SUPABASE_PUBLISHABLE_KEY, fakeJwt, fakeSigningSecret, 'PRIVATE_BODY']) {
       assert.equal(logs.includes(secret), false);
       assert.equal(JSON.stringify(result).includes(secret), false);
     }

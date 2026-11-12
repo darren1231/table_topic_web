@@ -45,6 +45,19 @@
   - 舊的、不含簽章的 `record_ai_usage` 簽名必須 `drop`，不能留下可繞過的版本。
 - 找不到密碼時，所有記帳都失敗（fail closed）。
 
+#### S1 簽章格式與錯誤碼
+
+- 內容以 UTF-8 編碼，不加換行；固定順序為 `user_id|kind|status|model|input_tokens|output_tokens|estimated_cost|audio_seconds|issued_at|nonce`。
+- UUID 一律小寫；kind、status、model 使用原文字，model 不得包含分隔符號 `|`。token 數為非負整數；金額與秒數為非負、有限十進位字串，不使用指數、不保留多餘的小數尾零，零一律為 `0`。JavaScript 以 JSON 會傳出的數值表示展開指數，SQL 使用 `trim_scale(numeric)::text`，不另行四捨五入。
+- 時間固定為 UTC 的 `YYYY-MM-DDTHH:mm:ss.SSSZ`，恰有三位毫秒，例如 `2026-11-12T04:05:06.007Z`。HMAC-SHA256 結果為 64 個小寫 hex 字元。密碼至少 32 個字元且不可全為空白，以原始 UTF-8 字節使用，不自動 trim。
+- 範例內容：`00000000-0000-0000-0000-000000000001|analysis|success|fake-model|100|50|0.0000001|60.5|2026-11-12T04:05:06.007Z|aaaaaaaa-0000-0000-0000-000000000001`（僅為測試資料）。
+- SQL `42501`：未登入、簽章缺漏／格式錯誤／不符、資料庫密碼缺漏或不合法，以及沒有函式或私密資料存取權限。
+- SQL `22023`：不合法的記帳欄位或簽章 metadata、簽發時間與資料庫 `now()` 相差超過 5 分鐘（過去與未來皆檢查）、nonce 已使用。剛好相差 5 分鐘仍接受；nonce 的唯一限制同時處理並行重送。
+- 舊的不含簽章函式已移除，呼叫舊簽名得到 PostgreSQL `42883`（PostgREST 對不存在的 RPC 簽名可能回自己的找不到函式錯誤）。
+- 伺服器缺少／不合法的密碼：三個 `/api/ai/*` 端點皆回 HTTP `503`、`configuration_error`，且不呼叫外部服務；既有方法與 Bearer 格式檢查仍先執行。記帳失敗仍沿用既有行為：保留已產生的 AI 結果、balance 回 null，只記錄清理後的錯誤。
+- 使用者 ID 在同一枚 JWT 通過 `get_my_ai_balance` 的 PostgREST 驗證後，才從其 `sub` 取出；JWT 解碼本身不視為驗證，不增加 `/auth/v1/user` 呼叫。資料庫仍以 `auth.uid()` 重建簽章內容，不接受呼叫者指定 user_id。
+- PGlite 測試透過共用 helper 以 `new PGlite({ extensions: { pgcrypto } })` 建立，再在 SQL 中安裝真正的 pgcrypto；不以假的 HMAC 函式替代。
+
 ### 代幣帳本
 
 - `public.token_ledger`：`id uuid pk`、`user_id uuid not null references auth.users on delete cascade`、`created_at timestamptz default now()`、`day date not null`（這筆紀錄所屬的台灣日期）、`kind text`、`amount integer not null`、`streak integer`（打卡時的連續天數）、`detail jsonb`（例如兌換的額度與比例、對應的 ai_usage id）。

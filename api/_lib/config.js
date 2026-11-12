@@ -1,5 +1,6 @@
 const { ConfigurationError } = require('./errors.js');
 const { nonNegativeNumber } = require('./numbers.js');
+const { signingSecret } = require('./signing.js');
 
 // gpt-transcribe: USD per minute. Source checked 2026-11-08:
 // https://developers.openai.com/api/docs/pricing
@@ -23,6 +24,7 @@ function readConfig(env = {}, supabaseDefaults = {}) {
     const outputRate = numberSetting('AI_TRANSCRIBE_OUTPUT_USD_PER_MTOK', null);
     const usdPerMinute = numberSetting('AI_TRANSCRIBE_USD_PER_MINUTE', DEFAULT_TRANSCRIBE_USD_PER_MINUTE);
     return {
+      signingSecret: signingSecret(env.USAGE_SIGNING_SECRET),
       apiKey,
       text: {
         model: requiredString(env.AI_MODEL ?? 'gpt-5.6-luna'),
@@ -51,6 +53,7 @@ function readConfig(env = {}, supabaseDefaults = {}) {
 function readBalanceConfig(env = {}, defaults = {}) {
   try {
     return {
+      signingSecret: signingSecret(env.USAGE_SIGNING_SECRET),
       credit: env.AI_USER_CREDIT_USD === undefined ? 1 : nonNegativeNumber(env.AI_USER_CREDIT_USD, { allowString: true }),
       supabase: { url: requiredString(env.SUPABASE_URL ?? defaults.url), publishableKey: requiredString(env.SUPABASE_PUBLISHABLE_KEY ?? defaults.anonKey) },
     };
