@@ -6,6 +6,7 @@ require('./speech-utils.test.cjs');
 require('./ai-usage.test.cjs');
 require('./signing.test.cjs');
 require('./signed-usage.test.cjs');
+require('./tokens.test.cjs');
 require('./ai-config.test.cjs');
 require('./ai-billing.test.cjs');
 require('./ai-validation.test.cjs');

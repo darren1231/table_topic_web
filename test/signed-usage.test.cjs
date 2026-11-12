@@ -37,7 +37,7 @@ describe('signed AI usage migration', { concurrency: false }, () => {
   after(async () => { await database?.close(); });
   beforeEach(async () => {
     await owner();
-    await database.exec('truncate public.ai_usage, private.signing_keys');
+    await database.exec('truncate public.ai_usage, public.token_ledger, private.signing_keys');
     await database.query("insert into private.signing_keys values ('usage', $1)", [fakeSecret]);
   });
 
@@ -51,7 +51,8 @@ describe('signed AI usage migration', { concurrency: false }, () => {
     const { rows: [hmac] } = await database.query("select encode(extensions.hmac($1, $2, 'sha256'), 'hex') as signature", [result.payload, fakeSecret]);
     assert.equal(hmac.signature, signed.p_signature);
     await caller();
-    const { rows: [{ id }] } = await record(signed);
+    const { rows: [{ id: recordedResult }] } = await record(signed);
+    const id = recordedResult.id;
     assert.match(id, /^[0-9a-f-]{36}$/);
     const { rows: [saved] } = await database.query('select * from public.ai_usage');
     assert.equal(saved.nonce, signed.p_nonce);
@@ -86,6 +87,7 @@ describe('signed AI usage migration', { concurrency: false }, () => {
     await assert.rejects(record(signed), { code: '42501' });
     await owner();
     assert.deepEqual((await database.query('select * from public.ai_usage')).rows, []);
+    assert.deepEqual((await database.query('select * from public.token_ledger')).rows, [], 'forged signatures never mint tokens');
   });
 
   test('old and future signatures outside five minutes and invalid metadata are rejected', async () => {
@@ -179,7 +181,9 @@ describe('signed AI usage migration', { concurrency: false }, () => {
       body: JSON.stringify({ instructions: 'Coach', input: 'Answer', kind: 'analysis' }),
     }), env, fetch, logger: { error: (...args) => logs.push(args) } });
     assert.equal(response.status, 200);
-    assert.notEqual((await response.json()).balance, null);
+    const generated = await response.json();
+    assert.notEqual(generated.balance, null);
+    assert.deepEqual(generated.checkIn, { checkedIn: true, reward: 10, streak: 1, balance: 10 });
     const form = new FormData();
     form.append('file', new Blob(['FAKE-audio']), 'fake.webm');
     form.append('kind', 'transcription'); form.append('prompt', '');

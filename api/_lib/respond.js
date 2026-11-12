@@ -95,16 +95,24 @@ async function handleRespond({ request, env, fetch, logger = console }) {
     timing.end('openai');
   }
 
-  let recorded = false;
+  let recorded = false, checkIn = null;
   timing.start('record');
   try {
-    await rpc('record_ai_usage', signUsage(userId, {
+    const recordedResponse = await rpc('record_ai_usage', signUsage(userId, {
       p_provider: 'openai', p_model: config.text.model, p_kind: input.kind,
       p_status: status, p_error: error,
       p_input_tokens: usage.inputTokens, p_output_tokens: usage.outputTokens,
       p_input_rate: config.text.inputRate, p_output_rate: config.text.outputRate,
       p_estimated_cost: cost, p_duration_ms: Math.max(0, Date.now() - startedAt),
     }, config.signingSecret));
+    const result = await recordedResponse.json();
+    if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Invalid usage recording result');
+    const value = result.checkIn;
+    if (!value || typeof value.checkedIn !== 'boolean'
+      || ![value.reward, value.streak, value.balance].every(number => Number.isSafeInteger(number) && number >= 0)) {
+      throw new Error('Invalid check-in result');
+    }
+    checkIn = { checkedIn: value.checkedIn, reward: value.reward, streak: value.streak, balance: value.balance };
     recorded = true;
   } catch (recordError) {
     // Generation has already happened: preserve the result rather than retry/bill twice.
@@ -115,7 +123,7 @@ async function handleRespond({ request, env, fetch, logger = console }) {
 
   if (status === 'error') return json({ error: 'upstream_error' }, 502);
   balance = recorded ? getCreditBalance(balance.spent + cost, config.credit) : null;
-  return json({ text, usage, cost, balance });
+  return json({ text, usage, cost, balance, checkIn });
 }
 
 module.exports = { handleRespond };

@@ -41,7 +41,12 @@ function fixture(options = {}) {
     }
     if (url.endsWith('/rpc/record_ai_usage')) {
       if (options.recordThrows) throw options.recordThrows;
-      return Response.json(options.recordBody ?? '00000000-0000-0000-0000-000000000002', { status: options.recordStatus ?? 200 });
+      return Response.json(options.recordBody ?? {
+        id: '00000000-0000-0000-0000-000000000002',
+        checkIn: entry.body.p_kind === 'analysis' && entry.body.p_status === 'success'
+          ? { checkedIn: true, reward: 10, streak: 1, balance: 10 }
+          : { checkedIn: false, reward: 0, streak: 0, balance: 0 },
+      }, { status: options.recordStatus ?? 200 });
     }
     throw new Error('Unexpected fake fetch URL');
   };
@@ -56,6 +61,36 @@ function fixture(options = {}) {
 
 const aiCalls = f => f.calls.filter(call => call.url === 'https://api.openai.com/v1/responses');
 const records = f => f.calls.filter(call => call.url.endsWith('/rpc/record_ai_usage'));
+
+test('respond returns only the database check-in result without calculating rewards on the server', async () => {
+  const checkIn = { checkedIn: true, reward: 100, streak: 8, balance: 1240 };
+  const f = fixture({ recordBody: { id: 'FAKE-unused-record-id', checkIn: { ...checkIn, secret: 'FAKE-must-not-appear' } } });
+  const result = await (await f.run()).json();
+  assert.deepEqual(result.checkIn, checkIn);
+  assert.ok(!JSON.stringify(result).includes('FAKE-must-not-appear'));
+  const failed = fixture({ recordStatus: 500 });
+  const failedResult = await (await failed.run()).json();
+  assert.equal(failedResult.checkIn, null);
+  assert.equal(failedResult.balance, null);
+  assert.equal(failedResult.text, 'A useful coaching response');
+  const questions = fixture();
+  const questionResult = await (await questions.run(request({ ...body, kind: 'questions' }))).json();
+  assert.deepEqual(questionResult.checkIn, { checkedIn: false, reward: 0, streak: 0, balance: 0 });
+});
+
+test('respond does not claim a reward or balance when the accounting response is malformed', async () => {
+  for (const recordBody of [{ checkIn: null }, { checkIn: { checkedIn: true, reward: -1, streak: 1, balance: 10 } },
+    { checkIn: { checkedIn: 'yes', reward: 10, streak: 1, balance: 10 } }, 'FAKE-old-uuid-result']) {
+    const f = fixture({ recordBody });
+    const response = await f.run();
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.checkIn, null);
+    assert.equal(result.balance, null);
+    assert.equal(result.text, 'A useful coaching response');
+    assert.equal(f.logs.length, 1);
+  }
+});
 
 test('respond signs success and upstream-error records with fresh nonces and no secrets in responses', async () => {
   const nonces = new Set();
