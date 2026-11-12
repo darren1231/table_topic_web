@@ -62,7 +62,7 @@ describe('token ledger and automatic check-in', { concurrency: false }, () => {
   after(async () => { await database?.close(); });
   beforeEach(async () => {
     await owner();
-    await database.exec('truncate public.ai_usage, public.token_ledger, private.signing_keys');
+    await database.exec('truncate public.ai_usage, public.token_ledger, public.app_admins, private.signing_keys');
     await database.query("insert into private.signing_keys values ('usage', $1)", [fakeSigningSecret]);
     await today('2026-11-12');
   });
@@ -432,6 +432,54 @@ describe('token ledger and automatic check-in', { concurrency: false }, () => {
     const balance = await handleBalance({ request: request('balance', 'GET'), env, fetch });
     assert.equal((await balance.json()).credit, 1.02);
     assert.deepEqual(calls, ['get_my_token_status', 'makeup_yesterday', 'get_my_token_status', 'exchange_tokens', 'get_my_ai_balance']);
+  });
+
+  test('admin token listing returns text email, effective balances and last attendance without writing', async () => {
+    await owner();
+    const fn = (await database.query("select prosecdef, proconfig, provolatile from pg_proc where oid = 'public.admin_list_tokens()'::regprocedure")).rows[0];
+    assert.deepEqual(fn, { prosecdef: true, proconfig: ['search_path=""'], provolatile: 's' });
+    await database.query("insert into public.app_admins values ('MEMBER@EXAMPLE.INVALID')");
+    await database.query("insert into public.token_ledger (user_id, day, kind, amount, streak) values ($1, '2026-11-10', 'check_in', 300, 1)", [fakeUserId]);
+    const before = await ledger();
+    await caller();
+    await database.exec('begin read only');
+    try {
+      const result = await database.query('select * from public.admin_list_tokens()');
+      assert.deepEqual(result.fields.map(field => [field.name, field.dataTypeID]), [
+        ['user_id', 2950], ['email', 25], ['balance', 20], ['streak', 23], ['last_check_in', 1082],
+      ]);
+      const rows = (await database.query('select email, balance, streak, last_check_in::text from public.admin_list_tokens() order by email')).rows;
+      assert.deepEqual(rows, [
+        { email: 'member@example.invalid', balance: 250, streak: 0, last_check_in: '2026-11-10' },
+        { email: 'other@example.invalid', balance: 0, streak: 0, last_check_in: null },
+      ]);
+    } finally { await database.exec('rollback'); }
+    assert.deepEqual(await ledger(), before);
+    await makeup();
+    const restored = (await database.query('select streak, last_check_in::text from public.admin_list_tokens() where user_id = $1', [fakeUserId])).rows[0];
+    assert.deepEqual(restored, { streak: 2, last_check_in: '2026-11-10' });
+  });
+
+  test('admin token listing rejects forged JWT emails, unconfirmed admins and unauthorized roles', async () => {
+    await owner();
+    await database.exec("insert into public.app_admins values ('member@example.invalid'), ('other@example.invalid'); update auth.users set email_confirmed_at = null where email = 'other@example.invalid'");
+    try {
+      await caller(other);
+      await database.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ sub: other, email: 'member@example.invalid' })]);
+      await assert.rejects(database.query('select * from public.admin_list_tokens()'), { code: '42501' });
+      await owner(); await database.exec("delete from public.app_admins where email = 'other@example.invalid'; update auth.users set email_confirmed_at = '2026-01-01' where email = 'other@example.invalid'");
+      await caller(other);
+      await database.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ sub: other, email: 'member@example.invalid' })]);
+      await assert.rejects(database.query('select * from public.admin_list_tokens()'), { code: '42501' });
+      for (const role of ['anon', 'public_only']) {
+        await caller(fakeUserId, role);
+        await assert.rejects(database.query('select * from public.admin_list_tokens()'), { code: '42501' });
+      }
+      await caller(null);
+      await assert.rejects(database.query('select * from public.admin_list_tokens()'), { code: '42501' });
+    } finally {
+      await owner(); await database.exec("update auth.users set email_confirmed_at = '2026-01-01' where email = 'other@example.invalid'");
+    }
   });
 
   test('each daily kind is unique per user and deleting an account only cascades its own ledger', async () => {

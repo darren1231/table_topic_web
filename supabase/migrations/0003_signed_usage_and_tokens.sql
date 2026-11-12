@@ -1,4 +1,4 @@
--- Signed usage, append-only token ledger, and automatic check-in (S1-S2).
+-- Signed usage, token ledger, check-ins, makeup, exchange, and admin summaries.
 -- The signing secret is provisioned separately by the database owner, never here.
 begin;
 
@@ -400,5 +400,31 @@ end;
 $$;
 revoke all on function public.get_my_ai_balance() from public, anon, authenticated;
 grant execute on function public.get_my_ai_balance() to authenticated;
+
+create function public.admin_list_tokens()
+returns table (user_id uuid, email text, balance bigint, streak integer, last_check_in date)
+language plpgsql stable security definer set search_path = ''
+as $$
+begin
+  if not exists (
+    select 1 from auth.users as caller
+    join public.app_admins as admin on lower(admin.email) = lower(caller.email)
+    where caller.id = auth.uid() and caller.email_confirmed_at is not null
+  ) then
+    raise exception 'Admin access required' using errcode = '42501';
+  end if;
+  return query
+    with statuses as materialized (
+      select account.id, account.email::text as account_email, private.token_status(account.id) as state
+      from auth.users as account
+    )
+    select account.id, account.account_email, (account.state ->> 'balance')::bigint, (account.state ->> 'streak')::integer,
+      (select max(entry.day) from public.token_ledger as entry
+        where entry.user_id = account.id and entry.kind = 'check_in' and entry.day <= private.token_today())
+    from statuses as account order by lower(account.account_email), account.id;
+end;
+$$;
+revoke all on function public.admin_list_tokens() from public, anon, authenticated;
+grant execute on function public.admin_list_tokens() to authenticated;
 
 commit;

@@ -526,7 +526,13 @@
     "guide.section13.item5": "Select “Exchange for AI credit” in the token panel to exchange in units of 1,000 tokens at the displayed rate. You will be asked to confirm first.",
     "guide.section13.item6": "Before check-in, the panel shows today’s available AI analysis reward. After check-in, it shows tomorrow’s reward. Tokens belong to your account regardless of local or cloud sync mode.",
     "guide.section12.question6": "How can I check in when AI credit is exhausted?",
-    "guide.section12.answer6": "Exchange tokens for AI credit, then practice with AI feedback again."
+    "guide.section12.answer6": "Exchange tokens for AI credit, then practice with AI feedback again.",
+    "admin.tokensTitle": "Tokens and streaks",
+    "admin.tokenSnapshotNote": "Balances include pending missed-day deductions; the last check-in date records a successful AI analysis check-in. This table follows the user filter, regardless of period or purpose.",
+    "admin.tokenBalance": "Token balance",
+    "admin.tokenStreak": "Consecutive days",
+    "admin.lastCheckIn": "Last check-in",
+    "admin.noTokenRecords": "No user token data"
   },
   "placeholders": {
     "placeholder.001": "For example: travel, courage, something I learned…",

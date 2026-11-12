@@ -14,6 +14,7 @@
 - [測試](#測試)
 - [部署與設定（網站擁有者）](#部署與設定網站擁有者)
 - [系統 AI 與額度](#系統-ai-與額度)
+- [打卡與代幣](#打卡與代幣)
 - [管理員後台](#管理員後台)
 - [資料與隱私](#資料與隱私)
 - [新增或修改語言](#新增或修改語言)
@@ -48,7 +49,8 @@
 **AI 與管理**
 - 登入 Google 後使用網站提供的系統 AI，不需要自備 API key。
 - 每人 1 美元累計額度，用完自動改用內建教練。
-- 管理員後台（`/admin`）查看每位使用者的用量與費用。
+- 登入後成功完成 AI 分析可自動打卡、累積代幣，並用代幣兌換額外 AI 額度。
+- 管理員後台（`/admin`）查看每位使用者的用量、費用、代幣與連續天數。
 
 ## 架構總覽
 
@@ -58,6 +60,7 @@
   ├─ /api/ai/respond、/transcribe、/balance ── Vercel Functions（api/）
   │                                              ├─ OpenAI（key 只在伺服器）
   │                                              └─ Supabase（以使用者本人的登入憑證呼叫）
+  ├─ /api/tokens/status、/makeup、/exchange ── Vercel Functions ── Supabase
   └─ Google 登入、雲端同步、後台查詢 ────────── Supabase
 ```
 
@@ -65,14 +68,15 @@
 | --- | --- |
 | `public/` | 網站本體，Vercel 只發布這個資料夾 |
 | `public/app.js` | 主程式 |
-| `public/*.js` | 從主程式拆出的模組：`practice-stats`、`practice-data`、`coach-parsing`、`builtin-coach`、`review-cards`、`html-utils`、`system-ai`、`usage-stats`、`wake-lock`、`recording-session`、`speech-utils`、`coach-result-utils` |
+| `public/*.js` | 從主程式拆出的模組：`practice-stats`、`practice-data`、`coach-parsing`、`builtin-coach`、`review-cards`、`html-utils`、`system-ai`、`token-ui`、`usage-stats`、`wake-lock`、`recording-session`、`speech-utils`、`coach-result-utils` |
 | `public/cloud.js` | Google 登入與雲端同步 |
 | `public/i18n.js`、`public/locales/` | 多語系 |
 | `public/admin.html`、`public/admin.js` | 管理員後台 |
 | `api/ai/` | 三個 Vercel Functions 入口 |
-| `api/_lib/` | 伺服器共用邏輯：設定、計費、額度、輸入驗證、錯誤處理 |
+| `api/tokens/` | 代幣狀態、補簽與兌換入口 |
+| `api/_lib/` | 伺服器共用邏輯：設定、計費、額度、輸入驗證、簽章、代幣與錯誤處理 |
 | `supabase.sql` | 同步用資料表 `user_data` 與 RLS |
-| `supabase/migrations/` | AI 用量、管理員名單與資料庫函式 |
+| `supabase/migrations/` | AI 用量、簽章驗證、代幣帳本、管理員名單與資料庫函式 |
 | `test/` | 單元測試（`node:test`） |
 | `e2e/` | 瀏覽器整合測試（Playwright） |
 | `docs/` | 決策紀錄、實作計畫、版本管理 |
@@ -149,6 +153,7 @@ npm run e2e
    1. `supabase.sql`
    2. `supabase/migrations/0001_ai_usage.sql`
    3. `supabase/migrations/0002_fix_admin_email_type.sql`
+   4. 先依[簽章密碼與部署順序](#簽章密碼與部署順序)設定 Vercel，再執行 `supabase/migrations/0003_signed_usage_and_tokens.sql` 並插入資料庫簽章密碼。
 3. 把管理員 email 加入 `public.app_admins`（[管理員後台](#管理員後台)）。
 4. 在 Google Cloud 建立 OAuth client，並在 Supabase 開啟 Google 登入。
 5. 在 Supabase 的 URL Configuration 加入正式網址與 Preview 網址。
@@ -165,6 +170,8 @@ npm run e2e
 | --- | --- | --- |
 | `CHATGPT_PREVIEW_KEY` | 必填 | Preview 與本機 Development 使用的 OpenAI key |
 | `CHATGPT_PRODUCTION_KEY` | 必填 | Production 使用的 OpenAI key |
+| `USAGE_SIGNING_SECRET` | 必填 | 至少 32 個字元的隨機簽章密碼；必須與資料庫相同。Preview 與 Production 共用同一個 Supabase 專案，兩邊必須設定相同值 |
+| `TOKEN_EXCHANGE_USD_PER_1000` | 選填 | `0.01`，每 1000 枚代幣兌換的 AI 額度（美元） |
 | `AI_MODEL` | 選填 | `gpt-5.6-luna`，出題與回饋的模型 |
 | `AI_TRANSCRIBE_MODEL` | 選填 | `gpt-transcribe`，語音轉文字的模型 |
 | `AI_INPUT_USD_PER_MTOK` | 選填 | `0.2`，文字模型每百萬輸入 token 的美元單價 |
@@ -177,10 +184,31 @@ npm run e2e
 | `SUPABASE_PUBLISHABLE_KEY` | 選填 | 預設與 `public/supabase-config.js` 相同 |
 
 - 目前環境的 OpenAI key 沒有設定時，AI 請求會回 503，不會借用另一個環境的 key。
+- 簽章密碼缺少或不合法時，AI 與代幣端點會回 503；它是本專案的 HMAC 密碼，**不是** Supabase 的 service role 或 secret API key。
 - 數字設定必須是有限、非負的數值，否則視為設定錯誤。
 - 語音的預設單價取自 [OpenAI 官方價格頁](https://developers.openai.com/api/docs/pricing)（2026-11-08 查詢）。
 - **不需要、也不可以設定 Supabase 的 service role 或 secret key。** 伺服器以使用者本人的登入憑證呼叫資料庫函式，決策原因見 [ADR 0001](docs/adr/0001-system-ai-key-without-service-role.md)。
 - 換用其他 Supabase 專案時，`public/supabase-config.js` 與 `api/_lib/supabase-defaults.js` 必須同步修改。測試會檢查兩者是否一致。
+
+### 簽章密碼與部署順序
+
+首次啟用打卡與代幣，或從未執行 `0003` 的版本升級時：
+
+1. 產生至少 32 個字元的隨機密碼，例如用密碼管理員產生 64 個隨機字元；不要使用下方的示範假值。
+2. 在 Vercel 的 Preview、Production 都設定 `USAGE_SIGNING_SECRET`，**共用同一個 Supabase 專案時，兩個環境必須完全相同**。需要本機連同一資料庫時，也使用相同值。設定好兌換比例與各環境的 OpenAI key。
+3. 合併部署分支後，在 Supabase SQL Editor 依序確認 `supabase.sql`、`0001`、`0002` 已執行，再執行完整的 [`0003_signed_usage_and_tokens.sql`](supabase/migrations/0003_signed_usage_and_tokens.sql)。`0003` 只執行一次，不要為了更新密碼重跑整份 migration。
+4. 緊接著用資料庫擁有者在 SQL Editor 執行以下 SQL，把假值換成第 1 步的同一組密碼：
+
+   ```sql
+   -- 明確的假值範例；正式部署必須換成自行產生的隨機密碼。
+   insert into private.signing_keys (name, secret)
+   values ('usage', 'FAKE-EXAMPLE-ONLY-REPLACE-WITH-YOUR-RANDOM-SECRET');
+   ```
+
+   密碼必須和 Vercel **逐字相同**，不要額外加空白。已有 `usage` 資料列時應更新該列，而不是重建資料表；更換密碼時，Vercel 與資料庫也要一起更新。不要對 `private` schema 開放使用者權限，也不要關閉 RLS。
+5. 確認 Vercel 的新版部署已完成，且已套用環境變數；必要時重新部署。用 Google 登入、完成一次成功的系統 AI 分析，確認有使用紀錄與打卡，並用管理員後台檢查用量及代幣。
+
+Vercel 部署**不會自動執行 migration**。切換期間，舊伺服器遇到新的簽章記帳函式時，可能仍回傳 AI 結果但無法記帳；新版伺服器若先於 `0003` 上線，會因舊版餘額回應缺少 `bonus_credit` 而暫時拒絕 AI 請求。請接續完成 SQL、密碼與新版部署三者。
 
 ### Supabase 設定
 
@@ -195,11 +223,12 @@ npm run e2e
 
 #### 2. 建立資料表
 
-在 **SQL Editor** 依序執行以下三個檔案，每次都貼上完整內容後按 **Run**：
+在 **SQL Editor** 依序執行以下四個檔案，每次都貼上完整內容後按 **Run**：
 
 1. [`supabase.sql`](supabase.sql)：同步用的 `user_data` 與 RLS。
 2. [`supabase/migrations/0001_ai_usage.sql`](supabase/migrations/0001_ai_usage.sql)：AI 用量 `ai_usage`、管理員名單 `app_admins` 與資料庫函式。
 3. [`supabase/migrations/0002_fix_admin_email_type.sql`](supabase/migrations/0002_fix_admin_email_type.sql)：後台查詢的型別修正，可以安全地重複執行。
+4. [`supabase/migrations/0003_signed_usage_and_tokens.sql`](supabase/migrations/0003_signed_usage_and_tokens.sql)：簽章記帳、代幣帳本、打卡、補簽、兌換與管理員代幣查詢。執行後還要依[簽章密碼與部署順序](#簽章密碼與部署順序)插入簽章密碼。
 
 部署網站**不會**自動執行這些 SQL。請勿關閉 RLS，也不要建立讓 `anon` 讀取全部資料的 policy。
 
@@ -240,8 +269,9 @@ npm run e2e
 - Supabase 的 Redirect URLs 已加入正式網址與 Preview 萬用字元。
 - `public/supabase-config.js` 使用的是 publishable key。
 - `user_data` 的 RLS 仍為啟用狀態。
-- 三個 SQL 檔都已執行，`app_admins` 中有管理員。
+- 四個 SQL 檔都已執行，`app_admins` 中有管理員；已部署過 `0001`／`0002` 的資料庫仍須執行 `0003`。
 - Vercel 的 Preview 與 Production 都已設定對應的 OpenAI key。
+- Vercel 的兩個環境與 `private.signing_keys` 的 `usage` 密碼完全相同。
 - Google OAuth 若仍為 Testing，正式開放前要完成 publishing。
 
 ## 系統 AI 與額度
@@ -249,8 +279,20 @@ npm run e2e
 - **誰可以用**：用 Google 登入的使用者。沒有登入時使用內建教練。是否能用 AI 只看有沒有登入，與是否開啟雲端同步無關。
 - **額度**：每人預設 **1 美元，累計使用、不會重置**。用完後顯示「AI 額度已用完，請聯絡管理員」，回饋改由內建教練完成。
 - **用量顯示**：登入後、打開「API 費用」畫面時，以及每次呼叫 AI 之後，會更新「已用 / 額度」。數字以伺服器紀錄為準，清除本機紀錄不會重置額度。
+- **額外額度**：代幣兌換的金額會加在基本額度上；兌換成功後，「API 費用」與 AI 使用資格會一起更新。
 - **錄音上限**：AI 轉錄的單段音檔上限 4 MB。錄音品質固定為 32 kbps，大約可以錄 17 分鐘；被中斷的錄音會分段保留，每段各自計算上限。
 - **自備金鑰（BYOK）**：目前隱藏（`public/app.js` 的 `ENABLE_BYOK = false`）。舊的設定仍保留在使用者的裝置上，但不會被使用。
+
+## 打卡與代幣
+
+- 用 Google 登入後，頁首會顯示帳號的代幣餘額與連續天數，點選可打開面板；與本機／雲端同步模式無關。
+- 一天以 **Asia/Taipei** 計算。當天有一次成功且通過伺服器簽章驗證的系統 AI **分析回饋**就自動打卡，一天最多一次；出題、潤稿、語音轉文字及內建教練不算。
+- 連續第 1–5 天各得 **10、20、30、50、80 枚**，第 6 天起每天 **100 枚**。
+- 每漏一天扣最多 **50 枚**，最低扣到 0；下一次打卡重新從第 1 天開始。扣點在下一次帳本寫入時補記，但畫面餘額已包含確定會扣的數字。從未打卡前不會被扣點。
+- 只能花 **200 枚補簽昨天**，並退回昨天實際被扣的代幣；可否補簽以退款後餘額判斷。補簽本身沒有獎勵；今天已打卡才補簽時，會補上接回連續天數後的今日獎勵差額。
+- 每 **1000 枚為一單位**兌換 AI 額度，預設每單位 **0.01 美元**，以面板顯示的伺服器比例為準。補簽與兌換都會先要求確認。
+- 未打卡時顯示「今天完成 AI 分析可得 X 枚」；已打卡時顯示「明天繼續可得 Y 枚」。
+- 從新版與 `0003` 啟用後的新紀錄開始計算，之前的練習不補發。代幣保存在資料庫帳本中，清除本機資料不會重置。
 
 ## 管理員後台
 
@@ -274,7 +316,9 @@ delete from public.app_admins where lower(email) = lower('admin@example.invalid'
 
 **可以看到的內容**：依期間（本月、最近 7 天、最近 30 天、全部）、用途、使用者篩選，查看呼叫次數、輸入與輸出 token、音訊秒數、費用；以及每位使用者的累計已用金額與最後使用時間。
 
-**後台只能查看，不能修改**使用紀錄或額度。
+代幣表格另顯示每位使用者的 email、有效餘額、連續天數及最後打卡日（成功 AI 分析打卡的日期）。有效餘額包含尚未寫入的漏簽扣點；沒有打卡紀錄的人也會列出，最後打卡日顯示「—」。此表只依使用者篩選，不受用量的期間與用途篩選影響。
+
+**後台只能查看，不能修改**使用紀錄、額度或代幣。`admin_list_tokens` 與用量查詢使用相同的資料庫管理員判斷；非管理員看不到兩種資料。
 
 ## 資料與隱私
 
@@ -283,7 +327,9 @@ delete from public.app_admins where lower(email) = lower('admin@example.invalid'
 | 練習紀錄、講稿、複習卡 | 使用者的瀏覽器；開啟雲端同步時，也會存一份在 Supabase 中該使用者自己的資料列 |
 | 語言、朗讀等裝置偏好 | 只存在使用者的瀏覽器 |
 | AI 使用紀錄（時間、用途、模型、token、音訊秒數、費用） | Supabase `ai_usage`，使用者只能讀取自己的紀錄 |
+| 打卡、代幣增減與兌換 | Supabase `token_ledger`，只能透過固定函式新增；使用者只能讀取自己的帳本，管理員可唯讀查看摘要 |
 | OpenAI API key | 只在 Vercel 環境變數 |
+| 使用紀錄與兌換的簽章密碼 | Vercel 的 `USAGE_SIGNING_SECRET` 與資料庫 `private.signing_keys`，不傳給瀏覽器 |
 | 錄音檔 | 只暫存在瀏覽器記憶體，轉成文字後即丟棄；伺服器與資料庫都不保存 |
 
 - 呼叫 OpenAI 時設定 `store: false`，不讓 OpenAI 保存內容。
@@ -333,6 +379,7 @@ delete from public.app_admins where lower(email) = lower('admin@example.invalid'
 | 同步出現 `row-level security` 錯誤 | 是否已執行 `supabase.sql`；登入是否已過期 |
 | 第二台裝置沒有資料 | 是否登入同一個帳號；第一台是否顯示「已同步」；第二台是否開啟雲端模式 |
 | 顯示「系統 AI 尚未就緒」 | Vercel 是否設定了目前環境（Preview 或 Production）的 OpenAI key |
+| AI 回應正常但沒有記帳／沒有打卡 | 檢查 Vercel 的 `USAGE_SIGNING_SECRET` 與資料庫 `private.signing_keys` 中 `name = 'usage'` 的密碼是否完全一致，並確認 `0003` 已執行；只有成功的系統 AI 分析會打卡 |
 | 後台一直顯示「沒有權限」 | email 是否在 `app_admins`；是否已執行 `0002` migration |
 | 顯示「音檔超過 4 MB」 | 單段錄音太長。改用瀏覽器語音辨識，或分段錄製 |
 | Google 測試帳號無法登入 | OAuth consent screen 是否仍為 Testing，帳號是否在 Test users |

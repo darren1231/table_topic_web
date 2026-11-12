@@ -25,7 +25,7 @@
   function createAdminController({ client, document, t, getLocale = () => 'zh-TW', onLocaleChange = () => {},
     now = () => new Date(), schedule = fn => setTimeout(fn, 0), redirectTo }) {
     const byId = id => document.getElementById(id);
-    let records = [], session = null, authorized = false, version = 0, statusKey = 'admin.signInRequired';
+    let records = [], tokenRecords = [], session = null, authorized = false, version = 0, statusKey = 'admin.signInRequired';
     const money = value => `US$${Number(value).toFixed(6)}`;
     const number = value => new Intl.NumberFormat(getLocale()).format(value);
     const dateText = value => {
@@ -50,11 +50,12 @@
     }
     function deny(key = statusKey) {
       statusKey = key;
-      authorized = false; records = [];
+      authorized = false; records = []; tokenRecords = [];
       byId('adminData').classList.add('hidden');
       byId('adminStatus').textContent = t(statusKey);
       byId('adminUserRows').replaceChildren();
       byId('adminUsageRows').replaceChildren();
+      byId('adminTokenRows').replaceChildren();
       byId('adminUserFilter').replaceChildren(option('all', t('admin.allUsers')));
       byId('adminUserFilter').value = 'all';
       for (const id of ['adminCalls', 'adminInputTokens', 'adminOutputTokens', 'adminCost', 'adminAudioSeconds']) byId(id).textContent = '0';
@@ -74,6 +75,7 @@
     function userOptions() {
       const select = byId('adminUserFilter'), selected = select.value;
       const groups = UsageStats.groupByUser(records);
+      for (const item of tokenRecords) if (!groups.some(group => group.userId === item.user_id)) groups.push({ userId: item.user_id, email: item.email || '' });
       select.replaceChildren(option('all', t('admin.allUsers')), ...groups.map(group => option(group.userId, group.email)));
       select.value = groups.some(group => group.userId === selected) ? selected : 'all';
     }
@@ -101,6 +103,13 @@
       });
       if (!details.length) { const node = row([t('admin.noRecords')]); node.children[0].colSpan = 9; details.push(node); }
       byId('adminUsageRows').replaceChildren(...details);
+      const tokenNumber = value => Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? number(Number(value)) : '—';
+      const tokenRows = tokenRecords.filter(item => user === 'all' || item.user_id === user).map(item => row([
+        item.email || '', tokenNumber(item.balance), tokenNumber(item.streak),
+        typeof item.last_check_in === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.last_check_in) ? item.last_check_in : '—',
+      ]));
+      if (!tokenRows.length) { const node = row([t('admin.noTokenRecords')]); node.children[0].colSpan = 4; tokenRows.push(node); }
+      byId('adminTokenRows').replaceChildren(...tokenRows);
     }
     async function loadSession(nextSession) {
       const ticket = ++version;
@@ -110,7 +119,10 @@
         const { data, error } = await client.rpc('admin_list_ai_usage');
         if (ticket !== version) return;
         if (error || !Array.isArray(data)) return loadError(error || { code: 'INVALID_RESPONSE', message: 'Expected usage records' });
-        records = data; authorized = true; userOptions(); render();
+        const tokens = await client.rpc('admin_list_tokens');
+        if (ticket !== version) return;
+        if (tokens.error || !Array.isArray(tokens.data)) return loadError(tokens.error || { code: 'INVALID_RESPONSE', message: 'Expected token records' });
+        records = data; tokenRecords = tokens.data; authorized = true; userOptions(); render();
       } catch (error) { if (ticket === version) loadError(error); }
     }
     async function refresh() {

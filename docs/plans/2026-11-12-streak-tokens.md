@@ -15,9 +15,9 @@
 | 打卡 | 當天有一次成功的 AI 分析回饋（`ai_usage.kind = 'analysis'` 且 `status = 'success'`，且紀錄有有效的伺服器簽章）。由資料庫在寫入該筆紀錄時自動打卡，一天最多一次 |
 | 每日獎勵 | 連續第 1、2、3、4、5 天：10、20、30、50、80 枚；第 6 天起每天 100 枚 |
 | 漏簽 | 每漏一天扣 50 枚，扣到 0 為止（不會變負數）。漏簽後下一次打卡從連續第 1 天開始 |
-| 補簽 | 只能補「昨天」，花 200 枚，餘額不足不能補。補簽那天沒有獎勵、不扣漏簽的 50 枚，連續天數接回 |
+| 補簽 | 只能補「昨天」，花 200 枚，以退回昨天實際扣點後的餘額判斷是否足夠。補簽那天沒有獎勵、不扣漏簽的 50 枚，連續天數接回 |
 | 兌換 | 每 1000 枚換 0.01 美元的 AI 額度，以 1000 枚為單位。比例由環境變數設定 |
-| 開始計算 | 上線當天。之前的練習不補發 |
+| 開始計算 | 啟用 0003 與新版伺服器後的新使用紀錄。之前的練習不補發 |
 
 ### 規則的邊界情況
 
@@ -73,7 +73,7 @@
 - `makeup_yesterday()`：依規則補簽昨天。餘額不足或不符合條件時拋出可辨識的錯誤。由使用者本人呼叫即可（只會讓自己花代幣，不需要簽章）。
 - `exchange_tokens(p_units integer, p_rate_usd numeric, p_issued_at, p_nonce, p_signature)`：必須有伺服器簽章（因為比例來自伺服器設定）。扣 `p_units × 1000` 枚，`detail` 記錄換到的額度。
 - `get_my_ai_balance()`：除了 `spent`，再回傳 `bonus_credit`（所有兌換的額度總和）。伺服器的額度 = `AI_USER_CREDIT_USD + bonus_credit`。
-- `admin_list_tokens()`：管理員查看每位使用者的 email、餘額、連續天數、最後打卡日。權限檢查與 `admin_list_ai_usage` 相同。
+- `admin_list_tokens()`：唯讀回傳 `user_id uuid, email text, balance bigint, streak integer, last_check_in date`，列出所有 auth.users（包含尚未打卡者）。餘額包含待扣點數，最後打卡日為最後一筆 check_in 的台灣日期；補簽會影響連續天數。權限檢查與 `admin_list_ai_usage` 相同，以 auth.uid() 查資料庫內已驗證的 email，並將 varchar email 轉為 text。
 - 所有函式：`security definer`、`set search_path = ''`、`revoke execute from public, anon`、只 `grant` 給 `authenticated`。
 - **時間**：函式以 `now()` 計算台灣日期，使用者無法影響。測試需要控制日期時，在 PGlite 測試中用其他方式模擬（例如在測試資料庫中替換一個只在測試存在的時間函式），**不得**在正式 migration 中留下可由使用者設定的時間覆寫。
 
@@ -162,6 +162,7 @@
 ### S5：管理員後台與文件
 
 - 後台代幣表格與 e2e。
+- 後台在用量與代幣兩個 RPC 都成功後才顯示資料；任一權限失敗就清空並隱藏兩種資料。代幣表格只依使用者篩選，不受用量的期間與用途影響，並用文字說明其餘額與日期的定義。所有資料以 DOM／textContent 建立。
 - README：新環境變數、`0003` migration、在 `private.signing_keys` 插入密碼的步驟、密碼必須與 Vercel 一致、部署順序。
 - CHANGELOG「尚未發布」：使用者變更、技術變更、升級注意事項。
 - `docs/versioning.md` 不需修改。
@@ -169,6 +170,8 @@
 ## 上線步驟（網站擁有者，寫進 README 與 CHANGELOG）
 
 1. 產生一組隨機密碼（至少 32 個字元）。
-2. 在 Vercel 的 Preview 與 Production 設定 `USAGE_SIGNING_SECRET`（可以兩個環境用不同密碼，但資料庫只能存一組；若 Preview 與 Production 共用同一個 Supabase 專案，兩邊必須用同一組）。
+2. 在 Vercel 的 Preview 與 Production 設定 `USAGE_SIGNING_SECRET`；目前兩個環境共用同一個 Supabase 專案，必須用同一組。若未來使用完全獨立的資料庫，才可分別設定各自一致的密碼。
 3. 合併 PR 後，在 Supabase SQL Editor 執行 `0003` migration，再插入同一組密碼。
 4. 確認 Vercel 已部署新版本。
+
+完整操作及假值 SQL 見 [README](../../README.md#簽章密碼與部署順序)。0003 只執行一次；更換密碼不重跑 migration。新版伺服器先於 migration 部署時，舊 RPC 尚無 bonus_credit 會暫時無法使用 AI；migration 先執行時，舊伺服器的無簽章記帳會失敗，但可能仍傳回 AI 結果。需接續完成資料庫、密碼與部署設定。

@@ -532,7 +532,13 @@
     "guide.section13.item5": "トークン画面の「AI 利用枠に交換」から、1,000 トークン単位で交換できます。金額は画面で確認でき、実行前に確認が表示されます。",
     "guide.section13.item6": "チェックイン前は今日の AI 分析で獲得できる報酬を、完了後は明日の報酬を表示します。トークンはアカウントに保存され、ローカル／クラウドの同期モードには左右されません。",
     "guide.section12.question6": "AI 利用枠を使い切ったら、どうチェックインしますか？",
-    "guide.section12.answer6": "トークンを AI 利用枠に交換してから、AI フィードバック付きの練習を行ってください。"
+    "guide.section12.answer6": "トークンを AI 利用枠に交換してから、AI フィードバック付きの練習を行ってください。",
+    "admin.tokensTitle": "トークンと連続日数",
+    "admin.tokenSnapshotNote": "残高には未記帳の欠席分の差し引きも含まれ、最終チェックイン日は AI 分析に成功した日を示します。この表はユーザーのみで絞り込まれ、期間・用途の設定には影響されません。",
+    "admin.tokenBalance": "トークン残高",
+    "admin.tokenStreak": "連続日数",
+    "admin.lastCheckIn": "最終チェックイン日",
+    "admin.noTokenRecords": "ユーザーのトークンデータがありません"
   },
   "placeholders": {
     "placeholder.001": "例：旅行、勇気、最近学んだこと…",

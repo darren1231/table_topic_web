@@ -526,7 +526,13 @@
     "guide.section13.item5": "在代幣面板按「兌換 AI 額度」，可用每 1000 枚為一單位兌換；金額以面板顯示為準，操作前會再次確認。",
     "guide.section13.item6": "未打卡時顯示今天完成 AI 分析可得的獎勵；已打卡時顯示明天繼續可得的獎勵。代幣保存在帳號中，不受本機或雲端同步模式影響。",
     "guide.section12.question6": "額度用完時怎麼打卡？",
-    "guide.section12.answer6": "用代幣兌換額度後，再用 AI 回饋練習。"
+    "guide.section12.answer6": "用代幣兌換額度後，再用 AI 回饋練習。",
+    "admin.tokensTitle": "代幣與連續天數",
+    "admin.tokenSnapshotNote": "目前餘額包含尚未寫入的漏簽扣點；最後打卡日為成功 AI 分析打卡的日期。此表只依使用者篩選，不受期間與用途影響。",
+    "admin.tokenBalance": "代幣餘額",
+    "admin.tokenStreak": "連續天數",
+    "admin.lastCheckIn": "最後打卡日",
+    "admin.noTokenRecords": "沒有使用者代幣資料"
   },
   "placeholders": {
     "placeholder.001": "例如：旅行、勇氣、最近學到的事⋯",
