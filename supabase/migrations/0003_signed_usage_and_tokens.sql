@@ -131,9 +131,8 @@ begin
   if auth.uid() is null or p_user_id is null or p_user_id <> auth.uid() then
     raise exception 'Authentication required' using errcode = '42501';
   end if;
-  -- Serialize ledger writes for this user. NO KEY UPDATE is compatible with the
-  -- FK's KEY SHARE lock, so concurrent usage inserts cannot deadlock on upgrades.
-  perform 1 from auth.users where id = p_user_id for no key update;
+  -- Serialize this user's ledger without requiring UPDATE on managed auth tables.
+  perform pg_advisory_xact_lock(hashtextextended(p_user_id::text, 0));
   select coalesce(sum(amount), 0) into v_balance from public.token_ledger where user_id = p_user_id;
   select max(day) into v_last_day from public.token_ledger
     where user_id = p_user_id and kind in ('check_in', 'makeup') and day <= v_today;

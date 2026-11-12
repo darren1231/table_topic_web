@@ -123,7 +123,7 @@
 - S2 回傳格式：`record_ai_usage` 回傳 JSON `{ id, checkIn: { checkedIn, reward, streak, balance } }`；`checkedIn` 表示「這一次是否新增打卡」，非成功 analysis 或同日重複分析時為 false，reward 為 0。respond 只轉送這四個打卡欄位，不自行計算代幣；記帳失敗時 checkIn 與 AI balance 均為 null，保留既有的 AI 結果與清理後的錯誤紀錄。
 - `get_my_token_status()` 回傳 JSON `{ balance, streak, checkedIn, canMakeup, makeupCost, reward }`。這裡 checkedIn 表示今天是否已打卡；reward 是今天尚可獲得的獎勵（已打卡則為 0）；canMakeup 同時檢查昨天沒有打卡／補簽且有效餘額至少 200 枚。最後打卡是昨天時保留連續天數，早於昨天則顯示 0。
 - 查詢餘額會先扣除尚未寫入的漏簽扣點，不寫入帳本；成功 analysis 寫帳時才按日期由早至晚補記每一筆扣點，包含扣到 0 後的零金額紀錄。重複查詢與重複分析都不會重扣。
-- 同一使用者的帳本寫入以 `auth.users` 的 `FOR NO KEY UPDATE` 鎖定序列化，與 ai_usage 外鍵的 KEY SHARE 鎖相容；使用紀錄、漏簽與打卡都在同一個交易中提交或回滾。
+- 同一使用者的帳本寫入以交易層 `pg_advisory_xact_lock(hashtextextended(user_id::text, 0))` 序列化，不對 Supabase 管理的 auth.users 取得列鎖；使用紀錄、漏簽與打卡都在同一個交易中提交或回滾。
 - 正式日期函式 `private.token_today()` 固定讀取 `(now() at time zone 'Asia/Taipei')::date`，不讀取可由使用者設定的時鐘。測試僅由測試資料庫擁有者替換此函式，簽章時間窗仍使用真正的資料庫 now()。
 - 測試（用可控制的日期）：
   - 連續 1–7 天的獎勵依序為 10、20、30、50、80、100、100。

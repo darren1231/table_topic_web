@@ -74,6 +74,14 @@ describe('token ledger and automatic check-in', { concurrency: false }, () => {
     assert.equal(new Set(rows.map(row => row.detail.ai_usage_id)).size, 7);
   });
 
+  test('ledger serialization uses a transaction advisory lock without locking auth.users rows', async () => {
+    await owner();
+    const { rows: [{ definition }] } = await database.query("select pg_get_functiondef('private.settle_missed_days(uuid)'::regprocedure) as definition");
+    assert.doesNotMatch(definition, /for\s+(?:no\s+key\s+)?update/i);
+    assert.match(definition, /pg_advisory_xact_lock/);
+    assert.equal((await record()).checkIn.reward, 10);
+  });
+
   test('a never-checked-in user has no missed days, no penalties and a first reward of ten', async () => {
     assert.deepEqual(await status(), { balance: 0, streak: 0, checkedIn: false,
       canMakeup: false, makeupCost: 200, reward: 10 });
