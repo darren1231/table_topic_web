@@ -9,6 +9,40 @@ const now = '2026-11-10T04:00:00.000Z';
 const answer = 'I am agree because people is kind. For example, we share books. Finally, I feel happy.';
 const snapshot = b => JSON.parse(b.run('JSON.stringify(saved)'));
 
+test('clear answer is disabled for empty text and enabled for typed or transcribed text', t => {
+  const b = guest(t);
+  b.run('updateCharCount()');
+  assert.equal(b.get('#clearAnswerButton')?.disabled, true);
+  b.get('#transcript').value = answer;
+  b.run('updateCharCount()');
+  assert.equal(b.get('#clearAnswerButton').disabled, false);
+});
+
+test('clearing an analyzed answer requires confirmation and preserves history and feedback', async t => {
+  const b = guest(t);
+  await complete(b);
+  const before = snapshot(b);
+  const feedback = b.get('#coachReport').innerHTML;
+  b.run('state.seconds = 42; state.audioChunks = ["recorded audio"];');
+  b.context.confirm = message => {
+    assert.equal(message, 'Clear this answer? Your analyzed results will remain in your practice history.');
+    return false;
+  };
+  b.run('clearAnswer()');
+  assert.equal(b.get('#transcript').value, answer);
+  assert.equal(b.run('state.seconds'), 42);
+  assert.equal(b.run('state.audioChunks.length'), 1);
+  b.context.confirm = () => true;
+  b.run('clearAnswer()');
+  assert.equal(b.get('#transcript').value, '');
+  assert.equal(b.get('#clearAnswerButton').disabled, true);
+  assert.equal(b.run('state.seconds'), 0);
+  assert.equal(b.run('state.audioChunks.length'), 0);
+  assert.deepEqual(snapshot(b), before);
+  assert.equal(b.get('#coachReport').innerHTML, feedback);
+  assert.equal(b.get('#feedbackPanel').classList.contains('hidden'), false);
+});
+
 function guest(t, options = {}) {
   const calls = [];
   const dom = practiceDom();
