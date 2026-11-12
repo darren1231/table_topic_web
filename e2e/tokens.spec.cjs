@@ -16,12 +16,13 @@ test('token panel and new guide section work in four languages with today and to
   await prepare(page);
   for (const locale of ['zh-TW', 'en-US', 'ja-JP', 'ar']) {
     const messages = JSON.parse(fs.readFileSync(path.join(__dirname, '../public/locales', `${locale}.json`), 'utf8')).messages;
-    const count = value => new Intl.NumberFormat(locale).format(value);
+    // Use the browser's locale data, which can differ from Node's ICU data.
+    const counts = await page.evaluate(locale => [80, 100].map(value => new Intl.NumberFormat(locale).format(value)), locale);
     sandbox.mockToken('status', { ...state, balance: 1240, streak: 4, canMakeup: false, reward: 80 });
     await page.locator('#languageSelect').selectOption(locale);
     await page.locator('#tokenHeader').click();
     await expect(page.locator('#tokenTitle')).toHaveText(messages['tokens.title']);
-    await expect(page.locator('#tokenRewardLine')).toHaveText(messages['tokens.todayReward'].replace('{count}', count(80)));
+    await expect(page.locator('#tokenRewardLine')).toHaveText(messages['tokens.todayReward'].replace('{count}', counts[0]));
     await expect(page.locator('#tokenToday')).toHaveText(messages['tokens.notCheckedIn']);
     await expect(page.locator('#tokenMakeupButton')).not.toBeVisible();
     await expect(page.locator('#tokenExchangeButton')).toHaveText(messages['tokens.exchange']);
@@ -29,7 +30,7 @@ test('token panel and new guide section work in four languages with today and to
     await page.locator('#tokenClose').click();
     sandbox.mockToken('status', { ...state, balance: 1320, streak: 5, checkedIn: true, canMakeup: false, reward: 0 });
     await page.locator('#tokenHeader').click();
-    await expect(page.locator('#tokenRewardLine')).toHaveText(messages['tokens.tomorrowReward'].replace('{count}', count(100)));
+    await expect(page.locator('#tokenRewardLine')).toHaveText(messages['tokens.tomorrowReward'].replace('{count}', counts[1]));
     await expect(page.locator('#tokenToday')).toHaveText(messages['tokens.checkedIn']);
     await page.locator('#tokenClose').click();
     await page.locator('#guideEntry').click();
