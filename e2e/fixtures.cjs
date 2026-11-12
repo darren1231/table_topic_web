@@ -65,11 +65,14 @@ const test = base.extend({
     const sandbox = {
       calls,
       mockApi(name, body, status = 200) { api.set(`/api/ai/${name}`, { body, status }); },
+      mockToken(name, body, status = 200) { api.set(`/api/tokens/${name}`, { body, status }); },
+      handleToken(name, handler) { api.set(`/api/tokens/${name}`, handler); },
       handleApi(name, handler) { api.set(`/api/ai/${name}`, handler); },
       mockRpc(name, body, status = 200) { rpc.set(name, { body, status }); },
       allowConsoleError(pattern) { allowedErrors.push(pattern); },
     };
     sandbox.mockApi('balance', { spent: 0, credit: 1, balance: 1, exhausted: false });
+    sandbox.mockToken('status', { balance: 0, streak: 0, checkedIn: false, canMakeup: false, makeupCost: 200, reward: 10, exchangeRate: 0.01 });
     await context.addInitScript(() => {
       window.SUPABASE_CONFIG = { url: 'https://e2e.supabase.co', anonKey: 'fake-publishable-key' };
     });

@@ -71,7 +71,7 @@ function browser({ storageEntries = [], now, createElement = tag => new Element(
   return { context, nodes, storage, get, run: (source, options) => vm.runInContext(source, context, options) };
 }
 
-function app({ signedIn = true, fetch = async () => { throw new Error('Unexpected test fetch'); }, balanceFetch, enableByok = false, ...browserOptions } = {}) {
+function app({ signedIn = true, fetch = async () => { throw new Error('Unexpected test fetch'); }, balanceFetch, tokenFetch, enableByok = false, ...browserOptions } = {}) {
   const b = browser(browserOptions);
   b.storage.set('tableTopicsAIProjects.v1', JSON.stringify({ activeId: 'legacy', projects: [
     { id: 'legacy', name: 'Legacy project', provider: 'openai', apiKey: 'legacy-placeholder', endpoint: 'https://legacy.example.invalid' },
@@ -84,9 +84,16 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
     scheduleSync() {},
   };
   b.context.SystemAI = require('../../public/system-ai.js');
+  b.context.TokenUI = require('../../public/token-ui.js');
   b.context.UsageStats = require('../../public/usage-stats.js');
   b.balanceCalls = [];
+  b.tokenCalls = [];
   b.context.fetch = (url, init) => {
+    if (url.startsWith('/api/tokens/')) {
+      b.tokenCalls.push({ url, init });
+      return tokenFetch ? tokenFetch(url, init) : Promise.resolve(Response.json({ balance: 0, streak: 0,
+        checkedIn: false, canMakeup: false, makeupCost: 200, reward: 10, exchangeRate: 0.01 }));
+    }
     if (url === '/api/ai/balance') {
       b.balanceCalls.push(init);
       return balanceFetch ? balanceFetch(url, init) : Promise.resolve(Response.json({ spent: 0, credit: 1, balance: 1, exhausted: false }));

@@ -26,7 +26,7 @@ async function handleTokens({ request, env, fetch }, action) {
     apikey: config.supabase.publishableKey, Authorization: authorization, 'Content-Type': 'application/json',
   } });
   try {
-    if (action === 'status') return json(await timing.measure('status', async () => tokenStatus(await (await rpc('get_my_token_status')).json())));
+    if (action === 'status') return json({ ...await timing.measure('status', async () => tokenStatus(await (await rpc('get_my_token_status')).json())), exchangeRate: config.exchangeRate });
     if (action === 'makeup') return json(await timing.measure('makeup', async () => tokenStatus(await (await rpc('makeup_yesterday')).json())));
     await timing.measure('status', async () => tokenStatus(await (await rpc('get_my_token_status')).json()));
     let userId;

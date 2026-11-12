@@ -33,13 +33,17 @@ test('token status authenticates through one RPC and returns only status data wi
   const f = fixture();
   const response = await f.run('status');
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), status);
+  assert.deepEqual(await response.json(), { ...status, exchangeRate: 0.01 });
   assert.equal(f.calls.length, 1);
   assert.ok(f.calls[0].url.endsWith('/rpc/get_my_token_status'));
   assert.deepEqual(f.calls[0].body, {});
   assert.equal(new Headers(f.calls[0].init.headers).get('Authorization'), fakeAuthorization);
   assert.equal(new Headers(f.calls[0].init.headers).get('apikey'), env.SUPABASE_PUBLISHABLE_KEY);
   assertTiming(response, ['status', 'total']);
+  const configured = await fixture().run('status', { overrides: { TOKEN_EXCHANGE_USD_PER_1000: '0.025' } });
+  const data = await configured.json();
+  assert.equal(data.exchangeRate, 0.025);
+  assert.ok(!JSON.stringify(data).includes(fakeSigningSecret));
 });
 
 test('makeup calls only yesterday RPC with no user-controlled date and returns the new status', async () => {
