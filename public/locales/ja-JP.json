@@ -497,7 +497,11 @@
     "guide.section12.question4": "音声ファイルが4 MBを超えた場合は？",
     "guide.section12.answer4": "1区間の録音が長すぎます。ブラウザのリアルタイム認識を使うか、短い区間に分けて録音してください。",
     "guide.section12.question5": "サイトの更新内容を知りたい場合は？",
-    "guide.section12.answer5": "設定メニューの「バージョン履歴」を開いてください。"
+    "guide.section12.answer5": "設定メニューの「バージョン履歴」を開いてください。",
+    "answer.clear": "回答をクリア",
+    "answer.clearConfirm": "今回の回答を消去しますか？分析済みの結果は練習履歴に残ります。",
+    "guide.section12.question6": "もう一度回答したいときは？",
+    "guide.section12.answer6": "回答欄の横にある「回答をクリア」を押してください。"
   },
   "placeholders": {
     "placeholder.001": "例：旅行、勇気、最近学んだこと…",

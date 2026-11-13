@@ -4,6 +4,37 @@ const { answer, prepare, complete, openMenu } = require('./flows.cjs');
 
 test.beforeEach(async ({ guestPage }) => prepare(guestPage));
 
+test('clearing an analyzed answer keeps feedback and saved practice history', async ({ guestPage: page }) => {
+  await complete(page);
+  const clear = page.locator('#clearAnswerButton');
+  await expect(clear).toHaveText('Clear answer');
+  await expect(clear).toBeEnabled();
+  page.once('dialog', dialog => dialog.dismiss());
+  await clear.click();
+  await expect(page.locator('#transcript')).toHaveValue(answer);
+  page.once('dialog', async dialog => {
+    expect(dialog.message()).toBe('Clear this answer? Your analyzed results will remain in your practice history.');
+    await dialog.accept();
+  });
+  await clear.click();
+  await expect(page.locator('#transcript')).toHaveValue('');
+  await expect(clear).toBeDisabled();
+  await expect(page.locator('#feedbackPanel')).toBeVisible();
+  await expect(page.locator('#historyList .history-item')).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator('#historyList .history-item')).toHaveCount(1);
+  await page.locator('[data-nav="home"]').first().click();
+  await page.locator('[data-practice-flow="manuscript"]').click();
+  await expect(clear).toBeVisible();
+  await expect(clear).toBeDisabled();
+  await page.locator('#transcript').fill('A new speech draft');
+  await expect(clear).toBeEnabled();
+  page.once('dialog', dialog => dialog.accept());
+  await clear.click();
+  await expect(page.locator('#transcript')).toHaveValue('');
+  await expect(page.locator('#historyList .history-item')).toHaveCount(1);
+});
+
 test('guest completes a built-in practice and receives scores and feedback', async ({ guestPage: page, sandbox }) => {
   await complete(page);
   await expect(page.locator('#overallScore')).toHaveText('72');

@@ -36,6 +36,7 @@ let speechSettings = JSON.parse(localStorage.getItem(SPEECH_SETTINGS_KEY) || 'nu
 function applyUiLanguage() {
   I18n.setLocale(state.language);
   I18n.apply();
+  updateCharCount();
   if (systemUiReady) refreshSystemAiUi();
 }
 function ui(zh, en) { return I18n.fromSource(zh, en); }
@@ -862,6 +863,7 @@ function stopRecording() {
   updateRecorderControls();
 }
 function resumeRecording() { return startRecording(); }
+function clearAnswer() { if (confirm(t('answer.clearConfirm'))) resetRecording(); }
 function resetRecording() {
   discardApiRecording();
   WakeLock.release();
@@ -884,7 +886,7 @@ function updateRecorderControls() {
   $('#stopRecordButton').onclick = stopRecording;
   renderApiInterrupted();
 }
-function updateCharCount() { const n=$('#transcript').value.trim().length; $('#charCount').textContent = state.language==='en-US'?`${n} characters`:`${n} 字`; }
+function updateCharCount() { $('#clearAnswerButton').textContent = t('answer.clear'); $('#clearAnswerButton').disabled = !$('#transcript').value.trim(); const n=$('#transcript').value.trim().length; $('#charCount').textContent = state.language==='en-US'?`${n} characters`:`${n} 字`; }
 
 async function analyzeAnswer() {
   const text = $('#transcript').value.trim();
@@ -936,7 +938,7 @@ function renderGuide(){
     const item=document.createElement('li'),button=text('button',`${prefix}.title`);button.type='button';button.className='text-button';button.textContent=`${number}. ${button.textContent}`;button.onclick=()=>section.scrollIntoView({behavior:'smooth',block:'start'});item.append(button);contents.append(item);
     const list=(from,to,tag='ul')=>{const node=document.createElement(tag);for(let i=from;i<=to;i++)node.append(text('li',`${prefix}.item${i}`));section.append(node);};
     if(number===5){section.append(text('p',`${prefix}.intro`));list(1,2);section.append(text('p',`${prefix}.tips`));list(3,6);}
-    else if(number===12){const questions=document.createElement('dl');for(let i=1;i<=5;i++)questions.append(text('dt',`${prefix}.question${i}`),text('dd',`${prefix}.answer${i}`));section.append(questions);}
+    else if(number===12){const questions=document.createElement('dl');for(let i=1;i<=6;i++)questions.append(text('dt',`${prefix}.question${i}`),text('dd',`${prefix}.answer${i}`));section.append(questions);}
     else list(1,lengths[number-1],number===2?'ol':'ul');
     sections.append(section);
   }
@@ -1047,7 +1049,7 @@ function init() {
   $('#topicInput').onkeydown = e => { if (e.key === 'Enter') generatePractice(); };
   $('#randomTopicButton').onclick = () => { const topics = CONFIG.languages[state.language].topics; $('#topicInput').value = topics[Math.floor(Math.random() * topics.length)]; };
   $('#languageSelect').onchange = e => changePracticeLanguage(e.target.value,{announce:true});
-  $('#resumeRecordButton').onclick = resumeRecording; $('#pauseRecordButton').onclick = pauseRecording; $('#restartRecordButton').onclick = resetRecording;
+  $('#resumeRecordButton').onclick = resumeRecording; $('#pauseRecordButton').onclick = pauseRecording; $('#restartRecordButton').onclick = resetRecording; $('#clearAnswerButton').onclick = clearAnswer;
   $('#transcript').oninput = updateCharCount;$('#manuscriptTitleInput').oninput=e=>{state.modeDrafts.manuscript.title=e.target.value;}; $('#analyzeButton').onclick = analyzeAnswer; updateRecorderControls();
   $('#retryButton').onclick = () => { $('#feedbackPanel').classList.add('hidden'); $('#transcript').value = ''; updateCharCount(); $('#practicePanel').scrollIntoView({behavior:'smooth'}); };
   $('#nextButton').onclick = nextQuestion;

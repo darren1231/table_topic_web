@@ -491,7 +491,11 @@
     "guide.section12.question4": "出現「音檔超過 4 MB」？",
     "guide.section12.answer4": "單段錄音太長，請改用瀏覽器即時辨識，或分段錄製。",
     "guide.section12.question5": "想看這個網站更新了什麼？",
-    "guide.section12.answer5": "在設定選單打開「版本紀錄」。"
+    "guide.section12.answer5": "在設定選單打開「版本紀錄」。",
+    "answer.clear": "清空內容",
+    "answer.clearConfirm": "確定要清空這次的回答嗎？已分析的結果仍會保留在練習紀錄中。",
+    "guide.section12.question6": "想重新作答？",
+    "guide.section12.answer6": "按回答框旁的「清空內容」。"
   },
   "placeholders": {
     "placeholder.001": "例如：旅行、勇氣、最近學到的事⋯",

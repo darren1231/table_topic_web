@@ -491,7 +491,11 @@
     "guide.section12.question4": "Does the audio exceed 4 MB?",
     "guide.section12.answer4": "The segment is too long. Use Browser live recognition or record in shorter segments.",
     "guide.section12.question5": "Want to see what changed on this website?",
-    "guide.section12.answer5": "Open “Version history” in the settings menu."
+    "guide.section12.answer5": "Open “Version history” in the settings menu.",
+    "answer.clear": "Clear answer",
+    "answer.clearConfirm": "Clear this answer? Your analyzed results will remain in your practice history.",
+    "guide.section12.question6": "Want to try answering again?",
+    "guide.section12.answer6": "Click “Clear answer” next to the answer box."
   },
   "placeholders": {
     "placeholder.001": "For example: travel, courage, something I learned…",
