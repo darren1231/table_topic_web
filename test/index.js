@@ -23,6 +23,8 @@ require('./ai-balance.test.cjs');
 require('./usage-stats.test.cjs');
 require('./admin.test.cjs');
 require('./admin-feedback.test.cjs');
+require('./feedback-issue-draft.test.cjs');
+require('./feedback-issue.test.cjs');
 require('./system-ai.test.cjs');
 require('./system-ai-integration.test.cjs');
 require('./wake-lock.test.cjs');

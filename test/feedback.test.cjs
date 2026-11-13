@@ -113,6 +113,7 @@ describe('user feedback migration', { concurrency: false }, () => {
   test('A times out, B takes over, and stale A finish/cancel cannot affect B', async () => {
     const id = await submit();
     const a = await begin(id);
+    assert.equal(new Date(a.created_at).toISOString(), '2026-11-13T04:00:00.000Z');
     assert.match(a.issue_pending_token, /^[0-9a-f-]{36}$/);
     assert.equal(a.email, 'member@example.invalid');
     assert.equal(a.type, 'bug'); assert.deepEqual(a.context, context);

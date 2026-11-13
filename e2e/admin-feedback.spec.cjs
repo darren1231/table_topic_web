@@ -82,9 +82,11 @@ test('admin saves and clears a single note, sees literal technical details and o
   await page.locator('#adminFeedbackNote').fill(''); await page.locator('#adminFeedbackSaveNote').click();
   await expect(page.locator('#adminFeedbackNote')).toHaveValue('');
   await expect.poll(() => JSON.parse(sandbox.calls.filter(call => call.path.endsWith('/admin_update_feedback')).at(-1).body).p_note).toBe('');
-  await expect(page.locator('#adminFeedbackIssue')).toBeDisabled();
+  await expect(page.locator('#adminFeedbackIssue')).toBeEnabled();
   const before = sandbox.calls.length; await page.locator('#adminFeedbackIssue').evaluate(button => button.click());
+  await expect(page.locator('#feedbackIssueDialog')).toBeVisible();
   expect(sandbox.calls).toHaveLength(before);
+  await page.locator('#feedbackIssueClose').click();
   expect(sandbox.calls.filter(call => call.path.includes('begin_issue') || call.path.includes('/api/feedback/'))).toHaveLength(0);
 });
 
@@ -107,7 +109,7 @@ test('feedback section translates in four languages and denied feedback permissi
     await expect(page.locator('#adminFeedbackTitle')).toHaveText(m['feedback.title']);
     await expect(page.locator('#adminFeedbackUrgent')).toHaveText(m['adminFeedback.markUrgent']);
     await expect(page.locator('#adminFeedbackSaveNote')).toHaveText(m['adminFeedback.saveNote']);
-    await expect(page.locator('#adminFeedbackIssueHint')).toHaveText(m['adminFeedback.nextStep']);
+    await expect(page.locator('#adminFeedbackIssueHint')).toHaveText(m['feedbackIssue.openHint']);
     await expect(page.locator('#adminFeedbackSection')).not.toContainText('adminFeedback.');
   }
   sandbox.mockRpc('admin_list_feedback', { code: '42501', message: 'Admin access required' }, 403);

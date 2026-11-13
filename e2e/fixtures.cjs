@@ -73,6 +73,8 @@ const test = base.extend({
       handleApi(name, handler) { api.set(`/api/ai/${name}`, handler); },
       mockRpc(name, body, status = 200) { rpc.set(name, { body, status }); },
       handleRpc(name, handler) { rpc.set(name, handler); },
+      mockFeedback(name, body, status = 200) { api.set(`/api/feedback/${name}`, { body, status }); },
+      handleFeedback(name, handler) { api.set(`/api/feedback/${name}`, handler); },
       allowConsoleError(pattern) { allowedErrors.push(pattern); },
     };
     sandbox.mockApi('balance', { spent: 0, credit: 1, balance: 1, exhausted: false });

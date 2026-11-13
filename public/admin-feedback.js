@@ -1,14 +1,15 @@
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.AdminFeedbackUI = factory();
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  function createFeedbackAdmin({ client, document, t, getLocale, onDenied }) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./feedback-issue-draft.js'));
+  else root.AdminFeedbackUI = factory(root.FeedbackIssueDraft);
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (IssueDraft) {
+  function createFeedbackAdmin({ client, document, t, getLocale, onDenied, fetch = globalThis.fetch }) {
     const byId = id => document.getElementById(id);
     const priorities = { urgent: 'adminFeedback.urgent', normal: 'adminFeedback.normal', later: 'adminFeedback.later' };
     const types = { bug: 'feedback.bug', suggestion: 'feedback.suggestion', other: 'feedback.other' };
     const statuses = { new: 'adminFeedback.new', triaged: 'adminFeedback.triaged', issue_created: 'adminFeedback.issueCreated', done: 'adminFeedback.done', wont_fix: 'adminFeedback.declined' };
     let records = [], currentId = null, noteId = null, authorized = false, busy = false, revision = 0, messageKey = '';
     const selectedIds = new Set();
+    let draftId = null, issueBusy = false, issueMessage = '', labelNodes = [];
     const actions = { Urgent: ['urgent', null], Normal: ['normal', null], Later: ['later', null], Decline: [null, 'wont_fix'], Done: [null, 'done'] };
     const cell = text => { const node = document.createElement('td'); node.textContent = text; return node; };
     function buttons() {
@@ -34,8 +35,8 @@
       noteId = currentId;
       byId('adminFeedbackDetailTitle').textContent = item ? `#${item.id} · ${String(item.email ?? '')}` : '';
       byId('adminFeedbackDetailStatus').textContent = item ? t(statuses[item.status] || 'adminFeedback.new') : '';
-      byId('adminFeedbackIssue').disabled = true;
-      byId('adminFeedbackIssueHint').textContent = t('adminFeedback.nextStep');
+      byId('adminFeedbackIssue').disabled = !authorized || busy || !item || Boolean(item.issue_number);
+      byId('adminFeedbackIssueHint').textContent = t(item?.issue_number ? 'feedbackIssue.alreadyCreated' : 'feedbackIssue.openHint');
       byId('adminFeedbackContext').replaceChildren();
       if (item?.context) for (const key of ['view', 'userAgent', 'language', 'appVersion', 'submittedAt']) {
         if (typeof item.context[key] !== 'string') continue;
@@ -64,7 +65,7 @@
         return row;
       });
       if (authorized && !rows.length) { const row = document.createElement('tr'), empty = cell(t('adminFeedback.empty')); empty.colSpan = 8; row.append(empty); rows.push(row); }
-      byId('adminFeedbackRows').replaceChildren(...rows); detail();
+      byId('adminFeedbackRows').replaceChildren(...rows); detail(); renderIssue();
     }
     function issueLink(item) {
       const node = cell('—'), value = item.issue_url;
@@ -76,7 +77,74 @@
     }
     function setRecords(next) { records = next; authorized = true; selectedIds.clear(); noteId = null; render(); }
     function clear() {
+      draftId = null; issueMessage = ''; issueBusy = false; labelNodes = []; byId('feedbackIssueDialog').close();
+      byId('feedbackIssueTitleInput').value = ''; byId('feedbackIssueBodyInput').value = ''; byId('feedbackIssueLabels').replaceChildren();
       revision++; authorized = false; busy = false; records = []; selectedIds.clear(); currentId = null; noteId = null; messageKey = ''; render();
+    }
+    function labelText(value) {
+      const typeKeys = { feedback: 'feedback.title', bug: 'feedback.bug', enhancement: 'feedback.suggestion', question: 'feedback.other' };
+      return typeKeys[value] ? t(typeKeys[value]) : `${t('adminFeedback.priority')}：${t(priorities[value.split(': ')[1]])}`;
+    }
+    function renderIssue() {
+      byId('feedbackIssueClose').textContent = '×'; byId('feedbackIssueClose').setAttribute('aria-label', t('feedbackIssue.close'));
+      byId('feedbackIssueSubmit').textContent = t(issueBusy ? 'feedbackIssue.creating' : 'feedbackIssue.confirm');
+      byId('feedbackIssueSubmit').disabled = !authorized || busy || draftId === null;
+      byId('feedbackIssueClose').disabled = issueBusy;
+      byId('feedbackIssueTitleInput').disabled = issueBusy; byId('feedbackIssueBodyInput').disabled = issueBusy;
+      byId('feedbackIssueMessage').textContent = issueMessage ? t(issueMessage) : '';
+      for (const { checkbox, span } of labelNodes) { checkbox.disabled = issueBusy; span.textContent = labelText(checkbox.value); }
+    }
+    function openIssue() {
+      const item = records.find(record => String(record.id) === currentId);
+      if (!authorized || busy || !item || item.issue_number) return;
+      const draft = IssueDraft.buildIssueDraft(item, { t });
+      draftId = currentId; issueMessage = '';
+      byId('feedbackIssueTitleInput').value = draft.title; byId('feedbackIssueBodyInput').value = draft.body;
+      labelNodes = IssueDraft.LABELS.map(value => {
+        const label = document.createElement('label'), checkbox = document.createElement('input'), span = document.createElement('span');
+        checkbox.type = 'checkbox'; checkbox.value = value; checkbox.checked = draft.labels.includes(value); label.append(checkbox, span);
+        return { label, checkbox, span };
+      });
+      byId('feedbackIssueLabels').replaceChildren(...labelNodes.map(item => item.label)); renderIssue(); byId('feedbackIssueDialog').showModal();
+    }
+    async function createIssue() {
+      if (!authorized || busy || draftId === null) return;
+      const item = records.find(record => String(record.id) === draftId);
+      if (!item) return;
+      const draft = { id: item.id, title: byId('feedbackIssueTitleInput').value, body: byId('feedbackIssueBodyInput').value,
+        labels: labelNodes.filter(item => item.checkbox.checked).map(item => item.checkbox.value) };
+      const errorKeys = { invalid_title: 'invalidTitle', invalid_body: 'invalidBody', invalid_labels: 'invalidLabels', missing_disclaimer: 'missingDisclaimer',
+        feedback_contains_email: 'containsEmail', reserved_issue_marker: 'reservedMarker', github_not_configured: 'notConfigured',
+        configuration_error: 'notConfigured', feedback_issue_pending: 'pending', feedback_issue_exists: 'alreadyCreated',
+        feedback_issue_token_mismatch: 'retry', issue_record_failed: 'retry', unauthorized: 'signInRequired' };
+      const invalid = IssueDraft.validateIssueDraft(draft, item.email || '');
+      if (invalid) { issueMessage = `feedbackIssue.${errorKeys[invalid]}`; renderIssue(); return; }
+      const ticket = revision;
+      busy = true; issueBusy = true; issueMessage = ''; render();
+      let linked = false;
+      try {
+        const session = await client.auth.getSession();
+        if (ticket !== revision) return;
+        if (session.error || !session.data?.session?.user || !session.data.session.access_token) { issueMessage = 'feedbackIssue.signInRequired'; return; }
+        const response = await fetch('/api/feedback/issue', { method: 'POST', headers: {
+          Authorization: `Bearer ${session.data.session.access_token}`, 'Content-Type': 'application/json',
+        }, body: JSON.stringify(draft) });
+        if (ticket !== revision) return;
+        const result = await response.json();
+        if (ticket !== revision) return;
+        if (response.status === 403) { clear(); onDenied({ code: '42501' }); return; }
+        if (!response.ok) { issueMessage = `feedbackIssue.${errorKeys[result?.error] || 'failed'}`; return; }
+        if (!Number.isInteger(result?.number) || result.number <= 0 || typeof result.reused !== 'boolean') throw new Error('Invalid issue result');
+        byId('feedbackIssueDialog').close(); draftId = null;
+        linked = true;
+        messageKey = result.reused ? 'feedbackIssue.reused' : 'feedbackIssue.created';
+        const refreshed = await client.rpc('admin_list_feedback');
+        if (ticket !== revision) return;
+        if (refreshed.error?.code === '42501') { clear(); onDenied(refreshed.error); return; }
+        if (refreshed.error || !Array.isArray(refreshed.data)) { messageKey = 'adminFeedback.reloadFailed'; return; }
+        setRecords(refreshed.data);
+      } catch { if (ticket === revision) { if (linked) messageKey = 'adminFeedback.reloadFailed'; else issueMessage = 'feedbackIssue.failed'; } }
+      finally { if (ticket === revision) { busy = false; issueBusy = false; render(); } }
     }
     async function update(ids, priority, status, note) {
       if (!authorized || busy || !ids.length) return;
@@ -102,6 +170,10 @@
       } finally { if (ticket === revision) { busy = false; render(); } }
     }
     function initialize() {
+      byId('adminFeedbackIssue').onclick = openIssue;
+      byId('feedbackIssueForm').onsubmit = event => { event.preventDefault(); return createIssue(); };
+      byId('feedbackIssueClose').onclick = () => { if (!issueBusy) byId('feedbackIssueDialog').close(); };
+      byId('feedbackIssueDialog').oncancel = event => { if (issueBusy) event.preventDefault(); };
       for (const id of ['Status', 'Type', 'Priority']) byId(`adminFeedback${id}`).onchange = () => { selectedIds.clear(); currentId = null; render(); };
       for (const [action, [priority, status]] of Object.entries(actions)) byId(`adminFeedback${action}`).onclick = () =>
         update(records.filter(item => selectedIds.has(String(item.id))).map(item => item.id), priority, status, null);

@@ -98,11 +98,25 @@
       </section>
     </main>
   </div>
+  <dialog class="app-dialog" id="feedbackIssueDialog" aria-labelledby="feedbackIssueTitle">
+    <form class="dialog-card" id="feedbackIssueForm" novalidate>
+      <div class="dialog-head"><h2 id="feedbackIssueTitle" data-admin-i18n="adminFeedback.createIssue"></h2><button type="button" class="dialog-close" id="feedbackIssueClose" aria-label=""></button></div>
+      <p class="security-note" data-admin-i18n="feedbackIssue.publicWarning"></p>
+      <div class="settings-grid">
+        <label class="full-field" for="feedbackIssueTitleInput"><span data-admin-i18n="feedbackIssue.titleLabel"></span><input id="feedbackIssueTitleInput" required></label>
+        <label class="full-field" for="feedbackIssueBodyInput"><span data-admin-i18n="feedbackIssue.bodyLabel"></span><textarea id="feedbackIssueBodyInput" rows="14" required></textarea></label>
+      </div>
+      <fieldset class="feedback-issue-labels"><legend data-admin-i18n="feedbackIssue.labelsLabel"></legend><div id="feedbackIssueLabels"></div></fieldset>
+      <p id="feedbackIssueMessage" role="status" aria-live="polite"></p>
+      <div class="dialog-actions"><button type="submit" class="primary" id="feedbackIssueSubmit"></button></div>
+    </form>
+  </dialog>
   <script src="html-utils.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
   <script src="supabase-config.js" defer></script>
   <script src="i18n.js" defer></script>
   <script src="usage-stats.js" defer></script>
+  <script src="feedback-issue-draft.js" defer></script>
   <script src="admin-feedback.js" defer></script>
   <script src="admin.js" defer></script>
 </body>

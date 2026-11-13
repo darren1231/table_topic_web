@@ -11,22 +11,23 @@ const records = [
     email: 'bob@example.invalid', context: null, admin_note: '', issue_number: 9, issue_url: 'https://github.com/example/project/issues/9' },
 ];
 
-function fixture({ rpc } = {}) {
+function fixture({ rpc, issueFetch } = {}) {
   const html = fs.readFileSync(path.join(publicDir, 'admin.html'), 'utf8');
   const nodes = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(match => [match[1], new Element()]));
-  const calls = [], denied = [];
-  const client = { rpc: async (name, params) => {
+  const calls = [], denied = [], issueCalls = [];
+  const client = { auth: { getSession: async () => ({ data: { session: { user: { id: 'FAKE-admin' }, access_token: 'FAKE-admin-token' } } }) }, rpc: async (name, params) => {
     calls.push({ name, params });
     return rpc ? rpc(name, params) : { data: name === 'admin_list_feedback' ? structuredClone(records) : 1 };
   } };
   const controller = require('../public/admin-feedback.js').createFeedbackAdmin({ client,
     document: { getElementById: id => nodes.get(id), createElement: tag => new Element(tag) },
-    t: key => key, getLocale: () => 'en-US', onDenied: error => denied.push(error) });
+    t: key => key, getLocale: () => 'en-US', onDenied: error => denied.push(error),
+    fetch: async (url, init) => { issueCalls.push({ url, init }); return issueFetch ? issueFetch(url, init) : Response.json({ number: 42, url: 'https://github.com/example/project/issues/42', reused: false }); } });
   controller.initialize();
-  return { nodes, calls, denied, controller, get: id => nodes.get(id) };
+  return { nodes, calls, denied, issueCalls, controller, get: id => nodes.get(id) };
 }
 
-test('feedback admin renders the list with Unicode summaries and inert issue creation', () => {
+test('feedback admin renders the list with Unicode summaries and opens an editable issue draft without posting', () => {
   const f = fixture(); f.controller.setRecords(structuredClone(records));
   const rows = f.get('adminFeedbackRows').children;
   assert.equal(rows.length, 2);
@@ -36,10 +37,63 @@ test('feedback admin renders the list with Unicode summaries and inert issue cre
   rows[0].children[4].children[0].click();
   assert.equal(f.get('adminFeedbackBody').textContent, records[0].message);
   assert.equal(f.get('adminFeedbackNote').value, 'Existing note');
-  assert.equal(f.get('adminFeedbackIssue').disabled, true);
-  assert.equal(f.get('adminFeedbackIssueHint').textContent, 'adminFeedback.nextStep');
+  assert.equal(f.get('adminFeedbackIssue').disabled, false);
   f.get('adminFeedbackIssue').click();
+  assert.equal(f.get('feedbackIssueDialog').open, true);
+  assert.equal(f.get('feedbackIssueTitleInput').value, '😀'.repeat(45));
+  assert.ok(f.get('feedbackIssueBodyInput').value.includes('以下為使用者回饋原文'));
+  assert.deepEqual(f.issueCalls, []);
   assert.deepEqual(f.calls, []);
+});
+
+test('confirmed issue sends the edited draft with latest access token then refreshes the list', async () => {
+  const updated = [{ ...records[0], issue_number: 42, issue_url: 'https://github.com/example/project/issues/42', status: 'issue_created' }];
+  const f = fixture({ rpc: async () => ({ data: updated }) }); f.controller.setRecords(structuredClone(records));
+  f.get('adminFeedbackRows').children[0].children[4].children[0].click(); f.get('adminFeedbackIssue').click();
+  f.get('feedbackIssueTitleInput').value = 'Edited title';
+  f.get('feedbackIssueBodyInput').value += '\nEdited summary';
+  await f.get('feedbackIssueForm').onsubmit({ preventDefault() {} });
+  assert.equal(f.issueCalls.length, 1); assert.equal(f.issueCalls[0].url, '/api/feedback/issue');
+  assert.equal(new Headers(f.issueCalls[0].init.headers).get('Authorization'), 'Bearer FAKE-admin-token');
+  const body = JSON.parse(f.issueCalls[0].init.body); assert.equal(body.id, 11); assert.equal(body.title, 'Edited title');
+  assert.ok(body.body.endsWith('Edited summary')); assert.deepEqual(body.labels, ['feedback', 'bug']);
+  assert.equal(f.get('feedbackIssueDialog').open, false); assert.equal(f.get('adminFeedbackIssue').disabled, true);
+  assert.equal(f.get('adminFeedbackDetailStatus').textContent, 'adminFeedback.issueCreated');
+  assert.deepEqual(f.calls.map(call => call.name), ['admin_list_feedback']);
+});
+
+test('issue errors keep the editable draft and missing GitHub configuration has a specific message', async () => {
+  for (const [error, expected] of [['github_not_configured', 'notConfigured'], ['feedback_contains_email', 'containsEmail'],
+    ['feedback_issue_pending', 'pending'], ['issue_record_failed', 'retry'], ['github_error', 'failed']]) {
+    const f = fixture({ issueFetch: async () => Response.json({ error, message: 'PRIVATE RAW ERROR' }, { status: 503 }) });
+    f.controller.setRecords(structuredClone(records)); f.get('adminFeedbackRows').children[0].children[4].children[0].click(); f.get('adminFeedbackIssue').click();
+    const body = f.get('feedbackIssueBodyInput').value;
+    await f.get('feedbackIssueForm').onsubmit({ preventDefault() {} });
+    assert.equal(f.get('feedbackIssueDialog').open, true); assert.equal(f.get('feedbackIssueBodyInput').value, body);
+    assert.equal(f.get('feedbackIssueMessage').textContent, `feedbackIssue.${expected}`);
+  }
+});
+
+test('draft validation runs before posting and sign-out discards an in-flight issue response', async () => {
+  const f = fixture(); f.controller.setRecords(structuredClone(records)); f.get('adminFeedbackRows').children[0].children[4].children[0].click(); f.get('adminFeedbackIssue').click();
+  f.get('feedbackIssueTitleInput').value = 'ALICE@EXAMPLE.INVALID'; await f.get('feedbackIssueForm').onsubmit({ preventDefault() {} });
+  assert.equal(f.get('feedbackIssueMessage').textContent, 'feedbackIssue.containsEmail'); assert.equal(f.issueCalls.length, 0);
+  let finish;
+  const g = fixture({ issueFetch: async () => new Promise(done => { finish = done; }) });
+  g.controller.setRecords(structuredClone(records)); g.get('adminFeedbackRows').children[0].children[4].children[0].click(); g.get('adminFeedbackIssue').click();
+  const sending = g.get('feedbackIssueForm').onsubmit({ preventDefault() {} }); await new Promise(done => setImmediate(done));
+  await g.get('feedbackIssueForm').onsubmit({ preventDefault() {} }); assert.equal(g.issueCalls.length, 1);
+  g.controller.clear(); finish(Response.json({ number: 42, reused: false })); await sending;
+  assert.equal(g.get('feedbackIssueDialog').open, false); assert.equal(g.get('feedbackIssueBodyInput').value, '');
+  assert.equal(g.get('adminFeedbackRows').children.length, 0); assert.equal(g.calls.length, 0);
+});
+
+test('a reload outage after successful issue creation is shown on the main page', async () => {
+  const f = fixture({ rpc: async () => { throw new Error('FAKE offline'); } });
+  f.controller.setRecords(structuredClone(records)); f.get('adminFeedbackRows').children[0].children[4].children[0].click(); f.get('adminFeedbackIssue').click();
+  await f.get('feedbackIssueForm').onsubmit({ preventDefault() {} });
+  assert.equal(f.get('feedbackIssueDialog').open, false);
+  assert.equal(f.get('adminFeedbackMessage').textContent, 'adminFeedback.reloadFailed');
 });
 
 test('feedback filters combine status type and priority and clear hidden selections', () => {

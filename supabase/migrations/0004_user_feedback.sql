@@ -182,7 +182,7 @@ begin
     raise exception 'feedback_issue_pending' using errcode = '55000';
   end if;
   update public.feedback set issue_pending_at = v_now, issue_pending_token = v_token, updated_at = v_now where id = p_id;
-  return jsonb_build_object('id', v_feedback.id, 'type', v_feedback.type, 'message', v_feedback.message,
+  return jsonb_build_object('id', v_feedback.id, 'created_at', v_feedback.created_at, 'type', v_feedback.type, 'message', v_feedback.message,
     'context', v_feedback.context, 'priority', v_feedback.priority, 'email',
     (select account.email::text from auth.users as account where account.id = v_feedback.user_id),
     'issue_pending_token', v_token, 'issue_pending_at', v_now);
