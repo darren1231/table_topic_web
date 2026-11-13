@@ -85,6 +85,7 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
   };
   b.context.SystemAI = require('../../public/system-ai.js');
   b.context.TokenUI = require('../../public/token-ui.js');
+  b.context.FeedbackUI = require('../../public/feedback-ui.js');
   b.context.UsageStats = require('../../public/usage-stats.js');
   b.balanceCalls = [];
   b.tokenCalls = [];

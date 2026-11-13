@@ -23,6 +23,7 @@
         <div class="settings-menu-wrap">
           <button class="settings-button" id="settingsButton" type="button" title="設定" aria-haspopup="menu" aria-expanded="false" aria-controls="settingsMenu">⚙ <span>設定</span> <i aria-hidden="true">⌄</i></button>
           <div class="settings-menu hidden" id="settingsMenu" role="menu" aria-label="設定選單">
+            <button type="button" role="menuitem" id="feedbackButton"><span class="settings-menu-icon" aria-hidden="true">✉</span><span><strong id="feedbackMenuLabel"></strong></span><i aria-hidden="true">›</i></button>
             <button type="button" role="menuitem" id="openAiSettingsButton"><span class="settings-menu-icon">✦</span><span><strong>AI 練習設定</strong><small id="activeProjectLabel">內建教練</small></span><i>›</i></button>
             <button class="settings-storage-item" id="accountButton" type="button" role="menuitem" data-mode="local"><span class="settings-menu-icon">⌂</span><span><strong id="accountModeLabel">資料儲存方式</strong><small id="accountLabel">目前為本機模式</small></span><i>›</i></button>
             <button type="button" role="menuitem" id="backupButton"><span class="settings-menu-icon">⇅</span><span><strong>資料匯入與匯出</strong><small>備份、還原或移轉所有資料</small></span><i>›</i></button>
@@ -331,6 +332,24 @@
       <p id="tokenRules"></p>
     </div>
   </dialog>
+  <dialog class="app-dialog" id="feedbackDialog" aria-labelledby="feedbackTitle">
+    <div class="dialog-card feedback-card">
+      <div class="dialog-head"><h2 id="feedbackTitle"></h2><button type="button" class="dialog-close" id="feedbackClose">×</button></div>
+      <p id="feedbackMessage" role="status" aria-live="polite"></p>
+      <button type="button" class="secondary hidden" id="feedbackSignIn"></button>
+      <form id="feedbackForm" novalidate>
+        <div class="settings-grid">
+          <label class="full-field" for="feedbackType"><span id="feedbackTypeLabel"></span><select id="feedbackType"><option value="bug" id="feedbackBug"></option><option value="suggestion" id="feedbackSuggestion"></option><option value="other" id="feedbackOther"></option></select></label>
+          <label class="full-field" for="feedbackDescription"><span id="feedbackDescriptionLabel"></span><textarea id="feedbackDescription" rows="5" required aria-describedby="feedbackCount"></textarea></label>
+        </div>
+        <p class="field-help" id="feedbackCount" aria-live="polite"></p>
+        <label class="feedback-context"><input type="checkbox" id="feedbackIncludeContext" checked><span id="feedbackContextLabel"></span></label>
+        <p class="field-help" id="feedbackContextHint"></p>
+        <div class="dialog-actions"><button type="submit" class="primary" id="feedbackSubmit"></button></div>
+      </form>
+      <section class="feedback-history" aria-labelledby="feedbackMineTitle"><h3 id="feedbackMineTitle"></h3><p id="feedbackListMessage" role="status"></p><div id="feedbackList"></div></section>
+    </div>
+  </dialog>
   <div class="toast" id="toast" role="status"></div>
   <script src="html-utils.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
@@ -349,6 +368,7 @@
   <script src="system-ai.js" defer></script>
   <script src="token-ui.js" defer></script>
   <script src="usage-stats.js" defer></script>
+  <script src="feedback-ui.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

@@ -8,6 +8,7 @@ require('./signing.test.cjs');
 require('./signed-usage.test.cjs');
 require('./tokens.test.cjs');
 require('./feedback.test.cjs');
+require('./feedback-ui.test.cjs');
 require('./token-endpoints.test.cjs');
 require('./token-ui.test.cjs');
 require('./token-ui-integration.test.cjs');
