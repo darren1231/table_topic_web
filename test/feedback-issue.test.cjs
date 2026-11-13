@@ -5,7 +5,7 @@ const { DISCLAIMER } = require('../public/feedback-issue-draft.js');
 const env = { SUPABASE_URL: 'https://fake-feedback.supabase.invalid', SUPABASE_PUBLISHABLE_KEY: 'FAKE-publishable-key', GITHUB_ISSUES_TOKEN: 'FAKE-github-token' };
 const reservation = { id: 12, created_at: '2026-11-13T04:00:00Z', email: 'reporter@example.invalid', issue_pending_token: '00000000-0000-4000-8000-000000000012' };
 const draft = { id: 12, title: 'A bug report', body: `## Report\n> ${DISCLAIMER}\n> A bug`, labels: ['feedback', 'bug'] };
-const issue = { number: 42, html_url: 'https://github.com/darren1231/table_topic_web/issues/42', body: '<!-- table-topic-feedback:12 -->' };
+const issue = { number: 42, html_url: 'https://github.com/darren1231/table_topic_web/issues/42', body: '<!-- table-topic-feedback:12 -->', author_association: 'OWNER' };
 function fixture(handler) {
   const calls = [], logs = [];
   const fetch = async (url, init = {}) => {
@@ -119,6 +119,24 @@ test('search follows up to five fixed-origin pages, skips PRs and exact markers 
   assert.equal(f.calls.filter(call => call.init.method === 'POST' && call.url.endsWith('/issues')).length, 0);
   const capped = fixture(call => call.url.includes('/issues?') ? Response.json(Array.from({ length: 100 }, () => ({ body: 'Unrelated' }))) : undefined);
   assert.equal((await capped.run()).status, 200); assert.equal(capped.calls.filter(call => call.url.includes('/issues?')).length, 5);
+});
+
+test('untrusted issue authors cannot reuse a marker even with an owner-like login', async () => {
+  for (const author_association of ['NONE', 'CONTRIBUTOR', 'FIRST_TIMER', 'FIRST_TIME_CONTRIBUTOR', null, undefined, 'owner']) {
+    const f = fixture(call => call.url.includes('/issues?') ? Response.json([{ ...issue, author_association,
+      user: { login: 'darren1231' } }]) : undefined);
+    const response = await f.run(); assert.equal(response.status, 200); assert.equal((await response.json()).reused, false);
+    assert.equal(f.calls.filter(call => call.url.endsWith('/issues') && call.init.method === 'POST').length, 1);
+  }
+});
+
+test('GitHub OWNER MEMBER and COLLABORATOR associations allow reuse regardless of login text', async () => {
+  for (const author_association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+    const f = fixture(call => call.url.includes('/issues?') ? Response.json([{ ...issue, author_association,
+      user: { login: 'FAKE-unmatched-login' } }]) : undefined);
+    const response = await f.run(); assert.equal(response.status, 200); assert.equal((await response.json()).reused, true);
+    assert.equal(f.calls.filter(call => call.url.endsWith('/issues') && call.init.method === 'POST').length, 0);
+  }
 });
 
 test('missing labels are created first and concurrent label creation is verified before continuing', async () => {

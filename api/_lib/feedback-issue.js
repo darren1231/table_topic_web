@@ -50,7 +50,8 @@ async function handleFeedbackIssue({ request, env, fetch, logger = console }) {
         if (!search.ok) throw new Error('github_error');
         const items = await search.json();
         if (!Array.isArray(items)) throw new Error('github_error');
-        found = items.find(item => item && !item.pull_request && typeof item.body === 'string' && item.body.includes(marker));
+        found = items.find(item => item && !item.pull_request && ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(item.author_association)
+          && typeof item.body === 'string' && item.body.includes(marker));
         if (found || items.length < 100) break;
       }
       reused = Boolean(found);
