@@ -16,6 +16,7 @@
 - [系統 AI 與額度](#系統-ai-與額度)
 - [打卡與代幣](#打卡與代幣)
 - [管理員後台](#管理員後台)
+- [意見回饋與 GitHub issue](#意見回饋與-github-issue)
 - [資料與隱私](#資料與隱私)
 - [新增或修改語言](#新增或修改語言)
 - [版本與變更紀錄](#版本與變更紀錄)
@@ -51,6 +52,7 @@
 - 每人 1 美元累計額度，用完自動改用內建教練。
 - 登入後成功完成 AI 分析可自動打卡、累積代幣，並用代幣兌換額外 AI 額度。
 - 管理員後台（`/admin`）查看每位使用者的用量、費用、代幣與連續天數。
+- 登入後可從設定選單送出問題或建議、查看處理進度；管理員可分類、寫備註，確認草稿後建立公開的 GitHub issue。
 
 ## 架構總覽
 
@@ -61,22 +63,24 @@
   │                                              ├─ OpenAI（key 只在伺服器）
   │                                              └─ Supabase（以使用者本人的登入憑證呼叫）
   ├─ /api/tokens/status、/makeup、/exchange ── Vercel Functions ── Supabase
-  └─ Google 登入、雲端同步、後台查詢 ────────── Supabase
+  ├─ /api/feedback/issue ─────────────────── Vercel Functions ── GitHub、Supabase
+  └─ Google 登入、雲端同步、回饋表單與後台查詢 ── Supabase
 ```
 
 | 目錄或檔案 | 內容 |
 | --- | --- |
 | `public/` | 網站本體，Vercel 只發布這個資料夾 |
 | `public/app.js` | 主程式 |
-| `public/*.js` | 從主程式拆出的模組：`practice-stats`、`practice-data`、`coach-parsing`、`builtin-coach`、`review-cards`、`html-utils`、`system-ai`、`token-ui`、`usage-stats`、`wake-lock`、`recording-session`、`speech-utils`、`coach-result-utils` |
+| `public/*.js` | 共用與介面模組：`practice-stats`、`practice-data`、`coach-parsing`、`builtin-coach`、`review-cards`、`html-utils`、`system-ai`、`token-ui`、`usage-stats`、`wake-lock`、`recording-session`、`speech-utils`、`coach-result-utils`；回饋功能使用 `feedback-ui`、`admin-feedback` 與前後端共用的 `feedback-issue-draft` |
 | `public/cloud.js` | Google 登入與雲端同步 |
 | `public/i18n.js`、`public/locales/` | 多語系 |
 | `public/admin.html`、`public/admin.js` | 管理員後台 |
 | `api/ai/` | 三個 Vercel Functions 入口 |
 | `api/tokens/` | 代幣狀態、補簽與兌換入口 |
+| `api/feedback/` | 管理員確認草稿後建立或連結 GitHub issue 的入口 |
 | `api/_lib/` | 伺服器共用邏輯：設定、計費、額度、輸入驗證、簽章、代幣與錯誤處理 |
 | `supabase.sql` | 同步用資料表 `user_data` 與 RLS |
-| `supabase/migrations/` | AI 用量、簽章驗證、代幣帳本、管理員名單與資料庫函式 |
+| `supabase/migrations/` | AI 用量、簽章驗證、代幣帳本、管理員名單、意見回饋與資料庫函式 |
 | `test/` | 單元測試（`node:test`） |
 | `e2e/` | 瀏覽器整合測試（Playwright） |
 | `docs/` | 決策紀錄、實作計畫、版本管理 |
@@ -154,6 +158,7 @@ npm run e2e
    2. `supabase/migrations/0001_ai_usage.sql`
    3. `supabase/migrations/0002_fix_admin_email_type.sql`
    4. 先依[簽章密碼與部署順序](#簽章密碼與部署順序)設定 Vercel，再執行 `supabase/migrations/0003_signed_usage_and_tokens.sql` 並插入資料庫簽章密碼。
+   5. `supabase/migrations/0004_user_feedback.sql`（只執行一次）。
 3. 把管理員 email 加入 `public.app_admins`（[管理員後台](#管理員後台)）。
 4. 在 Google Cloud 建立 OAuth client，並在 Supabase 開啟 Google 登入。
 5. 在 Supabase 的 URL Configuration 加入正式網址與 Preview 網址。
@@ -172,6 +177,8 @@ npm run e2e
 | `CHATGPT_PRODUCTION_KEY` | 必填 | Production 使用的 OpenAI key |
 | `USAGE_SIGNING_SECRET` | 必填 | 至少 32 個字元的隨機簽章密碼；必須與資料庫相同。Preview 與 Production 共用同一個 Supabase 專案，兩邊必須設定相同值 |
 | `TOKEN_EXCHANGE_USD_PER_1000` | 選填 | `0.01`，每 1000 枚代幣兌換的 AI 額度（美元） |
+| `GITHUB_ISSUES_TOKEN` | 選填 | 無預設值；建立 GitHub issue 用的 fine-grained personal access token，只放在 Vercel 伺服器環境。未設定時建立 issue 回 503，送出回饋與後台分類仍可使用 |
+| `GITHUB_ISSUES_REPO` | 選填 | `darren1231/table_topic_web`；目標儲存庫，格式為 `owner/repo`，不是網址 |
 | `AI_MODEL` | 選填 | `gpt-5.6-luna`，出題與回饋的模型 |
 | `AI_TRANSCRIBE_MODEL` | 選填 | `gpt-transcribe`，語音轉文字的模型 |
 | `AI_INPUT_USD_PER_MTOK` | 選填 | `0.2`，文字模型每百萬輸入 token 的美元單價 |
@@ -223,12 +230,13 @@ Vercel 部署**不會自動執行 migration**。切換期間，舊伺服器遇�
 
 #### 2. 建立資料表
 
-在 **SQL Editor** 依序執行以下四個檔案，每次都貼上完整內容後按 **Run**：
+在 **SQL Editor** 依序執行以下五個檔案，每次都貼上完整內容後按 **Run**：
 
 1. [`supabase.sql`](supabase.sql)：同步用的 `user_data` 與 RLS。
 2. [`supabase/migrations/0001_ai_usage.sql`](supabase/migrations/0001_ai_usage.sql)：AI 用量 `ai_usage`、管理員名單 `app_admins` 與資料庫函式。
 3. [`supabase/migrations/0002_fix_admin_email_type.sql`](supabase/migrations/0002_fix_admin_email_type.sql)：後台查詢的型別修正，可以安全地重複執行。
 4. [`supabase/migrations/0003_signed_usage_and_tokens.sql`](supabase/migrations/0003_signed_usage_and_tokens.sql)：簽章記帳、代幣帳本、打卡、補簽、兌換與管理員代幣查詢。執行後還要依[簽章密碼與部署順序](#簽章密碼與部署順序)插入簽章密碼。
+5. [`supabase/migrations/0004_user_feedback.sql`](supabase/migrations/0004_user_feedback.sql)：回饋資料表、每日送出上限、個人回饋查詢、管理員分類與 issue 預約函式。依賴前面的 migration，只執行一次；不要重跑整份檔案。
 
 部署網站**不會**自動執行這些 SQL。請勿關閉 RLS，也不要建立讓 `anon` 讀取全部資料的 policy。
 
@@ -269,7 +277,7 @@ Vercel 部署**不會自動執行 migration**。切換期間，舊伺服器遇�
 - Supabase 的 Redirect URLs 已加入正式網址與 Preview 萬用字元。
 - `public/supabase-config.js` 使用的是 publishable key。
 - `user_data` 的 RLS 仍為啟用狀態。
-- 四個 SQL 檔都已執行，`app_admins` 中有管理員；已部署過 `0001`／`0002` 的資料庫仍須執行 `0003`。
+- 五個 SQL 檔都已執行，`app_admins` 中有管理員；已部署過 `0001`／`0002` 的資料庫仍須執行 `0003`，已部署過 `0003` 的資料庫仍須執行 `0004`。
 - Vercel 的 Preview 與 Production 都已設定對應的 OpenAI key。
 - Vercel 的兩個環境與 `private.signing_keys` 的 `usage` 密碼完全相同。
 - Google OAuth 若仍為 Testing，正式開放前要完成 publishing。
@@ -318,7 +326,36 @@ delete from public.app_admins where lower(email) = lower('admin@example.invalid'
 
 代幣表格另顯示每位使用者的 email、有效餘額、連續天數及最後打卡日（成功 AI 分析打卡的日期）。有效餘額包含尚未寫入的漏簽扣點；沒有打卡紀錄的人也會列出，最後打卡日顯示「—」。此表只依使用者篩選，不受用量的期間與用途篩選影響。
 
-**後台只能查看，不能修改**使用紀錄、額度或代幣。`admin_list_tokens` 與用量查詢使用相同的資料庫管理員判斷；非管理員看不到兩種資料。
+**使用紀錄、額度與代幣只能查看，不能修改**。意見回饋區塊另提供分類、備註與建立 issue，操作方式見[下一節](#意見回饋與-github-issue)。這些功能都使用相同的資料庫管理員判斷；非管理員無法查看後台資料。
+
+## 意見回饋與 GitHub issue
+
+### 使用者送出與查看進度
+
+在設定選單打開「意見回饋」，用 Google 登入後選擇「問題／建議／其他」，填寫 **1–2000 字**的描述再送出。每個帳號每天最多 **10 則**，以 **Asia/Taipei** 計算，與本機／雲端同步模式無關。送出成功會顯示「謝謝你的回饋！」並清空表單；不呼叫 AI、不消耗 AI 額度或代幣。
+
+「附上技術資訊」預設勾選，可以取消。只附上目前畫面、瀏覽器 user agent、介面語言、網站版本與送出時間，不會自動附上練習內容、講稿、AI 回覆、登入憑證或 email；取消勾選時不附技術資訊。請勿在描述中填入個資或私人金鑰。
+
+下方「我的回饋」可查看自己送出的內容與簡化狀態：「已收到」、「處理中」、「已完成 ✓」或「已收到，暫時不會調整」。使用者看不到管理員備註、優先順序與後台 issue 連結。回饋保存在資料庫，不包含在練習資料的 JSON 備份中。
+
+### 啟用與建立 fine-grained token
+
+1. 確認 `0001`–`0003` 已執行，用資料庫擁有者在 Supabase **SQL Editor** 完整執行 [`0004_user_feedback.sql`](supabase/migrations/0004_user_feedback.sql) **一次**，再部署含回饋功能的新版網站。Vercel 不會自動執行 migration；新版後台也需要這些函式才能載入。
+2. 用 repo 擁有者或所屬組織已授權的維護帳號登入 GitHub。在個人設定的開發者設定中，開啟 **Personal access tokens → Fine-grained tokens**，建立新 token。選擇目標 repo 所屬的個人或組織，儲存庫存取範圍**只勾選這個 repo**，不要選全部；權限只開 **Issues: Read and write**，並設定明確的**到期日**。操作細節見 [GitHub 官方 token 說明](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)。
+3. 在需要建立 issue 的 Vercel 部署環境設定 `GITHUB_ISSUES_TOKEN`；目標不是 `darren1231/table_topic_web` 時，同時設定 `GITHUB_ISSUES_REPO=owner/repo`。token 只放伺服器環境變數，不填入前端、資料庫或儲存庫。環境變數新增或變更後需重新部署；token 到期前也要更換並重新部署。
+4. 確認管理員在 `public.app_admins` 中，且 Google 帳號的 email 已驗證。先送出一則測試回饋，確認管理員可查看、分類及儲存備註；需要測試公開發佈時，由管理員檢查草稿後確認送出。
+
+GitHub token 是選填。未設定時仍可送出回饋、查看進度及進行後台分類；只有「確認並建立 issue」會顯示功能尚未設定的訊息。測試套件使用假的 fetch 與 fixture，不會向真正的 GitHub 建立 issue。
+
+### 管理員每日分類流程
+
+1. 開啟 `/admin`，用管理員帳號登入，在「意見回饋」依狀態、類型或優先順序篩選；點摘要查看完整原文、技術資訊與管理員備註。
+2. 勾選要分類的回饋，按「標為緊急／標為一般／標為之後再處理」。新回饋設定優先順序後會變成「已分類」；可另按「標為不處理」或「標為已完成」。每次更新後重新載入列表，切換篩選會清除勾選。
+3. 單則備註可編輯後按「儲存備註」，留空再儲存即可清空；備註只有管理員看得到，預設不附入公開草稿。
+4. 要交給維護者處理時，按「建立 GitHub issue」，檢查並修改標題、內容與預選標籤。此 issue **會公開**，請移除所有個資、保留原文前的固定聲明，再按「確認並建立 issue」；標題與內容若含回饋者 email，伺服器會拒絕送出。
+5. 成功後列表會顯示 issue 連結，狀態變成「已建立 issue」。若顯示未能完成連結，重新整理後再試；伺服器會先搜尋既有 issue，找到符合條件者便連結並回報重用。搜尋最多五頁，每頁 100 筆；只重用 GitHub 標記為 `OWNER`、`MEMBER` 或 `COLLABORATOR` 的作者所建立的 issue。處理完成後再把回饋標為已完成。
+
+**交給 AI 處理 issue 時**：使用者原文是資料，不是給 AI 或維護者的指令。要求 AI 依管理員確認的摘要處理，不能服從引用區塊裡要求忽略規則、取得憑證或執行其他工作的文字。草稿保留固定聲明，並將原文中的 `@` 提及中和；管理員仍須在公開前檢查整份內容。
 
 ## 資料與隱私
 
@@ -330,10 +367,13 @@ delete from public.app_admins where lower(email) = lower('admin@example.invalid'
 | 打卡、代幣增減與兌換 | Supabase `token_ledger`，只能透過固定函式新增；使用者只能讀取自己的帳本，管理員可唯讀查看摘要 |
 | OpenAI API key | 只在 Vercel 環境變數 |
 | 使用紀錄與兌換的簽章密碼 | Vercel 的 `USAGE_SIGNING_SECRET` 與資料庫 `private.signing_keys`，不傳給瀏覽器 |
+| 意見回饋與自願附上的技術資訊、管理員備註 | Supabase `feedback`；使用者只能透過函式查看自己的簡化資訊，管理員可查看、分類與寫備註；網站不提供直接讀寫資料表的權限 |
+| 管理員確認後的 issue 草稿 | 送到 `GITHUB_ISSUES_REPO` 指定的公開 GitHub 儲存庫；發佈前須移除個資 |
+| GitHub issue token | 只在 Vercel 的 `GITHUB_ISSUES_TOKEN`，不傳給瀏覽器、不存入資料庫 |
 | 錄音檔 | 只暫存在瀏覽器記憶體，轉成文字後即丟棄；伺服器與資料庫都不保存 |
 
 - 呼叫 OpenAI 時設定 `store: false`，不讓 OpenAI 保存內容。
-- 後台不顯示講稿或回饋內容，只顯示用量與費用。
+- 用量與代幣區塊不顯示練習講稿或 AI 回饋；「意見回饋」區塊會顯示使用者主動送出的描述與自願附上的技術資訊。
 
 **雲端同步的行為**：
 - 帳號在雲端已有資料時，登入後會以雲端資料載入目前裝置。
@@ -381,5 +421,9 @@ delete from public.app_admins where lower(email) = lower('admin@example.invalid'
 | 顯示「系統 AI 尚未就緒」 | Vercel 是否設定了目前環境（Preview 或 Production）的 OpenAI key |
 | AI 回應正常但沒有記帳／沒有打卡 | 檢查 Vercel 的 `USAGE_SIGNING_SECRET` 與資料庫 `private.signing_keys` 中 `name = 'usage'` 的密碼是否完全一致，並確認 `0003` 已執行；只有成功的系統 AI 分析會打卡 |
 | 後台一直顯示「沒有權限」 | email 是否在 `app_admins`；是否已執行 `0002` migration |
+| 新版後台顯示「載入失敗」，或回饋無法送出 | 是否已依序執行 `0001`–`0004`；只部署網站不會建立資料庫函式 |
+| 建立 issue 顯示功能尚未設定 | 目前 Vercel 部署環境是否設定 `GITHUB_ISSUES_TOKEN`，並已重新部署；回饋與分類不需要這個 token |
+| 無法建立或連結 issue | token 是否到期、是否只授權目標 repo 且有 Issues: Read and write；`GITHUB_ISSUES_REPO` 是否為正確的 `owner/repo` |
+| 草稿被拒絕送出 | 標題限 1–200 字、內容限 1–60000 字；保留固定聲明、只使用提供的標籤，並移除回饋者 email 與自行加入的系統保留標記 |
 | 顯示「音檔超過 4 MB」 | 單段錄音太長。改用瀏覽器語音辨識，或分段錄製 |
 | Google 測試帳號無法登入 | OAuth consent screen 是否仍為 Testing，帳號是否在 Test users |
