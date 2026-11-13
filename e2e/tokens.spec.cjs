@@ -36,7 +36,7 @@ test('token panel and new guide section work in four languages with today and to
     await page.locator('#guideEntry').click();
     await expect(page.locator('#guideToc button')).toHaveCount(13);
     await expect(page.locator('#guide-section-13')).toContainText(messages['tokens.exchange']);
-    await expect(page.locator('#guide-section-12')).toContainText(messages['guide.section12.question6']);
+    await expect(page.locator('#guide-section-12')).toContainText(messages['guide.section12.question7']);
     await expect(page.locator('#guideView')).not.toContainText('guide.');
     await page.locator('#guideBackTop').click();
     const header = await page.locator('#tokenHeader').boundingBox();
