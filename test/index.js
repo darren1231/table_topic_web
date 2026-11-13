@@ -22,6 +22,7 @@ require('./ai-transcribe.test.cjs');
 require('./ai-balance.test.cjs');
 require('./usage-stats.test.cjs');
 require('./admin.test.cjs');
+require('./admin-feedback.test.cjs');
 require('./system-ai.test.cjs');
 require('./system-ai-integration.test.cjs');
 require('./wake-lock.test.cjs');

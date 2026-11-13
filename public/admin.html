@@ -65,6 +65,37 @@
         <thead><tr><th data-admin-i18n="admin.time"></th><th data-admin-i18n="admin.user"></th><th data-admin-i18n="admin.purpose"></th><th data-admin-i18n="admin.model"></th><th data-admin-i18n="admin.inputTokens"></th><th data-admin-i18n="admin.outputTokens"></th><th data-admin-i18n="admin.audioSeconds"></th><th data-admin-i18n="admin.cost"></th><th data-admin-i18n="admin.status"></th></tr></thead>
         <tbody id="adminUsageRows"></tbody>
       </table></div>
+      <section id="adminFeedbackSection" aria-labelledby="adminFeedbackTitle">
+        <h2 id="adminFeedbackTitle" data-admin-i18n="feedback.title"></h2>
+        <div class="api-ledger-toolbar">
+          <label><span data-admin-i18n="admin.status"></span><select id="adminFeedbackStatus"></select></label>
+          <label><span data-admin-i18n="feedback.type"></span><select id="adminFeedbackType"></select></label>
+          <label><span data-admin-i18n="adminFeedback.priority"></span><select id="adminFeedbackPriority"></select></label>
+        </div>
+        <div class="feedback-bulk-actions">
+          <button type="button" class="secondary" id="adminFeedbackUrgent" data-admin-i18n="adminFeedback.markUrgent"></button>
+          <button type="button" class="secondary" id="adminFeedbackNormal" data-admin-i18n="adminFeedback.markNormal"></button>
+          <button type="button" class="secondary" id="adminFeedbackLater" data-admin-i18n="adminFeedback.markLater"></button>
+          <button type="button" class="secondary" id="adminFeedbackDecline" data-admin-i18n="adminFeedback.markDeclined"></button>
+          <button type="button" class="secondary" id="adminFeedbackDone" data-admin-i18n="adminFeedback.markDone"></button>
+        </div>
+        <p id="adminFeedbackMessage" role="status" aria-live="polite"></p>
+        <div class="api-ledger-table-wrap"><table class="api-ledger-table">
+          <thead><tr><th data-admin-i18n="adminFeedback.select"></th><th data-admin-i18n="adminFeedback.id"></th><th data-admin-i18n="adminFeedback.priority"></th><th data-admin-i18n="feedback.type"></th><th data-admin-i18n="adminFeedback.summary"></th><th data-admin-i18n="admin.time"></th><th data-admin-i18n="admin.email"></th><th data-admin-i18n="adminFeedback.issue"></th></tr></thead>
+          <tbody id="adminFeedbackRows"></tbody>
+        </table></div>
+        <section id="adminFeedbackDetail" class="hidden" aria-labelledby="adminFeedbackDetailTitle">
+          <h3 id="adminFeedbackDetailTitle"></h3>
+          <p id="adminFeedbackDetailStatus"></p>
+          <p id="adminFeedbackBody" class="feedback-full-text"></p>
+          <h4 data-admin-i18n="adminFeedback.context"></h4>
+          <dl id="adminFeedbackContext"></dl>
+          <div class="settings-grid"><label class="full-field" for="adminFeedbackNote"><span data-admin-i18n="adminFeedback.note"></span><textarea id="adminFeedbackNote" rows="4"></textarea></label></div>
+          <div class="dialog-actions"><button type="button" class="primary" id="adminFeedbackSaveNote" data-admin-i18n="adminFeedback.saveNote"></button></div>
+          <button type="button" class="secondary" id="adminFeedbackIssue" disabled data-admin-i18n="adminFeedback.createIssue" aria-describedby="adminFeedbackIssueHint"></button>
+          <p id="adminFeedbackIssueHint" class="field-help"></p>
+        </section>
+      </section>
     </main>
   </div>
   <script src="html-utils.js" defer></script>
@@ -72,6 +103,7 @@
   <script src="supabase-config.js" defer></script>
   <script src="i18n.js" defer></script>
   <script src="usage-stats.js" defer></script>
+  <script src="admin-feedback.js" defer></script>
   <script src="admin.js" defer></script>
 </body>
 </html>

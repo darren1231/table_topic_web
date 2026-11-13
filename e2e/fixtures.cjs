@@ -36,7 +36,10 @@ const test = base.extend({
         if (url.pathname === '/auth/v1/logout') return json({});
         if (url.pathname.startsWith('/rest/v1/rpc/')) {
           const entry = rpc.get(url.pathname.split('/').pop());
-          if (entry) return json(entry.body, entry.status);
+          if (entry) {
+            const result = typeof entry === 'function' ? await entry(route.request()) : entry;
+            return json(result.body, result.status);
+          }
         }
         unexpected.push(`Unmocked Supabase route: ${url.pathname}`);
         return json({ message: 'Unmocked test route' }, 500);
@@ -69,6 +72,7 @@ const test = base.extend({
       handleToken(name, handler) { api.set(`/api/tokens/${name}`, handler); },
       handleApi(name, handler) { api.set(`/api/ai/${name}`, handler); },
       mockRpc(name, body, status = 200) { rpc.set(name, { body, status }); },
+      handleRpc(name, handler) { rpc.set(name, handler); },
       allowConsoleError(pattern) { allowedErrors.push(pattern); },
     };
     sandbox.mockApi('balance', { spent: 0, credit: 1, balance: 1, exhausted: false });
