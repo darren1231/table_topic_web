@@ -609,7 +609,7 @@ function playNextSpeechChunk(){
   const chunk=state.speechChunks[queue.index];if(!chunk){resetSpeechControls();state.speechChunks=[];state.speechQueue=SpeechUtils.resetQueueState(queue);return;}
   const utterance=new SpeechSynthesisUtterance(chunk.text),voice=SpeechUtils.selectVoice(window.speechSynthesis.getVoices(),chunk.language,speechSettings.voiceURI);utterance.lang=chunk.language;utterance.rate=chunk.rate;if(voice)utterance.voice=voice;
   const queueId=queue.id;let finished=false;state.speechUtterance=utterance;
-  const advance=()=>{if(finished||state.speechQueue.id!==queueId||state.speechQueue.stopped)return;finished=true;state.speechQueue.index+=1;state.speechUtterance=null;if(state.speechQueue.paused)return;state.speechQueue.timeoutId=setTimeout(()=>{if(state.speechQueue.id===queueId){state.speechQueue.timeoutId=null;playNextSpeechChunk();}},chunk.pauseMs);};
+  const advance=()=>{if(finished||state.speechQueue.id!==queueId||state.speechQueue.stopped)return;finished=true;state.speechQueue.index+=1;state.speechUtterance=null;if(state.speechQueue.paused)return;if(chunk.pauseMs===0){playNextSpeechChunk();return;}state.speechQueue.timeoutId=setTimeout(()=>{if(state.speechQueue.id===queueId){state.speechQueue.timeoutId=null;playNextSpeechChunk();}},chunk.pauseMs);};
   utterance.onend=advance;utterance.onerror=event=>{if(event.error!=='canceled'&&event.error!=='interrupted')advance();};window.speechSynthesis.speak(utterance);
 }
 function bindSpeechControls(container){

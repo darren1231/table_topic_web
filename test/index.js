@@ -3,6 +3,7 @@ const { test } = require('node:test');
 
 require('./coach-result-utils.test.cjs');
 require('./speech-utils.test.cjs');
+require('./speech-playback.test.cjs');
 require('./ai-usage.test.cjs');
 require('./signing.test.cjs');
 require('./signed-usage.test.cjs');

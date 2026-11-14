@@ -5,8 +5,8 @@ const { test } = require('node:test');
 test('speech utilities preserve chunking, language, voices, and queue behavior', () => {
   const zh=SpeechUtils.buildSpeechChunks('大家好，今天談練習。你準備好了嗎？\n\n我們開始吧！',{language:'zh-TW',rate:1});
   assert.deepEqual(zh.map(item=>item.text),['大家好，今天談練習。','你準備好了嗎？','我們開始吧！'],'ordinary sentences stay intact');
-  assert.equal(zh[0].pauseMs,300,'sentence pause before the separate pause change');
-  assert.equal(zh[1].pauseMs,525,'paragraph-ending question pause');
+  assert.equal(zh[0].pauseMs,0,'the speech engine handles sentence punctuation');
+  assert.equal(zh[1].pauseMs,400,'only a boundary before another paragraph adds 400ms');
 
   const en=SpeechUtils.buildSpeechChunks('Dr. Lee opened the talk, then paused. Are you ready?',{language:'en-US',rate:1});
   assert.deepEqual(en.map(item=>item.text),['Dr. Lee opened the talk, then paused.','Are you ready?'],'English abbreviations should not split sentences');
@@ -19,9 +19,9 @@ test('speech utilities preserve chunking, language, voices, and queue behavior',
   assert.deepEqual(mixed.map(item=>item.language),['zh-TW','en-US'],'mixed Chinese-English runs use matching languages');
 
   const paragraphs=SpeechUtils.buildSpeechChunks('First paragraph.\n\nSecond paragraph.',{language:'en-US',rate:1});
-  assert.equal(paragraphs[0].pauseMs,525,'paragraph pause');
+  assert.equal(paragraphs[0].pauseMs,400,'paragraph pause');
   assert.equal(paragraphs[0].paragraphEnd,true,'paragraph boundary marker');
-  assert.equal(paragraphs[1].pauseMs,525,'final paragraph pause');
+  assert.equal(paragraphs[1].pauseMs,0,'no pause after the final paragraph');
 
   const voices=[{voiceURI:'zh-hk',lang:'zh-HK'},{voiceURI:'zh-tw',lang:'zh-TW'},{voiceURI:'en',lang:'en-US'}];
   assert.equal(SpeechUtils.selectVoice(voices,'zh-TW','en').voiceURI,'zh-tw','incompatible manual voice safely falls back to exact language');
@@ -33,6 +33,13 @@ test('speech utilities preserve chunking, language, voices, and queue behavior',
   assert.deepEqual(stopped,{id:8,index:0,stopped:true,paused:false,timeoutId:null},'Stop/reset invalidates callbacks and clears queue progress');
 
   assert.equal(SpeechUtils.normalizeSpeechText('In 2026, 25% need 1–2 U.S. examples.','en-US'),'In 2026, 25 percent need 1 to 2 U.S. examples.','safe number, percent, range, and abbreviation normalization');
+});
+
+test('only the final language run before another paragraph receives the 400ms pause', () => {
+  const chunks=SpeechUtils.buildSpeechChunks('今天 practice English。再分享，繼續說。\n\n最後一段。',{language:'zh-TW'});
+  assert.deepEqual(chunks.map(item=>item.pauseMs),[0,0,400,0]);
+  assert.deepEqual(chunks.map(item=>item.paragraphEnd),[false,false,true,true]);
+  assert.deepEqual(SpeechUtils.buildSpeechChunks('字'.repeat(59)+'，'+'字'.repeat(60)+'。',{language:'zh-TW'}).map(item=>item.pauseMs),[0,0]);
 });
 
 test('ordinary sentences keep commas and same-language runs intact without losing content', () => {
