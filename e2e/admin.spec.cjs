@@ -8,6 +8,7 @@ const records = [
 
 test('admin sees totals users details and working period purpose and user filters', async ({ signedInPage: page, sandbox }) => {
   sandbox.mockRpc('admin_list_ai_usage', records);
+  sandbox.mockRpc('admin_list_feedback', []);
   sandbox.mockRpc('admin_list_tokens', [
     { user_id: 'user-a', email: 'alice@example.invalid', balance: 1240, streak: 8, last_check_in: '2026-11-10' },
     { user_id: 'user-b', email: 'bob@example.invalid', balance: 0, streak: 0, last_check_in: null },
@@ -58,6 +59,7 @@ test('non-admin receives access denied with no usage data', async ({ signedInPag
   await expect(page.locator('#adminUserRows tr')).toHaveCount(0);
   await expect(page.locator('#adminUsageRows tr')).toHaveCount(0);
   await expect(page.locator('#adminTokenRows tr')).toHaveCount(0);
+  await expect(page.locator('#adminFeedbackRows tr')).toHaveCount(0);
 });
 
 test('denied token permissions hide usage and token data even if usage RPC succeeded', async ({ signedInPage: page, sandbox }) => {
@@ -78,4 +80,5 @@ test('guest admin page asks for sign-in without requesting usage', async ({ gues
   await expect(page.locator('#adminData')).not.toBeVisible();
   expect(sandbox.calls.filter(call => call.path.endsWith('/admin_list_ai_usage'))).toEqual([]);
   expect(sandbox.calls.filter(call => call.path.endsWith('/admin_list_tokens'))).toEqual([]);
+  expect(sandbox.calls.filter(call => call.path.endsWith('/admin_list_feedback'))).toEqual([]);
 });

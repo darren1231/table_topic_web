@@ -21,6 +21,7 @@ let systemIdentity = null;
 let systemCreditExhausted = false;
 let systemUiReady = false;
 let systemBalanceRevision = 0;
+let feedbackController = null;
 const VERSION_HISTORY = [
   {version:'2.0.0',date:'2026-11-10',changes:['登入 Google 即可使用網站提供的 AI 出題、回饋與語音轉文字，不需要自備 API key；每人有 1 美元的累計額度，用完會自動改用內建教練。','手機錄音時螢幕會保持開啟；錄音被中斷時會保留已錄的內容，按「繼續錄製」即可接著錄。','新增阿拉伯語；Google 登入時可以選擇帳號；加強網頁內容的安全處理。','新增管理員後台，可查看各使用者的 AI 用量與費用。']},
   {version:'1.3.0',date:'2026-08-17',changes:['瀏覽器朗讀改為句子、子句與語言片段佇列，加入逗號、句尾和段落的自然停頓。','支援中英混合逐段選用相符語音，並正確辨識繁中、英文與日文。','加入輕微語速韻律、文字正規化與可安全停止的播放佇列。']},
@@ -39,6 +40,18 @@ function applyUiLanguage() {
   I18n.apply();
   updateCharCount();
   if (systemUiReady) refreshSystemAiUi();
+  feedbackController?.render();
+}
+function initFeedback() {
+  const config = window.SUPABASE_CONFIG || {};
+  let client = null;
+  try { if (config.url && config.anonKey && window.supabase?.createClient) client = window.supabase.createClient(config.url, config.anonKey); } catch {}
+  feedbackController = FeedbackUI.createFeedbackController({ client, document, t, getLocale: () => state.language,
+    getContext: () => ({ view: state.currentView, userAgent: navigator.userAgent, language: state.language,
+      appVersion: VERSION_HISTORY[0].version, submittedAt: new Date().toISOString() }),
+    onSignIn: () => $('#accountButton').click() });
+  feedbackController.initialize();
+  $('#feedbackButton').onclick = () => { closeSettingsMenu(); return feedbackController.open(); };
 }
 function ui(zh, en) { return I18n.fromSource(zh, en); }
 function t(key, variables) { return I18n.translate(key, variables); }
@@ -1044,7 +1057,7 @@ function renderGuide(){
     const item=document.createElement('li'),button=text('button',`${prefix}.title`);button.type='button';button.className='text-button';button.textContent=`${number}. ${button.textContent}`;button.onclick=()=>section.scrollIntoView({behavior:'smooth',block:'start'});item.append(button);contents.append(item);
     const list=(from,to,tag='ul')=>{const node=document.createElement(tag);for(let i=from;i<=to;i++)node.append(text('li',`${prefix}.item${i}`));section.append(node);};
     if(number===5){section.append(text('p',`${prefix}.intro`));list(1,2);section.append(text('p',`${prefix}.tips`));list(3,6);}
-    else if(number===12){const questions=document.createElement('dl');for(let i=1;i<=7;i++)questions.append(text('dt',`${prefix}.question${i}`),text('dd',`${prefix}.answer${i}`));section.append(questions);}
+    else if(number===12){const questions=document.createElement('dl');for(let i=1;i<=8;i++)questions.append(text('dt',`${prefix}.question${i}`),text('dd',`${prefix}.answer${i}`));section.append(questions);}
     else list(1,lengths[number-1],number===2?'ol':'ul');
     sections.append(section);
   }
@@ -1136,6 +1149,7 @@ function init() {
   $('#languageSelect').value=state.language;
   updateTodayLabel();
   renderSuggestions(); renderHistory(); updateStats(); initSettings(); initBackup();
+  initFeedback();
   renderVersionHistory();$('#versionHistoryButton').onclick=()=>{closeSettingsMenu();renderVersionHistory();$('#versionHistoryDialog').showModal();};$('#closeVersionHistoryButton').onclick=()=>$('#versionHistoryDialog').close();
   syncTranscriptionQuickPicker();
   $('#transcriptionModeQuick').onchange=e=>{const p=getActiveProject(),d=providerDefaults(p.provider);p.transcriptionMode=e.target.value;p.transcriptionModel||=d.transcriptionModel;p.transcriptionEndpoint||=d.transcriptionEndpoint;persistAISettings();$('#transcriptionModeSelect').value=e.target.value;$('#transcriptionModelInput').value=p.transcriptionModel||'';$('#transcriptionEndpointInput').value=p.transcriptionEndpoint||'';syncTranscriptionQuickPicker();toast(ui(e.target.value==='api'?'已切換為 API 高品質轉錄':'已切換為瀏覽器即時辨識',e.target.value==='api'?'API transcription enabled':'Browser live recognition enabled'));};

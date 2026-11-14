@@ -28,6 +28,12 @@
 - 首頁新增顯眼的「使用說明書」提示卡片，位於「今天想練什麼？」上方，提供四語入門提示，介紹練習、錄音、回饋、複習卡、紀錄、登入額度與備份；整張卡片支援點擊與鍵盤操作。
 - 使用說明書隨介面切換繁體中文、英文、日文與阿拉伯語，內容中的按鈕名稱與各語言的實際介面一致。
 - 可分享 `#guide` 直接開啟說明；目錄可捲動到指定章節，上下方可返回首頁，下方也能直接開始即興問答練習。
+- 設定選單新增四語「意見回饋」：登入 Google 後可送出問題或建議，每天最多 10 則，並在「我的回饋」查看處理進度；可自行決定是否附上技術資訊。
+- 管理員後台可篩選與批次分類回饋、儲存私人備註；檢查並確認草稿後，可建立或連結公開的 GitHub issue。
+
+#### 安全性
+
+- 加強回饋轉成公開 issue 時的內容檢查與來源驗證，並限制管理員備註及帳號資訊的公開範圍。
 
 ### 技術變更
 
@@ -38,6 +44,8 @@
 | 本分支（待開 PR） | 新增真實 pgcrypto 的 PGlite、權限、交易回滾、前端狀態及 Chromium／WebKit 端到端測試，補齊 README、ADR 與部署說明 |
 | 本分支（待開 PR） | 新增 `guideView`、首頁入口與初始 hash 路由，保留登入回呼 hash；十二節內容以 `guide.*` 語系文字與 DOM API 安全建立 |
 | 本分支（待開 PR） | 新增語系完整性、防漏翻、介面名稱一致性、文字輸出安全與路由單元測試，以及 Chromium／WebKit 的入口、捲動、分享、導覽與四語切換測試 |
+| 本分支（待開 PR） | 新增 `0004_user_feedback.sql`、受限的回饋 RPC、台灣日期每日上限、批次分類與 issue 預約 token；使用者表單與後台均使用安全文字輸出 |
+| 本分支（待開 PR） | 新增共用草稿與驗證函式、`/api/feedback/issue`、GitHub 標籤管理及冪等搜尋；補上權限、錯誤處理、重試與四語瀏覽器測試，測試全程模擬 GitHub |
 
 ### 升級注意事項
 
@@ -45,6 +53,9 @@
 2. 合併後，在 Supabase SQL Editor 確認既有 `supabase.sql`、`0001`、`0002` 已執行，再完整執行 `supabase/migrations/0003_signed_usage_and_tokens.sql` **一次**。Vercel 不會自動執行 migration。
 3. 立即在 `private.signing_keys` 插入 `name = 'usage'`、`secret = 同一組密碼`；SQL 假值範例見 [README](README.md#簽章密碼與部署順序)，不可直接使用示範值。更新密碼不需要重跑 migration。仍不需要也不可以設定 Supabase service role 或 secret API key。
 4. 確認 Vercel 新版已部署並套用環境變數，實測成功的系統 AI 分析會記帳與打卡。新舊版本切換期間可能暫時無法記帳或使用 AI；若 AI 回應正常卻沒有紀錄／打卡，先檢查兩邊簽章密碼是否一致。
+5. 回饋功能上線前，在 Supabase SQL Editor 確認 `0001`–`0003` 已執行，再完整執行 `supabase/migrations/0004_user_feedback.sql` **一次**；新版後台需要其中的回饋函式。Vercel 不會自動執行 migration，不要重跑整份 `0004`。
+6. 需要從後台建立 GitHub issue 時，以 repo 擁有者或所屬組織授權的維護帳號建立有到期日的 fine-grained token：只選這個 repo，只開 **Issues: Read and write**。在需要此功能的 Vercel 環境設定 `GITHUB_ISSUES_TOKEN`；選填 `GITHUB_ISSUES_REPO`，預設 `darren1231/table_topic_web`。token 只存伺服器環境變數；變更後重新部署。缺少 token 時，回饋表單與分類仍可用，建立 issue 會顯示尚未設定。
+7. 部署後由管理員確認回饋查詢、分類與備註正常；建立 issue 前檢查草稿不含個資。交給 AI 處理時，使用者原文只當資料，不當指令。操作與每日分類流程見 [README](README.md#意見回饋與-github-issue)。
 
 **費用說明**：兌換的額度用於 AI 時，會增加網站擁有者的 OpenAI 支出；以 100 位每天練習的使用者估計，每月約多 3 美元，實際依兌換比例及使用情況而定。目前由網站擁有者負擔。**若改用區或分會經費，需經正式會議通過；此項尚未拍板。**
 

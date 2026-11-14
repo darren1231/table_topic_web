@@ -1,7 +1,7 @@
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./usage-stats.js'));
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./usage-stats.js'), require('./admin-feedback.js'));
   else {
-    const api = factory(root.UsageStats);
+    const api = factory(root.UsageStats, root.AdminFeedbackUI);
     root.AdminUI = api;
     root.I18n.ready.then(async () => {
       const select = document.getElementById('adminLanguage');
@@ -21,11 +21,12 @@
       await controller.initialize();
     });
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (UsageStats) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (UsageStats, AdminFeedbackUI) {
   function createAdminController({ client, document, t, getLocale = () => 'zh-TW', onLocaleChange = () => {},
     now = () => new Date(), schedule = fn => setTimeout(fn, 0), redirectTo }) {
     const byId = id => document.getElementById(id);
     let records = [], tokenRecords = [], session = null, authorized = false, version = 0, statusKey = 'admin.signInRequired';
+    const feedback = AdminFeedbackUI.createFeedbackAdmin({ client, document, t, getLocale, onDenied: loadError });
     const money = value => `US$${Number(value).toFixed(6)}`;
     const number = value => new Intl.NumberFormat(getLocale()).format(value);
     const dateText = value => {
@@ -51,6 +52,7 @@
     function deny(key = statusKey) {
       statusKey = key;
       authorized = false; records = []; tokenRecords = [];
+      feedback.clear();
       byId('adminData').classList.add('hidden');
       byId('adminStatus').textContent = t(statusKey);
       byId('adminUserRows').replaceChildren();
@@ -110,6 +112,7 @@
       ]));
       if (!tokenRows.length) { const node = row([t('admin.noTokenRecords')]); node.children[0].colSpan = 4; tokenRows.push(node); }
       byId('adminTokenRows').replaceChildren(...tokenRows);
+      feedback.render();
     }
     async function loadSession(nextSession) {
       const ticket = ++version;
@@ -122,7 +125,10 @@
         const tokens = await client.rpc('admin_list_tokens');
         if (ticket !== version) return;
         if (tokens.error || !Array.isArray(tokens.data)) return loadError(tokens.error || { code: 'INVALID_RESPONSE', message: 'Expected token records' });
-        records = data; tokenRecords = tokens.data; authorized = true; userOptions(); render();
+        const feedbackRows = await client.rpc('admin_list_feedback');
+        if (ticket !== version) return;
+        if (feedbackRows.error || !Array.isArray(feedbackRows.data)) return loadError(feedbackRows.error || { code: 'INVALID_RESPONSE', message: 'Expected feedback records' });
+        records = data; tokenRecords = tokens.data; authorized = true; feedback.setRecords(feedbackRows.data); userOptions(); render();
       } catch (error) { if (ticket === version) loadError(error); }
     }
     async function refresh() {
@@ -146,6 +152,7 @@
       try { await client.auth.signOut(); } catch {}
     }
     async function initialize() {
+      feedback.initialize();
       labels(); deny(); buttons();
       byId('adminPeriod').value ||= 'month'; byId('adminKind').value ||= 'all';
       for (const id of ['adminPeriod', 'adminKind', 'adminUserFilter']) byId(id).onchange = render;

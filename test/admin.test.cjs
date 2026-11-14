@@ -17,7 +17,8 @@ function fixture({ signedIn = true, rpc } = {}) {
   const ids = ['adminData', 'adminStatus', 'adminSignIn', 'adminSignOut', 'adminRefresh', 'adminLanguage',
     'adminPeriod', 'adminKind', 'adminUserFilter', 'adminCalls', 'adminInputTokens', 'adminOutputTokens',
     'adminCost', 'adminAudioSeconds', 'adminUserRows', 'adminUsageRows', 'adminTokenRows'];
-  const nodes = new Map(ids.map(id => [id, new Element()]));
+  const html = fs.readFileSync(path.join(publicDir, 'admin.html'), 'utf8');
+  const nodes = new Map([...new Set([...ids, ...[...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1])])].map(id => [id, new Element()]));
   let session = signedIn ? { user: { id: 'admin' } } : null;
   let authListener;
   const calls = [];
@@ -29,7 +30,7 @@ function fixture({ signedIn = true, rpc } = {}) {
       signInWithOAuth: async options => { calls.push(options); return {}; },
       signOut: async () => { session = null; return {}; },
     },
-    rpc: async name => { calls.push(name); return rpc ? rpc(name) : { data: name === 'admin_list_tokens' ? tokenRows : rows, error: null }; },
+    rpc: async name => { calls.push(name); return rpc ? rpc(name) : { data: name === 'admin_list_feedback' ? [] : name === 'admin_list_tokens' ? tokenRows : rows, error: null }; },
   };
   const controller = require('../public/admin.js').createAdminController({ client, document, t: key => key,
     getLocale: () => 'en-US', now: () => new Date('2026-11-08T12:00:00Z'), schedule: fn => fn(),
@@ -73,7 +74,7 @@ test('admin distinguishes signed-out, forbidden and load failure states without 
 
 test('admin loads the protected RPC, displays totals and treats database text literally', async () => {
   const f = fixture(); await f.controller.initialize();
-  assert.deepEqual(f.calls, ['admin_list_ai_usage', 'admin_list_tokens']);
+  assert.deepEqual(f.calls, ['admin_list_ai_usage', 'admin_list_tokens', 'admin_list_feedback']);
   assert.equal(f.nodes.get('adminData').classList.contains('hidden'), false);
   assert.equal(f.nodes.get('adminCalls').textContent, '2');
   assert.equal(f.nodes.get('adminInputTokens').textContent, '10');
@@ -87,6 +88,15 @@ test('admin loads the protected RPC, displays totals and treats database text li
   assert.deepEqual(f.nodes.get('adminTokenRows').children[0].children.map(cell => cell.textContent), [rows[0].email, '1,240', '8', '2026-11-10']);
   assert.equal(f.nodes.get('adminTokenRows').children[1].children[3].textContent, '—');
   for (const element of f.nodes.values()) assert.equal(element.htmlWrites, 0);
+});
+
+test('denied feedback RPC clears every admin table and does not expose cached feedback', async () => {
+  const f = fixture({ rpc: async name => name === 'admin_list_feedback' ? { error: { code: '42501' } } : { data: rows } });
+  await f.controller.initialize();
+  assert.equal(f.nodes.get('adminStatus').textContent, 'admin.denied');
+  assert.equal(f.nodes.get('adminData').classList.contains('hidden'), true);
+  assert.equal(f.nodes.get('adminFeedbackRows').children.length, 0);
+  assert.equal(f.nodes.get('adminFeedbackBody').textContent, '');
 });
 
 test('denied token RPC hides all admin data and clears cached token rows', async () => {
