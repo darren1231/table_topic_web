@@ -632,7 +632,8 @@
     "feedbackIssue.signInRequired": "登入已失效，請重新登入後再試。",
     "feedbackIssue.failed": "無法建立或連結 issue，請稍後再試。",
     "feedbackIssue.reused": "已找到並連結既有 issue，沒有重複建立。",
-    "feedbackIssue.created": "已建立並連結 GitHub issue。"
+    "feedbackIssue.created": "已建立並連結 GitHub issue。",
+    "speech.recommended": "推薦"
   },
   "placeholders": {
     "placeholder.001": "例如：旅行、勇氣、最近學到的事⋯",

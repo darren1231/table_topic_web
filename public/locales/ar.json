@@ -632,7 +632,8 @@
     "feedbackIssue.signInRequired": "انتهت جلسة تسجيل الدخول. سجّل الدخول مجددًا وحاول مرة أخرى.",
     "feedbackIssue.failed": "تعذّر إنشاء الـ issue أو ربطه. يُرجى المحاولة لاحقًا.",
     "feedbackIssue.reused": "عُثر على issue موجود وتم ربطه دون إنشاء نسخة مكررة.",
-    "feedbackIssue.created": "تم إنشاء GitHub issue وربطه."
+    "feedbackIssue.created": "تم إنشاء GitHub issue وربطه.",
+    "speech.recommended": "موصى به"
   },
   "placeholders": {
     "placeholder.001": "مثلاً: السفر، الشجاعة، شيء تعلمته…",

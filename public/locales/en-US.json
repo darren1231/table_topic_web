@@ -632,7 +632,8 @@
     "feedbackIssue.signInRequired": "Your session has expired. Sign in again and retry.",
     "feedbackIssue.failed": "Could not create or link the issue. Please try again later.",
     "feedbackIssue.reused": "Found and linked an existing issue without creating a duplicate.",
-    "feedbackIssue.created": "GitHub issue created and linked."
+    "feedbackIssue.created": "GitHub issue created and linked.",
+    "speech.recommended": "Recommended"
   },
   "placeholders": {
     "placeholder.001": "For example: travel, courage, something I learned…",

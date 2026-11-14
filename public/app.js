@@ -41,6 +41,9 @@ function applyUiLanguage() {
   updateCharCount();
   if (systemUiReady) refreshSystemAiUi();
   feedbackController?.render();
+  if('speechSynthesis' in window)document.querySelectorAll('[data-speech-voice]').forEach(select=>{
+    const section=select.closest('.rewritten-section');if(section)populateSpeechVoices(section,select.speechLanguage||state.language);
+  });
 }
 function initFeedback() {
   const config = window.SUPABASE_CONFIG || {};
@@ -599,15 +602,15 @@ function stopBrowserSpeech(){
 }
 function populateSpeechVoices(container,language){
   const select=container.querySelector('[data-speech-voice]');if(!select)return;
-  const voices=window.speechSynthesis.getVoices().filter(voice=>SpeechUtils.voiceSupportsLanguage(voice,language)).sort((a,b)=>Number(String(b.lang).toLowerCase()===language.toLowerCase())-Number(String(a.lang).toLowerCase()===language.toLowerCase()));
-  select.replaceChildren();const defaultOption=document.createElement('option');defaultOption.textContent=ui('裝置預設語音','Device default');select.append(defaultOption);
-  voices.forEach(voice=>{const option=document.createElement('option');option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang}${voice.localService?'':' · online'}`;select.append(option);});
-  if(voices.some(voice=>voice.voiceURI===speechSettings.voiceURI))select.value=speechSettings.voiceURI;
+  const voices=SpeechUtils.sortVoices(window.speechSynthesis.getVoices(),language);
+  select.replaceChildren();const defaultOption=document.createElement('option');defaultOption.value='';defaultOption.textContent=ui('裝置預設語音','Device default');select.append(defaultOption);
+  voices.forEach(voice=>{const option=document.createElement('option');option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang}${voice.localService?'':' · online'}${SpeechUtils.isRecommendedVoice(voice)?` · ${t('speech.recommended')}`:''}`;select.append(option);});
+  const voice=SpeechUtils.selectVoice(voices,language,speechSettings.voiceURI,{manual:speechSettings.voiceSelected??Boolean(speechSettings.voiceURI)});select.value=voice?.voiceURI||'';
 }
 function playNextSpeechChunk(){
   const queue=state.speechQueue;if(queue.stopped||queue.paused)return;
   const chunk=state.speechChunks[queue.index];if(!chunk){resetSpeechControls();state.speechChunks=[];state.speechQueue=SpeechUtils.resetQueueState(queue);return;}
-  const utterance=new SpeechSynthesisUtterance(chunk.text),voice=SpeechUtils.selectVoice(window.speechSynthesis.getVoices(),chunk.language,speechSettings.voiceURI);utterance.lang=chunk.language;utterance.rate=chunk.rate;if(voice)utterance.voice=voice;
+  const utterance=new SpeechSynthesisUtterance(chunk.text),voice=SpeechUtils.selectVoice(window.speechSynthesis.getVoices(),chunk.language,speechSettings.voiceURI,{manual:speechSettings.voiceSelected??Boolean(speechSettings.voiceURI)});utterance.lang=chunk.language;utterance.rate=chunk.rate;if(voice)utterance.voice=voice;
   const queueId=queue.id;let finished=false;state.speechUtterance=utterance;
   const advance=()=>{if(finished||state.speechQueue.id!==queueId||state.speechQueue.stopped)return;finished=true;state.speechQueue.index+=1;state.speechUtterance=null;if(state.speechQueue.paused)return;if(chunk.pauseMs===0){playNextSpeechChunk();return;}state.speechQueue.timeoutId=setTimeout(()=>{if(state.speechQueue.id===queueId){state.speechQueue.timeoutId=null;playNextSpeechChunk();}},chunk.pauseMs);};
   utterance.onend=advance;utterance.onerror=event=>{if(event.error!=='canceled'&&event.error!=='interrupted')advance();};window.speechSynthesis.speak(utterance);
@@ -617,8 +620,11 @@ function bindSpeechControls(container){
   if(!controls||!play||!stop)return;
   if(!('speechSynthesis' in window)||!('SpeechSynthesisUtterance' in window)){play.disabled=true;play.textContent=ui('瀏覽器不支援播放','Playback unavailable');return;}
   const articleText=container.querySelector('.rewritten-speech')?.textContent.trim()||'',articleLanguage=CONFIG.languages[state.language]?state.language:'en-US';
-  populateSpeechVoices(container,articleLanguage);window.speechSynthesis.addEventListener('voiceschanged',()=>populateSpeechVoices(container,articleLanguage),{once:true});
-  rateSelect.value=String(speechSettings.rate);voiceSelect.onchange=()=>{speechSettings.voiceURI=voiceSelect.value;localStorage.setItem(SPEECH_SETTINGS_KEY,JSON.stringify(speechSettings));stopBrowserSpeech();};rateSelect.onchange=()=>{speechSettings.rate=Number(rateSelect.value);localStorage.setItem(SPEECH_SETTINGS_KEY,JSON.stringify(speechSettings));stopBrowserSpeech();};
+  voiceSelect.speechLanguage=articleLanguage;populateSpeechVoices(container,articleLanguage);
+  if(container.speechVoicesListener)window.speechSynthesis.removeEventListener('voiceschanged',container.speechVoicesListener);
+  container.speechVoicesListener=()=>{if(container.isConnected===false){window.speechSynthesis.removeEventListener('voiceschanged',container.speechVoicesListener);return;}populateSpeechVoices(container,articleLanguage);};
+  window.speechSynthesis.addEventListener('voiceschanged',container.speechVoicesListener);
+  rateSelect.value=String(speechSettings.rate);voiceSelect.onchange=()=>{speechSettings.voiceURI=voiceSelect.value;speechSettings.voiceSelected=true;localStorage.setItem(SPEECH_SETTINGS_KEY,JSON.stringify(speechSettings));stopBrowserSpeech();};rateSelect.onchange=()=>{speechSettings.rate=Number(rateSelect.value);localStorage.setItem(SPEECH_SETTINGS_KEY,JSON.stringify(speechSettings));stopBrowserSpeech();};
   play.onclick=()=>{
     if(state.speechControls===controls&&!state.speechQueue.stopped){
       if(state.speechQueue.paused){state.speechQueue.paused=false;if(window.speechSynthesis.paused)window.speechSynthesis.resume();else playNextSpeechChunk();play.textContent=`Ⅱ ${ui('暫停','Pause')}`;}
@@ -626,7 +632,7 @@ function bindSpeechControls(container){
       return;
     }
     const text=container.querySelector('.rewritten-speech')?.textContent.trim();if(!text)return toast(ui('目前沒有可播放的文章','There is no article to play'));
-    stopBrowserSpeech();speechSettings.voiceURI=voiceSelect.value;state.speechChunks=SpeechUtils.buildSpeechChunks(text,{language:articleLanguage,rate:Number(rateSelect.value)||.9});state.speechQueue=SpeechUtils.createQueueState(state.speechQueue.id+1);
+    stopBrowserSpeech();state.speechChunks=SpeechUtils.buildSpeechChunks(text,{language:articleLanguage,rate:Number(rateSelect.value)||.9});state.speechQueue=SpeechUtils.createQueueState(state.speechQueue.id+1);
     state.speechControls=controls;play.textContent=`Ⅱ ${ui('暫停','Pause')}`;stop.disabled=false;playNextSpeechChunk();
   };
   stop.onclick=stopBrowserSpeech;

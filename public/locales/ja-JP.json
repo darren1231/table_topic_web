@@ -638,7 +638,8 @@
     "feedbackIssue.signInRequired": "ログインの有効期限が切れました。再度ログインしてお試しください。",
     "feedbackIssue.failed": "issue を作成・関連付けできませんでした。しばらくしてからお試しください。",
     "feedbackIssue.reused": "既存の issue を見つけて関連付けました。重複作成はしていません。",
-    "feedbackIssue.created": "GitHub issue を作成し、関連付けました。"
+    "feedbackIssue.created": "GitHub issue を作成し、関連付けました。",
+    "speech.recommended": "おすすめ"
   },
   "placeholders": {
     "placeholder.001": "例：旅行、勇気、最近学んだこと…",

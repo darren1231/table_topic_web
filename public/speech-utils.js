@@ -90,14 +90,21 @@
   }
 
   function voiceSupportsLanguage(voice,language){return languageBase(voice?.lang)===languageBase(normalizeLanguage(language));}
-  function selectVoice(voices,language,preferredURI=''){
-    const available=Array.isArray(voices)?voices:[],target=normalizeLanguage(language),preferred=available.find(voice=>voice.voiceURI===preferredURI&&voiceSupportsLanguage(voice,target));
+  function isRecommendedVoice(voice){return /natural|neural|online|google|premium|enhanced/i.test(String(voice?.name||''));}
+  function sortVoices(voices,language){
+    const target=normalizeLanguage(language).toLowerCase();
+    return (Array.isArray(voices)?voices:[]).filter(voice=>voiceSupportsLanguage(voice,language)).sort((a,b)=>
+      Number(isRecommendedVoice(b))-Number(isRecommendedVoice(a))||Number(String(b.lang).toLowerCase()===target)-Number(String(a.lang).toLowerCase()===target));
+  }
+  function selectVoice(voices,language,preferredURI='',{manual=Boolean(preferredURI)}={}){
+    if(manual&&!preferredURI)return null;
+    const available=sortVoices(voices,language),preferred=manual&&available.find(voice=>voice.voiceURI===preferredURI);
     if(preferred)return preferred;
-    return available.find(voice=>String(voice.lang).toLowerCase()===target.toLowerCase())||available.find(voice=>voiceSupportsLanguage(voice,target))||null;
+    return available[0]||null;
   }
 
   function createQueueState(id=0){return {id,index:0,stopped:false,paused:false,timeoutId:null};}
   function resetQueueState(queue){return {id:(queue?.id||0)+1,index:0,stopped:true,paused:false,timeoutId:null};}
 
-  return {normalizeSpeechText,detectTextLanguage,splitLanguageRuns,splitSentences,buildSpeechChunks,voiceSupportsLanguage,selectVoice,createQueueState,resetQueueState};
+  return {normalizeSpeechText,detectTextLanguage,splitLanguageRuns,splitSentences,buildSpeechChunks,voiceSupportsLanguage,isRecommendedVoice,sortVoices,selectVoice,createQueueState,resetQueueState};
 });

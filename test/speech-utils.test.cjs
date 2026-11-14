@@ -92,3 +92,16 @@ test('decimals abbreviations and literal placeholder-like text are preserved dur
   const joined=SpeechUtils.buildSpeechChunks('他說「圓周率是 3.14。」真的嗎？',{language:'zh-TW'}).map(item=>item.text).join('');
   assert.equal(joined,'他說「圓周率是 3.14。」真的嗎？');
 });
+
+test('voice ranking prefers actual quality-named voices and preserves manual choices', () => {
+  const basic={voiceURI:'basic',name:'Basic',lang:'en-US'},foreign={voiceURI:'foreign',name:'Natural',lang:'ja-JP'};
+  const quality=['Natural','Neural','Online','Google','Premium','Enhanced'].map((name,index)=>({voiceURI:`quality-${index}`,name:name.toLowerCase(),lang:'en-US'}));
+  const voices=[basic,foreign,...quality],before=[...voices];
+  assert.deepEqual(SpeechUtils.sortVoices(voices,'en-US'),[...quality,basic]);assert.deepEqual(voices,before);
+  assert.equal(SpeechUtils.selectVoice(voices,'en-US'),quality[0]);
+  assert.equal(SpeechUtils.selectVoice(voices,'en-US','basic'),basic);
+  assert.equal(SpeechUtils.selectVoice(voices,'en-US','',{manual:true}),null,'explicit device default is a manual choice');
+  assert.equal(SpeechUtils.selectVoice(voices,'en-US','missing'),quality[0]);
+  assert.equal(SpeechUtils.selectVoice([basic],'en-US'),basic);assert.equal(SpeechUtils.selectVoice([],'en-US'),null);
+  assert.ok(quality.every(voice=>SpeechUtils.isRecommendedVoice(voice)));
+});
