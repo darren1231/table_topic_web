@@ -4,13 +4,13 @@ const { test } = require('node:test');
 
 test('speech utilities preserve chunking, language, voices, and queue behavior', () => {
   const zh=SpeechUtils.buildSpeechChunks('大家好，今天談練習。你準備好了嗎？\n\n我們開始吧！',{language:'zh-TW',rate:1});
-  assert.deepEqual(zh.map(item=>item.text),['大家好，','今天談練習。','你準備好了嗎？','我們開始吧！'],'Chinese punctuation should produce natural clauses and sentences');
-  assert.equal(zh[0].pauseMs,125,'Chinese comma pause');
-  assert.equal(zh[2].pauseMs,525,'paragraph-ending question pause');
+  assert.deepEqual(zh.map(item=>item.text),['大家好，今天談練習。','你準備好了嗎？','我們開始吧！'],'ordinary sentences stay intact');
+  assert.equal(zh[0].pauseMs,300,'sentence pause before the separate pause change');
+  assert.equal(zh[1].pauseMs,525,'paragraph-ending question pause');
 
   const en=SpeechUtils.buildSpeechChunks('Dr. Lee opened the talk, then paused. Are you ready?',{language:'en-US',rate:1});
-  assert.deepEqual(en.map(item=>item.text),['Dr. Lee opened the talk,','then paused.','Are you ready?'],'English abbreviations should not split sentences');
-  assert.equal(en[2].question,true,'English question detection');
+  assert.deepEqual(en.map(item=>item.text),['Dr. Lee opened the talk, then paused.','Are you ready?'],'English abbreviations should not split sentences');
+  assert.equal(en[1].question,true,'English question detection');
 
   assert.equal(SpeechUtils.detectTextLanguage('これは日本語です。','zh-TW'),'ja-JP','kana must be detected as Japanese');
   assert.equal(SpeechUtils.detectTextLanguage('日本語の文章','ja-JP'),'ja-JP','Japanese preference keeps kanji-only text Japanese');
@@ -33,4 +33,29 @@ test('speech utilities preserve chunking, language, voices, and queue behavior',
   assert.deepEqual(stopped,{id:8,index:0,stopped:true,paused:false,timeoutId:null},'Stop/reset invalidates callbacks and clears queue progress');
 
   assert.equal(SpeechUtils.normalizeSpeechText('In 2026, 25% need 1–2 U.S. examples.','en-US'),'In 2026, 25 percent need 1 to 2 U.S. examples.','safe number, percent, range, and abbreviation normalization');
+});
+
+test('ordinary sentences keep commas and same-language runs intact without losing content', () => {
+  const source='今天談練習，先想一想，再開口。Now, keep one English sentence intact.今天 practice English, every day，再分享心得。';
+  const chunks=SpeechUtils.buildSpeechChunks(source,{language:'zh-TW'});
+  assert.deepEqual(chunks.map(item=>item.text),['今天談練習，先想一想，再開口。','Now, keep one English sentence intact.','今天','practice English, every day，','再分享心得。']);
+  assert.equal(chunks.map(item=>item.text).join('').replace(/\s/g,''),source.replace(/\s/g,''));
+  assert.deepEqual(chunks.map(item=>item.language),['zh-TW','en-US','zh-TW','en-US','zh-TW']);
+});
+
+test('long sentence thresholds are 120 Unicode characters with Han/kana and 200 otherwise', () => {
+  const zhAt='字'.repeat(59)+'，'+'字'.repeat(59)+'。';
+  const zhOver='字'.repeat(59)+'，'+'字'.repeat(60)+'。';
+  const enAt='a'.repeat(99)+', '+'b'.repeat(98)+'.';
+  const enOver='a'.repeat(99)+', '+'b'.repeat(99)+'.';
+  assert.equal(SpeechUtils.buildSpeechChunks(zhAt,{language:'zh-TW'}).length,1);
+  assert.deepEqual(SpeechUtils.buildSpeechChunks(zhOver,{language:'zh-TW'}).map(item=>item.text),['字'.repeat(59)+'，','字'.repeat(60)+'。']);
+  assert.equal(SpeechUtils.buildSpeechChunks(enAt).length,1);
+  assert.deepEqual(SpeechUtils.buildSpeechChunks(enOver).map(item=>item.text),['a'.repeat(99)+',','b'.repeat(99)+'.']);
+  for(const [source,limit] of [[zhOver,120],[enOver,200],['字'.repeat(120)+'。',120],['😀'.repeat(199)+'a.',200]]){
+    const chunks=SpeechUtils.buildSpeechChunks(source,{language:'zh-TW'});
+    assert.ok(chunks.every(item=>Array.from(item.text).length<=limit));
+    assert.equal(chunks.map(item=>item.text).join('').replace(/\s/g,''),source.replace(/\s/g,''));
+    assert.ok(chunks.every(item=>!/^\p{P}+$/u.test(item.text)),'no punctuation-only tail');
+  }
 });

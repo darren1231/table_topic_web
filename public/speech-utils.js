@@ -42,8 +42,20 @@
     return protectedText.match(/[^。！？.!?]+[。！？.!?]+|[^。！？.!?]+$/g)?.map(value=>value.replace(/§(\d+)§/g,(_,index)=>protectedValues[Number(index)]).trim()).filter(Boolean)||[];
   }
 
-  function splitClauses(sentence){
-    return String(sentence||'').match(/[^，,、；;：:]+[，,、；;：:]|[^，,、；;：:]+$/g)?.map(value=>value.trim()).filter(Boolean)||[];
+  function splitLongSentence(sentence){
+    // Count Unicode characters, including punctuation: 120 for Han/kana, 200 otherwise.
+    const limit=/[\u3040-\u30ff\u3400-\u9fff]/.test(sentence)?120:200,parts=[];
+    let remaining=Array.from(sentence);
+    while(remaining.length>limit){
+      const prefix=remaining.slice(0,limit);
+      let cut=prefix.findLastIndex(character=>/[，,、；;：:]/.test(character))+1;
+      if(!cut)cut=prefix.findLastIndex(character=>/\s/.test(character))+1;
+      if(!cut)cut=/^[。！？.!?]+$/.test(remaining.slice(limit).join(''))?limit-1:limit;
+      const part=remaining.slice(0,cut).join('').trim();if(part)parts.push(part);
+      remaining=remaining.slice(cut);
+    }
+    const last=remaining.join('').trim();if(last)parts.push(last);
+    return parts;
   }
 
   function buildSpeechChunks(text,{language='en-US',rate=.9}={}){
@@ -51,7 +63,7 @@
     paragraphs.forEach((paragraph,paragraphIndex)=>{
       const sentences=splitSentences(paragraph);
       sentences.forEach((sentence,sentenceIndex)=>{
-        const clauses=splitClauses(sentence),isParagraphLast=sentenceIndex===sentences.length-1,isQuestion=/[?？]\s*$/.test(sentence);
+        const clauses=splitLongSentence(sentence),isParagraphLast=sentenceIndex===sentences.length-1,isQuestion=/[?？]\s*$/.test(sentence);
         clauses.forEach((clause,clauseIndex)=>{
           const isSentenceLast=clauseIndex===clauses.length-1,pauseMs=!isSentenceLast?125:isParagraphLast?525:300;
           const slow=(paragraphIndex===0&&sentenceIndex===0)||isParagraphLast||isQuestion;
