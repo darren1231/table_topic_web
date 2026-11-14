@@ -4,6 +4,12 @@ const { test } = require('node:test');
 require('./coach-result-utils.test.cjs');
 require('./speech-utils.test.cjs');
 require('./ai-usage.test.cjs');
+require('./signing.test.cjs');
+require('./signed-usage.test.cjs');
+require('./tokens.test.cjs');
+require('./token-endpoints.test.cjs');
+require('./token-ui.test.cjs');
+require('./token-ui-integration.test.cjs');
 require('./ai-config.test.cjs');
 require('./ai-billing.test.cjs');
 require('./ai-validation.test.cjs');
@@ -33,8 +39,8 @@ require('./version-consistency.test.cjs');
 require('./user-guide.test.cjs');
 
 test('test environment can query an in-memory PostgreSQL database', async () => {
-  const { PGlite } = require('@electric-sql/pglite');
-  const database = new PGlite();
+  const { createDatabase } = require('./helpers/database.cjs');
+  const database = createDatabase();
 
   try {
     const result = await database.query('SELECT 1 AS value');

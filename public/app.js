@@ -16,6 +16,7 @@ const UI_LANGUAGE_KEY = 'tableTopicsLanguage.v1';
 const SPEECH_SETTINGS_KEY = 'tableTopicsSpeechSettings.v1';
 const ENABLE_BYOK = false;
 let systemBalance = null;
+let tokenState = null, tokenRevision = 0, tokenBusy = false, tokenErrorKey = null, tokenActionMessage = null, tokenCheckIn = null;
 let systemIdentity = null;
 let systemCreditExhausted = false;
 let systemUiReady = false;
@@ -181,6 +182,13 @@ function initSystemAi() {
   option.textContent = t('systemAi.name');
   $('#providerSelect').append(option);
   $('#systemAiSigninButton').onclick = () => $('#accountButton').click();
+  $('#tokenHeader').onclick = openTokenPanel;
+  $('#tokenClose').onclick = () => $('#tokenDialog').close();
+  $('#tokenSigninButton').onclick = () => { $('#tokenDialog').close(); $('#accountButton').click(); };
+  $('#tokenExchangeUnits').value = '1';
+  $('#tokenExchangeUnits').oninput = renderTokenUi;
+  $('#tokenMakeupButton').onclick = () => runTokenAction('makeup');
+  $('#tokenExchangeButton').onclick = () => runTokenAction('exchange');
   if (!ENABLE_BYOK) {
     for (const id of ['providerSelect', 'endpointInput', 'apiKeyInput', 'modelSelect', 'transcriptionModelInput', 'transcriptionEndpointInput', 'projectNameInput']) {
       $(`#${id}`).closest('label').classList.add('hidden');
@@ -204,14 +212,108 @@ function refreshSystemAiUi() {
     systemBalance = null;
     systemCreditExhausted = false;
     systemBalanceRevision++;
+    tokenRevision++; tokenState = null; tokenBusy = false; tokenErrorKey = null; tokenActionMessage = null; tokenCheckIn = null;
+    $('#tokenDialog').close();
   }
   const signedIn = Boolean(window.tableTopicsCloud?.isSignedIn?.());
   $('#systemAiNoticeText').textContent = t(!signedIn ? 'systemAi.signInHint' : systemCreditExhausted ? 'systemAi.creditExhausted' : 'systemAi.ready');
   $('#systemAiSigninButton').textContent = t('systemAi.signInButton');
   $('#systemAiSigninButton').classList.toggle('hidden', signedIn);
   renderSystemBalance();
+  renderTokenUi();
   if (!ENABLE_BYOK) renderManagedProjectSettings();
-  if (changedIdentity && signedIn) void refreshSystemBalance();
+  if (changedIdentity && signedIn) { void refreshSystemBalance(); void refreshTokenStatus(); }
+}
+
+function tokenClient(owner) {
+  return TokenUI.createClient({ fetch: (...args) => fetch(...args), getAccessToken: async () => {
+    const token = await window.tableTopicsCloud?.getAccessToken?.();
+    return owner === window.tableTopicsCloud?.getUserId?.() ? token : null;
+  } });
+}
+function tokenAvailableUnits() {
+  return tokenState ? Math.min(2147483, Math.floor(tokenState.balance / 1000),
+    tokenState.exchangeRate > 0 ? Math.floor(Number.MAX_VALUE / tokenState.exchangeRate) : 2147483) : 0;
+}
+function renderTokenUi() {
+  const signedIn = Boolean(window.tableTopicsCloud?.isSignedIn?.());
+  const number = value => new Intl.NumberFormat(state.language).format(value);
+  const money = value => new Intl.NumberFormat(state.language, { maximumSignificantDigits: 12 }).format(value);
+  $('#tokenHeader').textContent = !signedIn ? t('tokens.signInHint') : tokenState
+    ? t('tokens.header', { balance: number(tokenState.balance), streak: number(tokenState.streak) }) : t(tokenErrorKey || 'tokens.loading');
+  $('#tokenHeader').setAttribute('aria-label', t(signedIn ? 'tokens.title' : 'tokens.signInHint'));
+  for (const [id, key] of [['tokenTitle', 'title'], ['tokenUnitsLabel', 'unitsLabel'], ['tokenExchangeButton', 'exchange'], ['tokenRules', 'rules']]) $(`#${id}`).textContent = t(`tokens.${key}`);
+  $('#tokenClose').setAttribute('aria-label', t('tokens.close'));
+  $('#tokenSigninButton').textContent = t('systemAi.signInButton');
+  $('#tokenSigninButton').classList.toggle('hidden', signedIn && tokenErrorKey !== 'systemAi.signInAgain');
+  $('#tokenBalance').textContent = tokenState ? t('tokens.balance', { count: number(tokenState.balance) }) : '';
+  $('#tokenStreak').textContent = tokenState ? t('tokens.streak', { count: number(tokenState.streak) }) : '';
+  $('#tokenToday').textContent = tokenState ? t(tokenState.checkedIn ? 'tokens.checkedIn' : 'tokens.notCheckedIn') : '';
+  const reward = tokenState && TokenUI.rewardLine(tokenState);
+  $('#tokenRewardLine').textContent = reward ? t(reward.key, { count: number(reward.count) }) : '';
+  $('#tokenMakeupButton').textContent = t('tokens.makeup', { count: number(tokenState?.makeupCost ?? 200) });
+  $('#tokenMakeupButton').classList.toggle('hidden', !signedIn || !tokenState?.canMakeup);
+  $('#tokenMakeupButton').disabled = tokenBusy || !tokenState?.canMakeup;
+  const units = tokenAvailableUnits();
+  $('#tokenExchangeHint').textContent = tokenState ? t('tokens.exchangeHint', { units: number(units), credit: money(units * tokenState.exchangeRate) }) : '';
+  $('#tokenExchangeUnits').max = String(units);
+  $('#tokenExchangeUnits').disabled = tokenBusy || units < 1;
+  const selected = Number($('#tokenExchangeUnits').value);
+  $('#tokenExchangeButton').disabled = tokenBusy || !Number.isInteger(selected) || selected < 1 || selected > units;
+  $('#tokenPanelMessage').textContent = tokenActionMessage ? t(tokenActionMessage.key, tokenActionMessage.variables)
+    : tokenErrorKey ? t(tokenErrorKey) : signedIn && !tokenState ? t('tokens.loading') : '';
+  $('#tokenCheckInNotice').classList.toggle('hidden', !tokenCheckIn);
+  $('#tokenCheckInNotice').textContent = tokenCheckIn ? t('tokens.checkInNotice', { streak: number(tokenCheckIn.streak), reward: number(tokenCheckIn.reward) }) : '';
+}
+async function refreshTokenStatus() {
+  const owner = window.tableTopicsCloud?.getUserId?.();
+  if (!owner || tokenBusy) return;
+  const revision = ++tokenRevision;
+  try {
+    const data = await tokenClient(owner).status();
+    if (owner !== window.tableTopicsCloud?.getUserId?.() || revision !== tokenRevision) return;
+    tokenState = data; tokenErrorKey = null;
+  } catch (error) {
+    if (owner !== window.tableTopicsCloud?.getUserId?.() || revision !== tokenRevision) return;
+    tokenState = null; tokenErrorKey = error.messageKey || 'tokens.unavailable';
+  }
+  renderTokenUi();
+}
+async function openTokenPanel() {
+  if (!window.tableTopicsCloud?.isSignedIn?.()) { $('#accountButton').click(); return; }
+  tokenActionMessage = null; renderTokenUi(); $('#tokenDialog').showModal();
+  await refreshTokenStatus();
+}
+async function runTokenAction(action) {
+  const owner = window.tableTopicsCloud?.getUserId?.();
+  if (!owner || !tokenState || tokenBusy) return;
+  const units = Number($('#tokenExchangeUnits').value);
+  const available = tokenAvailableUnits();
+  if (action === 'makeup' && !tokenState.canMakeup) return;
+  if (action === 'exchange' && (!Number.isInteger(units) || units < 1 || units > available)) return;
+  const number = value => new Intl.NumberFormat(state.language, { maximumSignificantDigits: 12 }).format(value);
+  const variables = action === 'makeup' ? { count: number(tokenState.makeupCost) }
+    : { count: number(units * 1000), credit: number(units * tokenState.exchangeRate) };
+  if (!confirm(t(action === 'makeup' ? 'tokens.confirmMakeup' : 'tokens.confirmExchange', variables))) return;
+  const revision = ++tokenRevision;
+  tokenBusy = true; tokenActionMessage = null; renderTokenUi();
+  try {
+    const data = await tokenClient(owner)[action](units);
+    if (owner !== window.tableTopicsCloud?.getUserId?.() || revision !== tokenRevision) return;
+    tokenState = action === 'makeup' ? { ...data, exchangeRate: tokenState.exchangeRate } : { ...data.status, exchangeRate: data.rateUsd };
+    tokenErrorKey = null;
+    tokenActionMessage = { key: action === 'makeup' ? 'tokens.makeupDone' : 'tokens.exchangeDone', variables: { credit: number(data.creditAdded || 0) } };
+    if (action === 'exchange') await refreshSystemBalance();
+  } catch (error) {
+    if (owner !== window.tableTopicsCloud?.getUserId?.() || revision !== tokenRevision) return;
+    const key = error.messageKey || 'tokens.unavailable';
+    tokenActionMessage = { key }; tokenErrorKey = error.code === 'unauthorized' ? key : null;
+    if (error.code === 'unauthorized') tokenState = null;
+  } finally {
+    if (owner === window.tableTopicsCloud?.getUserId?.() && revision === tokenRevision) {
+      tokenBusy = false; renderTokenUi(); await refreshTokenStatus();
+    }
+  }
 }
 
 async function refreshSystemBalance() {
@@ -312,6 +414,10 @@ async function callSystemApi(operation, input, project, kind) {
     const data = await client[operation](input);
     if (owner !== window.tableTopicsCloud?.getUserId?.()) throw Object.assign(new Error(), SystemAI.interpretResponse(401));
     recordSystemUsage(project, data, kind, startedAt);
+    if (operation === 'respond' && kind === 'analysis') {
+      tokenCheckIn = TokenUI.validCheckIn(data.checkIn) && data.checkIn.checkedIn ? { streak: data.checkIn.streak, reward: data.checkIn.reward } : null;
+      renderTokenUi(); void refreshTokenStatus();
+    }
     return data.text;
   } catch (error) {
     if (error.fallbackToBuiltin) {
@@ -931,14 +1037,14 @@ function renderGuide(){
   for(const [id,key] of [['guideEntryTitle','title'],['guideEntryHint','entryHint'],['guideTitle','title'],['guideSubtitle','subtitle'],['guideTocTitle','contents'],['guideBackTop','home'],['guideBackBottom','home'],['guideStart','start']])$(`#${id}`).textContent=t(`guide.${key}`);
   $('#guideEntry').setAttribute('aria-label',t('guide.title'));
   const contents=$('#guideToc'),sections=$('#guideSections');contents.replaceChildren();sections.replaceChildren();
-  const lengths=[5,3,4,3,6,5,4,3,5,3,3,0];
-  for(let number=1;number<=12;number++){
+  const lengths=[5,3,4,3,6,5,4,3,5,3,3,0,6];
+  for(let number=1;number<=13;number++){
     const prefix=`guide.section${number}`,section=document.createElement('section');section.id=`guide-section-${number}`;section.className='topic-panel guide-section';
     const heading=text('h2',`${prefix}.title`);heading.textContent=`${number}. ${heading.textContent}`;section.append(heading);
     const item=document.createElement('li'),button=text('button',`${prefix}.title`);button.type='button';button.className='text-button';button.textContent=`${number}. ${button.textContent}`;button.onclick=()=>section.scrollIntoView({behavior:'smooth',block:'start'});item.append(button);contents.append(item);
     const list=(from,to,tag='ul')=>{const node=document.createElement(tag);for(let i=from;i<=to;i++)node.append(text('li',`${prefix}.item${i}`));section.append(node);};
     if(number===5){section.append(text('p',`${prefix}.intro`));list(1,2);section.append(text('p',`${prefix}.tips`));list(3,6);}
-    else if(number===12){const questions=document.createElement('dl');for(let i=1;i<=6;i++)questions.append(text('dt',`${prefix}.question${i}`),text('dd',`${prefix}.answer${i}`));section.append(questions);}
+    else if(number===12){const questions=document.createElement('dl');for(let i=1;i<=7;i++)questions.append(text('dt',`${prefix}.question${i}`),text('dd',`${prefix}.answer${i}`));section.append(questions);}
     else list(1,lengths[number-1],number===2?'ol':'ul');
     sections.append(section);
   }

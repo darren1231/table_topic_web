@@ -7,15 +7,15 @@ const catalogs = Object.fromEntries(['zh-TW', 'en-US', 'ja-JP', 'ar'].map(locale
   [locale, JSON.parse(fs.readFileSync(path.join(publicDir, 'locales', `${locale}.json`), 'utf8')).messages]));
 const guideKeys = messages => Object.keys(messages).filter(key => key.startsWith('guide.'));
 
-test('all four guide catalogs have the same nonempty keys and twelve complete sections', () => {
+test('all four guide catalogs have thirteen complete sections and six FAQ entries', () => {
   const keys = guideKeys(catalogs['zh-TW']);
   assert.ok(keys.length > 50, 'Guide content must exist');
   for (const messages of Object.values(catalogs)) {
     assert.deepEqual(guideKeys(messages), keys);
     for (const key of keys) assert.ok(typeof messages[key] === 'string' && messages[key].trim(), key);
-    for (let section = 1; section <= 12; section++) assert.ok(messages[`guide.section${section}.title`]);
-    assert.equal(Object.keys(messages).filter(key => /^guide\.section12\.question\d+$/.test(key)).length, 6);
-    assert.equal(Object.keys(messages).filter(key => /^guide\.section12\.answer\d+$/.test(key)).length, 6);
+    for (let section = 1; section <= 13; section++) assert.ok(messages[`guide.section${section}.title`]);
+    assert.equal(Object.keys(messages).filter(key => /^guide\.section12\.question\d+$/.test(key)).length, 7);
+    assert.equal(Object.keys(messages).filter(key => /^guide\.section12\.answer\d+$/.test(key)).length, 7);
   }
 });
 
@@ -43,6 +43,7 @@ test('guide instructions quote the corresponding labels in each locale catalog',
     'guide.section9.item4': ['settings.011'], 'guide.section10.item1': ['ui.199', 'ui.104', 'ui.105'],
     'guide.section10.item3': ['ui.108'], 'guide.section11.item1': ['ui.004'],
     'guide.section12.answer2': ['ui.091', 'ui.013'], 'guide.section12.answer5': ['version.001'],
+    'guide.section13.item5': ['tokens.exchange'],
     'guide.section12.answer6': ['answer.clear'],
   };
   for (const [locale, messages] of Object.entries(catalogs)) {
@@ -77,8 +78,9 @@ test('guide navigation displays its view, renders content and preserves auth cal
   assert.equal(b.context.location.hash, 'guide');
   assert.equal(b.get('#guideView').classList.contains('hidden'), false);
   assert.equal(b.get('#homeView').classList.contains('hidden'), true);
-  assert.equal(b.get('#guideSections').children.length, 12);
-  assert.equal(b.get('#guideSections').children[11].children.at(-1).children.length, 12);
+  assert.equal(b.get('#guideSections').children.length, 13);
+  assert.equal(b.get('#guideToc').children.length, 13);
+  assert.equal(b.get('#guideSections').children[11].children.at(-1).children.length, 14);
   b.context.location.hash = '#access_token=fake-callback';
   b.run("navigateTo('guide');");
   assert.equal(b.context.location.hash, '#access_token=fake-callback');

@@ -1,19 +1,26 @@
 const assert = require('node:assert/strict');
+const { fakeSigningSecret } = require('./helpers/signing.cjs');
 const { test } = require('node:test');
 const { assertTiming } = require('./helpers/server-timing.cjs');
-const env = { SUPABASE_URL: 'https://database.example.invalid', SUPABASE_PUBLISHABLE_KEY: 'public-placeholder' };
+const env = { USAGE_SIGNING_SECRET: fakeSigningSecret, SUPABASE_URL: 'https://database.example.invalid', SUPABASE_PUBLISHABLE_KEY: 'public-placeholder' };
 const handle = args => require('../api/_lib/balance.js').handleBalance(args);
 
-async function run({ method = 'GET', auth = 'Bearer user-placeholder', spent = '0.25', balanceStatus = 200, balanceBody, credit, fail = false } = {}) {
+test('balance includes bonus credit and rejects invalid bonus totals', async () => {
+  const { response } = await run({ spent: '1', bonus: '0.5' });
+  assert.deepEqual(await response.json(), { spent: 1, credit: 1.5, balance: 0.5, exhausted: false });
+  for (const bonus_credit of [null, '-1', 'NaN', 'Infinity']) assert.equal((await run({ balanceBody: [{ spent: '0', bonus_credit }] })).response.status, 503);
+});
+
+async function run({ method = 'GET', auth = 'Bearer user-placeholder', spent = '0.25', bonus = '0', balanceStatus = 200, balanceBody, credit, fail = false, signingSecret = fakeSigningSecret } = {}) {
   const calls = [];
   const response = await handle({
     request: new Request('https://app.example.invalid/api/ai/balance', { method, headers: { Authorization: auth } }),
-    env: { ...env, ...(credit === undefined ? {} : { AI_USER_CREDIT_USD: credit }) },
+    env: { ...env, USAGE_SIGNING_SECRET: signingSecret, ...(credit === undefined ? {} : { AI_USER_CREDIT_USD: credit }) },
     fetch: async (url, init) => {
       calls.push({ url, init });
       if (fail) throw new Error('PRIVATE_NETWORK_BODY');
       assert.equal(url, `${env.SUPABASE_URL}/rest/v1/rpc/get_my_ai_balance`);
-      return Response.json(balanceBody ?? [{ spent }], { status: balanceStatus });
+      return Response.json(balanceBody ?? [{ spent, bonus_credit: bonus }], { status: balanceStatus });
     },
   });
   return { response, calls };
@@ -25,6 +32,15 @@ test('balance is GET-only and rejects missing credentials before service access'
   assert.equal(wrong.calls.length, 0);
   for (const auth of ['', 'Basic placeholder', 'Bearer two values']) {
     const result = await run({ auth }); assert.equal(result.response.status, 401); assert.equal(result.calls.length, 0);
+  }
+});
+
+test('balance requires signing configuration even though it never generates or records usage', async () => {
+  for (const signingSecret of [null, '', 'FAKE-short']) {
+    const { response, calls } = await run({ signingSecret });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'configuration_error' });
+    assert.equal(calls.length, 0);
   }
 });
 

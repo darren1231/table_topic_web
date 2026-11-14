@@ -1,9 +1,10 @@
 const assert = require('node:assert/strict');
+const { fakeSigningSecret } = require('./helpers/signing.cjs');
 const { test } = require('node:test');
 
 // Deliberately non-credential placeholders; never read the developer environment.
 const defaults = { url: 'https://database.example.invalid', anonKey: 'public-placeholder' };
-const env = { CHATGPT_PREVIEW_KEY: 'preview-placeholder', CHATGPT_PRODUCTION_KEY: 'production-placeholder' };
+const env = { USAGE_SIGNING_SECRET: fakeSigningSecret, CHATGPT_PREVIEW_KEY: 'preview-placeholder', CHATGPT_PRODUCTION_KEY: 'production-placeholder' };
 const readConfig = (...args) => require('../api/_lib/config.js').readConfig(...args);
 
 test('config selects production credentials only for the exact production environment', () => {
@@ -25,6 +26,7 @@ test('config provides specified defaults and accepts independent Supabase overri
   const input = Object.freeze({ ...env });
   const config = readConfig(input, Object.freeze(defaults));
   assert.deepEqual(config, {
+    signingSecret: fakeSigningSecret,
     apiKey: 'preview-placeholder',
     text: { model: 'gpt-5.6-luna', inputRate: 0.2, outputRate: 1.2 },
     transcription: { model: 'gpt-transcribe', inputRate: null, outputRate: null, usdPerMinute: 0.0045, available: true },

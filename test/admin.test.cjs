@@ -8,11 +8,15 @@ const rows = [
   { user_id: 'a', email: '<img src=x onerror=alert(1)>', created_at: '2026-11-07T00:00:00Z', kind: 'analysis', model: '<script>bad</script>', status: 'success', input_tokens: 10, output_tokens: 5, estimated_cost: '0.25', audio_seconds: '0' },
   { user_id: 'b', email: 'member@example.invalid', created_at: '2026-11-08T00:00:00Z', kind: 'transcription', model: 'gpt-transcribe', status: 'error', input_tokens: 0, output_tokens: 0, estimated_cost: '0.5', audio_seconds: '30.5' },
 ];
+const tokenRows = [
+  { user_id: 'a', email: rows[0].email, balance: '1240', streak: 8, last_check_in: '2026-11-10' },
+  { user_id: 'b', email: rows[1].email, balance: 0, streak: 0, last_check_in: null },
+];
 
 function fixture({ signedIn = true, rpc } = {}) {
   const ids = ['adminData', 'adminStatus', 'adminSignIn', 'adminSignOut', 'adminRefresh', 'adminLanguage',
     'adminPeriod', 'adminKind', 'adminUserFilter', 'adminCalls', 'adminInputTokens', 'adminOutputTokens',
-    'adminCost', 'adminAudioSeconds', 'adminUserRows', 'adminUsageRows'];
+    'adminCost', 'adminAudioSeconds', 'adminUserRows', 'adminUsageRows', 'adminTokenRows'];
   const nodes = new Map(ids.map(id => [id, new Element()]));
   let session = signedIn ? { user: { id: 'admin' } } : null;
   let authListener;
@@ -25,7 +29,7 @@ function fixture({ signedIn = true, rpc } = {}) {
       signInWithOAuth: async options => { calls.push(options); return {}; },
       signOut: async () => { session = null; return {}; },
     },
-    rpc: async name => { calls.push(name); return rpc ? rpc() : { data: rows, error: null }; },
+    rpc: async name => { calls.push(name); return rpc ? rpc(name) : { data: name === 'admin_list_tokens' ? tokenRows : rows, error: null }; },
   };
   const controller = require('../public/admin.js').createAdminController({ client, document, t: key => key,
     getLocale: () => 'en-US', now: () => new Date('2026-11-08T12:00:00Z'), schedule: fn => fn(),
@@ -69,7 +73,7 @@ test('admin distinguishes signed-out, forbidden and load failure states without 
 
 test('admin loads the protected RPC, displays totals and treats database text literally', async () => {
   const f = fixture(); await f.controller.initialize();
-  assert.deepEqual(f.calls, ['admin_list_ai_usage']);
+  assert.deepEqual(f.calls, ['admin_list_ai_usage', 'admin_list_tokens']);
   assert.equal(f.nodes.get('adminData').classList.contains('hidden'), false);
   assert.equal(f.nodes.get('adminCalls').textContent, '2');
   assert.equal(f.nodes.get('adminInputTokens').textContent, '10');
@@ -79,7 +83,45 @@ test('admin loads the protected RPC, displays totals and treats database text li
   assert.equal(f.nodes.get('adminUserRows').children.length, 2);
   assert.equal(f.nodes.get('adminUsageRows').children[0].children[1].textContent, rows[0].email);
   assert.equal(f.nodes.get('adminUsageRows').children[0].children[3].textContent, rows[0].model);
+  assert.equal(f.nodes.get('adminTokenRows').children.length, 2);
+  assert.deepEqual(f.nodes.get('adminTokenRows').children[0].children.map(cell => cell.textContent), [rows[0].email, '1,240', '8', '2026-11-10']);
+  assert.equal(f.nodes.get('adminTokenRows').children[1].children[3].textContent, '—');
   for (const element of f.nodes.values()) assert.equal(element.htmlWrites, 0);
+});
+
+test('denied token RPC hides all admin data and clears cached token rows', async () => {
+  const f = fixture({ rpc: async name => name === 'admin_list_tokens'
+    ? { error: { code: '42501' } } : { data: rows } });
+  await f.controller.initialize();
+  assert.equal(f.nodes.get('adminStatus').textContent, 'admin.denied');
+  assert.equal(f.nodes.get('adminData').classList.contains('hidden'), true);
+  assert.equal(f.nodes.get('adminTokenRows').children.length, 0);
+  assert.equal(f.nodes.get('adminUsageRows').children.length, 0);
+});
+
+test('token-only users can be filtered and token data is always rendered as text', async () => {
+  const payload = '<img src=x onerror=alert(1)>';
+  const f = fixture({ rpc: async name => ({ data: name === 'admin_list_tokens'
+    ? [{ user_id: 'new-user', email: payload, balance: 'Infinity', streak: '<script>', last_check_in: payload }] : rows }) });
+  await f.controller.initialize();
+  assert.ok(f.nodes.get('adminUserFilter').children.some(option => option.value === 'new-user'));
+  f.nodes.get('adminUserFilter').value = 'new-user'; f.controller.render();
+  const row = f.nodes.get('adminTokenRows').children[0];
+  assert.deepEqual(row.children.map(cell => cell.textContent), [payload, '—', '—', '—']);
+  for (const cell of row.children) { assert.equal(cell.htmlWrites, 0); assert.equal(cell.children.length, 0); }
+  assert.equal(f.nodes.get('adminCalls').textContent, '0');
+});
+
+test('sign-out during the token RPC discards the pending response and clears both tables', async () => {
+  let resolve, started;
+  const waiting = new Promise(done => { started = done; });
+  const f = fixture({ rpc: name => name === 'admin_list_tokens'
+    ? (started(), new Promise(done => { resolve = done; })) : Promise.resolve({ data: rows }) });
+  const initializing = f.controller.initialize(); await waiting;
+  await f.controller.signOut(); resolve({ data: tokenRows }); await initializing;
+  assert.equal(f.nodes.get('adminData').classList.contains('hidden'), true);
+  assert.equal(f.nodes.get('adminTokenRows').children.length, 0);
+  assert.equal(f.nodes.get('adminUsageRows').children.length, 0);
 });
 
 test('admin filtering updates totals and details while user spend remains a labeled lifetime total', async () => {

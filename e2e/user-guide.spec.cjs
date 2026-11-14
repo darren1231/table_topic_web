@@ -14,10 +14,10 @@ test('home guide entry is above the heading and contents scroll to the chosen se
   await expect(page).toHaveURL(/#guide$/);
   await expect(page.locator('#guideView')).toBeVisible();
   await expect(page.locator('#guideTitle')).toHaveText('使用說明書');
-  await expect(page.locator('#guideSections > section')).toHaveCount(12);
-  await expect(page.locator('#guideToc button')).toHaveCount(12);
+  await expect(page.locator('#guideSections > section')).toHaveCount(13);
+  await expect(page.locator('#guideToc button')).toHaveCount(13);
   await page.locator('#guideToc button').last().click();
-  await expect(page.locator('#guide-section-12')).toBeInViewport();
+  await expect(page.locator('#guide-section-13')).toBeInViewport();
   await expect(page).toHaveURL(/#guide$/);
   await expect(page.locator('#guideView')).not.toContainText('guide.');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

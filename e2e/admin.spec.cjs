@@ -8,6 +8,10 @@ const records = [
 
 test('admin sees totals users details and working period purpose and user filters', async ({ signedInPage: page, sandbox }) => {
   sandbox.mockRpc('admin_list_ai_usage', records);
+  sandbox.mockRpc('admin_list_tokens', [
+    { user_id: 'user-a', email: 'alice@example.invalid', balance: 1240, streak: 8, last_check_in: '2026-11-10' },
+    { user_id: 'user-b', email: 'bob@example.invalid', balance: 0, streak: 0, last_check_in: null },
+  ]);
   await page.clock.setFixedTime(new Date('2026-11-10T04:00:00Z'));
   await page.goto('/admin');
   await page.locator('#adminLanguage').selectOption('en-US');
@@ -20,6 +24,11 @@ test('admin sees totals users details and working period purpose and user filter
   await expect(page.locator('#adminUserRows tr')).toHaveCount(2);
   await expect(page.locator('#adminUserRows tr').filter({ hasText: 'alice@example.invalid' })).toContainText('US$0.400000');
   await expect(page.locator('#adminUsageRows tr')).toHaveCount(2);
+  await expect(page.locator('#adminTokenRows tr')).toHaveCount(2);
+  const tokens = page.locator('#adminTokenRows tr').filter({ hasText: 'alice@example.invalid' });
+  await expect(tokens.locator('td').nth(1)).toHaveText('1,240');
+  await expect(tokens.locator('td').nth(2)).toHaveText('8');
+  await expect(tokens.locator('td').nth(3)).toHaveText('2026-11-10');
   await page.locator('#adminPeriod').selectOption('all');
   await expect(page.locator('#adminCalls')).toHaveText('3');
   await page.locator('#adminKind').selectOption('transcription');
@@ -31,6 +40,8 @@ test('admin sees totals users details and working period purpose and user filter
   await page.locator('#adminKind').selectOption('all');
   await expect(page.locator('#adminCalls')).toHaveText('2');
   await expect(page.locator('#adminUserRows tr')).toHaveCount(1);
+  await expect(page.locator('#adminTokenRows tr')).toHaveCount(1);
+  await expect(page.locator('#adminTokenRows')).toContainText('alice@example.invalid');
   await page.locator('#adminPeriod').selectOption('7');
   await expect(page.locator('#adminCalls')).toHaveText('1');
   await page.locator('#adminPeriod').selectOption('30');
@@ -46,6 +57,18 @@ test('non-admin receives access denied with no usage data', async ({ signedInPag
   await expect(page.locator('#adminData')).not.toBeVisible();
   await expect(page.locator('#adminUserRows tr')).toHaveCount(0);
   await expect(page.locator('#adminUsageRows tr')).toHaveCount(0);
+  await expect(page.locator('#adminTokenRows tr')).toHaveCount(0);
+});
+
+test('denied token permissions hide usage and token data even if usage RPC succeeded', async ({ signedInPage: page, sandbox }) => {
+  sandbox.mockRpc('admin_list_ai_usage', records);
+  sandbox.mockRpc('admin_list_tokens', { code: '42501', message: 'permission denied' }, 403);
+  sandbox.allowConsoleError(/^Failed to load resource:.*(?:403|Forbidden)/);
+  await page.goto('/admin');
+  await expect(page.locator('#adminStatus')).toHaveText('沒有權限');
+  await expect(page.locator('#adminData')).not.toBeVisible();
+  await expect(page.locator('#adminTokenRows tr')).toHaveCount(0);
+  await expect(page.locator('#adminUsageRows tr')).toHaveCount(0);
 });
 
 test('guest admin page asks for sign-in without requesting usage', async ({ guestPage: page, sandbox }) => {
@@ -54,4 +77,5 @@ test('guest admin page asks for sign-in without requesting usage', async ({ gues
   await expect(page.locator('#adminSignIn')).toBeVisible();
   await expect(page.locator('#adminData')).not.toBeVisible();
   expect(sandbox.calls.filter(call => call.path.endsWith('/admin_list_ai_usage'))).toEqual([]);
+  expect(sandbox.calls.filter(call => call.path.endsWith('/admin_list_tokens'))).toEqual([]);
 });
