@@ -2,6 +2,34 @@ const assert=require('node:assert/strict');
 const SpeechUtils=require('../public/speech-utils.js');
 const { test } = require('node:test');
 
+test('Taiwan speech never automatically falls back to Cantonese but allows explicit manual selection',()=>{
+  const hk={voiceURI:'hk',name:'Google 粤語',lang:'zh-HK'};
+  const yue={voiceURI:'yue',name:'Cantonese',lang:'yue-HK'};
+  const named={voiceURI:'named',name:'Cantonese Online',lang:'zh-CN'};
+  const cn={voiceURI:'cn',name:'Local Mandarin',lang:'zh-CN'};
+  for(const voice of [hk,yue,named]){
+    assert.equal(SpeechUtils.selectVoice([voice],'zh-TW'),null);
+    assert.equal(SpeechUtils.selectVoice([voice,cn],'zh-TW'),cn);
+    assert.equal(SpeechUtils.selectVoice([voice],'zh-TW',voice.voiceURI),voice);
+    assert.ok(SpeechUtils.sortVoices([voice],'zh-TW').includes(voice),'Cantonese remains listed for manual choice');
+  }
+  const us={voiceURI:'us',name:'Local US',lang:'en-US'},india={voiceURI:'india',name:'Google India',lang:'en-IN'};
+  assert.equal(SpeechUtils.selectVoice([india,us],'en-US'),us);
+  assert.equal(SpeechUtils.selectVoice([india],'en-US'),india,'other English accents remain acceptable fallbacks');
+});
+
+test('Taiwan locale precedes recommendations in Windows Chrome and Edge voice lists',()=>{
+  const hanhan={voiceURI:'hanhan',name:'Microsoft Hanhan',lang:'zh-TW'};
+  const mandarin={voiceURI:'mandarin',name:'Google 普通话',lang:'zh-CN'};
+  const cantonese={voiceURI:'cantonese',name:'Google 粤語',lang:'zh-HK'};
+  const cnBasic={voiceURI:'cn-basic',name:'Local Mandarin',lang:'zh-CN'};
+  const hsiaochen={voiceURI:'hsiaochen',name:'Microsoft HsiaoChen Online (Natural)',lang:'zh-TW'};
+  assert.equal(SpeechUtils.selectVoice([mandarin,cantonese,hanhan],'zh-TW'),hanhan);
+  assert.deepEqual(SpeechUtils.sortVoices([cnBasic,mandarin,hanhan,hsiaochen],'zh-TW'),[hsiaochen,hanhan,mandarin,cnBasic]);
+  assert.equal(SpeechUtils.selectVoice([mandarin,hanhan,hsiaochen],'zh-TW'),hsiaochen);
+  assert.equal(SpeechUtils.selectVoice([mandarin],'zh-TW'),mandarin,'Mandarin from another region is a permitted fallback');
+});
+
 test('speech utilities preserve chunking, language, voices, and queue behavior', () => {
   const zh=SpeechUtils.buildSpeechChunks('大家好，今天談練習。你準備好了嗎？\n\n我們開始吧！',{language:'zh-TW',rate:1});
   assert.deepEqual(zh.map(item=>item.text),['大家好，今天談練習。','你準備好了嗎？','我們開始吧！'],'ordinary sentences stay intact');

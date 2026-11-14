@@ -89,18 +89,19 @@
     return chunks;
   }
 
-  function voiceSupportsLanguage(voice,language){return languageBase(voice?.lang)===languageBase(normalizeLanguage(language));}
+  function voiceSupportsLanguage(voice,language){return languageBase(voice?.lang)===languageBase(normalizeLanguage(language))||(normalizeLanguage(language)==='zh-TW'&&languageBase(voice?.lang)==='yue');}
+  function isCantoneseVoice(voice){return /^zh-HK(?:-|$)|^yue(?:-|$)/i.test(String(voice?.lang||''))||/cantonese|粵語|粤語/i.test(String(voice?.name||''));}
   function isRecommendedVoice(voice){return /natural|neural|online|google|premium|enhanced/i.test(String(voice?.name||''));}
   function sortVoices(voices,language){
     const target=normalizeLanguage(language).toLowerCase();
     return (Array.isArray(voices)?voices:[]).filter(voice=>voiceSupportsLanguage(voice,language)).sort((a,b)=>
-      Number(isRecommendedVoice(b))-Number(isRecommendedVoice(a))||Number(String(b.lang).toLowerCase()===target)-Number(String(a.lang).toLowerCase()===target));
+      Number(String(b.lang).toLowerCase()===target)-Number(String(a.lang).toLowerCase()===target)||Number(isRecommendedVoice(b))-Number(isRecommendedVoice(a)));
   }
   function selectVoice(voices,language,preferredURI='',{manual=Boolean(preferredURI)}={}){
     if(manual&&!preferredURI)return null;
     const available=sortVoices(voices,language),preferred=manual&&available.find(voice=>voice.voiceURI===preferredURI);
     if(preferred)return preferred;
-    return available[0]||null;
+    return available.find(voice=>normalizeLanguage(language)!=='zh-TW'||!isCantoneseVoice(voice))||null;
   }
 
   function createQueueState(id=0){return {id,index:0,stopped:false,paused:false,timeoutId:null};}
