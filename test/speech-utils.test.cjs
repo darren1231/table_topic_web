@@ -74,3 +74,21 @@ test('every sentence and language run uses the selected speed without a second s
   }
   for(const rate of [0,-1,Infinity,NaN,'bad'])assert.equal(SpeechUtils.buildSpeechChunks('Hello.',{rate})[0].rate,0.9);
 });
+
+test('single newlines join the sentence while two or more newlines delimit paragraphs', () => {
+  assert.equal(SpeechUtils.normalizeSpeechText(' First line,\r\ncontinues here.\n\n\nNext paragraph. '),'First line, continues here.\n\nNext paragraph.');
+  const chunks=SpeechUtils.buildSpeechChunks('First line,\ncontinues here.\n\nNext paragraph.');
+  assert.deepEqual(chunks.map(item=>item.text),['First line, continues here.','Next paragraph.']);
+  assert.deepEqual(chunks.map(item=>item.pauseMs),[400,0]);
+  assert.deepEqual(SpeechUtils.buildSpeechChunks('第一行，\n繼續說。',{language:'zh-TW'}).map(item=>item.text),['第一行， 繼續說。']);
+});
+
+test('decimals abbreviations and literal placeholder-like text are preserved during sentence splitting', () => {
+  const source='Dr. Lin paid 3.14 dollars, e.g. in the U.S. office. Mr. Lee agreed!';
+  assert.deepEqual(SpeechUtils.splitSentences(source),['Dr. Lin paid 3.14 dollars, e.g. in the U.S. office.','Mr. Lee agreed!']);
+  assert.deepEqual(SpeechUtils.buildSpeechChunks(source).map(item=>item.text),['Dr. Lin paid 3.14 dollars, e.g. in the U.S. office.','Mr. Lee agreed!']);
+  assert.deepEqual(SpeechUtils.splitSentences('§0§ is literal. Dr. Lin left.'),['§0§ is literal.','Dr. Lin left.']);
+  assert.deepEqual(SpeechUtils.splitSentences('他說「圓周率是 3.14。」真的嗎？'),['他說「圓周率是 3.14。」','真的嗎？']);
+  const joined=SpeechUtils.buildSpeechChunks('他說「圓周率是 3.14。」真的嗎？',{language:'zh-TW'}).map(item=>item.text).join('');
+  assert.equal(joined,'他說「圓周率是 3.14。」真的嗎？');
+});

@@ -10,6 +10,7 @@
   function normalizeSpeechText(text,language='en-US'){
     const lang=normalizeLanguage(language);
     let value=String(text||'').replace(/\r\n?/g,'\n').replace(/[ \t\f\v]+/g,' ').replace(/ *\n */g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+    value=value.replace(/\n+/g,breaks=>breaks.length===1?' ':'\n\n');
     value=value.replace(/(\d+)\s*[–—]\s*(\d+)/g,(_,from,to)=>lang==='zh-TW'?`${from} 到 ${to}`:lang==='ja-JP'?`${from}から${to}`:`${from} to ${to}`);
     value=value.replace(/(\d+(?:\.\d+)?)%/g,(_,number)=>lang==='zh-TW'?`百分之 ${number}`:lang==='ja-JP'?`${number}パーセント`:`${number} percent`);
     return value;
@@ -37,9 +38,23 @@
   }
 
   function splitSentences(paragraph){
-    const protectedValues=[];
-    const protectedText=String(paragraph||'').replace(/\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|e\.g|i\.e)\./gi,value=>{protectedValues.push(value);return `§${protectedValues.length-1}§`;});
-    return protectedText.match(/[^。！？.!?]+[。！？.!?]+|[^。！？.!?]+$/g)?.map(value=>value.replace(/§(\d+)§/g,(_,index)=>protectedValues[Number(index)]).trim()).filter(Boolean)||[];
+    const text=String(paragraph||''),protectedDots=new Set(),sentences=[];
+    // Protect positions rather than replacing content with collision-prone placeholders.
+    for(const match of text.matchAll(/\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|e\.g|i\.e)\./gi)){
+      for(let i=0;i<match[0].length;i++)if(match[0][i]==='.')protectedDots.add(match.index+i);
+    }
+    for(let i=1;i<text.length-1;i++)if(text[i]==='.'&&/\d/.test(text[i-1])&&/\d/.test(text[i+1]))protectedDots.add(i);
+    let start=0;
+    for(let i=0;i<text.length;i++){
+      if(!/[。！？.!?]/.test(text[i])||protectedDots.has(i))continue;
+      let end=i+1;
+      while(end<text.length&&/[。！？.!?]/.test(text[end])&&!protectedDots.has(end))end++;
+      while(end<text.length&&/["'”’」』）)\]]/.test(text[end]))end++;
+      const sentence=text.slice(start,end).trim();if(sentence)sentences.push(sentence);
+      start=end;i=end-1;
+    }
+    const tail=text.slice(start).trim();if(tail)sentences.push(tail);
+    return sentences;
   }
 
   function splitLongSentence(sentence){
@@ -59,7 +74,7 @@
   }
 
   function buildSpeechChunks(text,{language='en-US',rate=.9}={}){
-    const preferred=normalizeLanguage(language),normalized=normalizeSpeechText(text,preferred),paragraphs=normalized.split(/\n+/).map(value=>value.trim()).filter(Boolean),chunks=[];
+    const preferred=normalizeLanguage(language),normalized=normalizeSpeechText(text,preferred),paragraphs=normalized.split(/\n{2,}/).map(value=>value.trim()).filter(Boolean),chunks=[];
     const speechRate=Number.isFinite(Number(rate))&&Number(rate)>0?Number(rate):.9;
     paragraphs.forEach((paragraph,paragraphIndex)=>{
       const sentences=splitSentences(paragraph);
