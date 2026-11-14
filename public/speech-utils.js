@@ -60,14 +60,14 @@
 
   function buildSpeechChunks(text,{language='en-US',rate=.9}={}){
     const preferred=normalizeLanguage(language),normalized=normalizeSpeechText(text,preferred),paragraphs=normalized.split(/\n+/).map(value=>value.trim()).filter(Boolean),chunks=[];
+    const speechRate=Number.isFinite(Number(rate))&&Number(rate)>0?Number(rate):.9;
     paragraphs.forEach((paragraph,paragraphIndex)=>{
       const sentences=splitSentences(paragraph);
       sentences.forEach((sentence,sentenceIndex)=>{
         const clauses=splitLongSentence(sentence),isParagraphLast=sentenceIndex===sentences.length-1,isQuestion=/[?？]\s*$/.test(sentence);
         clauses.forEach((clause,clauseIndex)=>{
           const isSentenceLast=clauseIndex===clauses.length-1,pauseMs=isSentenceLast&&isParagraphLast&&paragraphIndex<paragraphs.length-1?400:0;
-          const slow=(paragraphIndex===0&&sentenceIndex===0)||isParagraphLast||isQuestion;
-          splitLanguageRuns(clause,preferred).forEach((run,runIndex,runs)=>chunks.push({text:run.text,language:run.language,rate:Math.max(.5,Number(rate)||.9)*(slow ? 0.95 : 1),pauseMs:runIndex===runs.length-1?pauseMs:0,paragraphEnd:isParagraphLast&&isSentenceLast&&runIndex===runs.length-1,question:isQuestion}));
+          splitLanguageRuns(clause,preferred).forEach((run,runIndex,runs)=>chunks.push({text:run.text,language:run.language,rate:speechRate,pauseMs:runIndex===runs.length-1?pauseMs:0,paragraphEnd:isParagraphLast&&isSentenceLast&&runIndex===runs.length-1,question:isQuestion}));
         });
       });
     });

@@ -32,3 +32,8 @@ test('pause resumes without replay and stop invalidates delayed timers and stale
   f.nodes.stop.click();timer.fn();f.utterances[1].onend();assert.equal(f.utterances.length,2);
   f.nodes.play.click();assert.equal(f.utterances.length,3);timer.fn();f.utterances[1].onend();assert.equal(f.utterances.length,3);
 });
+
+test('the selected control speed is passed unchanged into speech utterances', () => {
+  const f=fixture('A question? Another sentence.');f.nodes.rate.value='1.2';f.nodes.rate.onchange();f.nodes.play.click();
+  assert.equal(f.utterances[0].rate,1.2);f.utterances[0].onend();assert.equal(f.utterances[1].rate,1.2);
+});

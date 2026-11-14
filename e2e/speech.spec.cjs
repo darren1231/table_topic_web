@@ -16,7 +16,9 @@ test('speech plays pauses and stops without allowing stale callbacks to resume p
   await mockSpeech(page);await prepare(page);await complete(page);
   await page.locator('#coachReport .rewritten-speech').evaluate(node=>{node.textContent='First sentence. Second sentence.\n\nFinal paragraph.';});
   const play=page.locator('#coachReport [data-speech-play]'),stop=page.locator('#coachReport [data-speech-stop]');
+  await page.locator('#coachReport [data-speech-rate]').selectOption('1');
   await play.click();await expect.poll(()=>page.evaluate(()=>window.__speechTest.utterances.length)).toBe(1);
+  expect(await page.evaluate(()=>window.__speechTest.utterances[0].rate)).toBe(1);
   await play.click();expect(await page.evaluate(()=>speechSynthesis.paused)).toBe(true);
   await play.click();expect(await page.evaluate(()=>window.__speechTest.resumes)).toBe(1);
   await page.evaluate(()=>window.__speechTest.utterances[0].onend());

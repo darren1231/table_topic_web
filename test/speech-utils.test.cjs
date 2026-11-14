@@ -66,3 +66,11 @@ test('long sentence thresholds are 120 Unicode characters with Han/kana and 200 
     assert.ok(chunks.every(item=>!/^\p{P}+$/u.test(item.text)),'no punctuation-only tail');
   }
 });
+
+test('every sentence and language run uses the selected speed without a second slowdown', () => {
+  for(const rate of [0.25,0.8,0.9,1,1.2]){
+    const chunks=SpeechUtils.buildSpeechChunks('今天 practice English。真的嗎？\n\n再試一次。',{language:'zh-TW',rate});
+    assert.ok(chunks.every(item=>item.rate===rate),`selected rate ${rate}`);
+  }
+  for(const rate of [0,-1,Infinity,NaN,'bad'])assert.equal(SpeechUtils.buildSpeechChunks('Hello.',{rate})[0].rate,0.9);
+});
