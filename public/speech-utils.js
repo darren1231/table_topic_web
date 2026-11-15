@@ -90,6 +90,14 @@
   }
 
   function voiceSupportsLanguage(voice,language){return languageBase(voice?.lang)===languageBase(normalizeLanguage(language))||(normalizeLanguage(language)==='zh-TW'&&languageBase(voice?.lang)==='yue');}
+  function continuationStart(text,charIndex){
+    const value=String(text||''),characters=Array.from(value),offsets=[];let offset=0;
+    for(const character of characters){offsets.push(offset);offset+=character.length;}
+    const target=Number.isFinite(charIndex)?Math.max(0,Math.min(Math.floor(charIndex),value.length-1)):0;
+    const position=Math.max(0,offsets.findLastIndex(index=>index<=target));
+    for(let i=position-1;i>=Math.max(0,position-12);i--)if(/[\s，,。.!?！？；;：:、،؛؟]/u.test(characters[i]))return offsets[i]+characters[i].length;
+    return offsets[Math.max(0,position-3)]||0;
+  }
   function isCantoneseVoice(voice){return /^zh-HK(?:-|$)|^yue(?:-|$)/i.test(String(voice?.lang||''))||/cantonese|粵語|粤語/i.test(String(voice?.name||''));}
   function isRecommendedVoice(voice){return /natural|neural|online|google|premium|enhanced/i.test(String(voice?.name||''));}
   function sortVoices(voices,language){
@@ -107,5 +115,5 @@
   function createQueueState(id=0){return {id,index:0,stopped:false,paused:false,timeoutId:null};}
   function resetQueueState(queue){return {id:(queue?.id||0)+1,index:0,stopped:true,paused:false,timeoutId:null};}
 
-  return {normalizeSpeechText,detectTextLanguage,splitLanguageRuns,splitSentences,buildSpeechChunks,voiceSupportsLanguage,isRecommendedVoice,sortVoices,selectVoice,createQueueState,resetQueueState};
+  return {normalizeSpeechText,detectTextLanguage,splitLanguageRuns,splitSentences,buildSpeechChunks,voiceSupportsLanguage,continuationStart,isRecommendedVoice,sortVoices,selectVoice,createQueueState,resetQueueState};
 });

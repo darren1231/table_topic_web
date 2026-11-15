@@ -596,9 +596,26 @@ function resetSpeechControls(){
   state.speechControls=null;state.speechUtterance=null;
 }
 function stopBrowserSpeech(){
-  const queue=state.speechQueue;if(queue?.timeoutId)clearTimeout(queue.timeoutId);
+  const queue=state.speechQueue;if(queue?.timeoutId)clearTimeout(queue.timeoutId);clearSpeechResumeWatchdog(queue);
   state.speechQueue=SpeechUtils.resetQueueState(queue);state.speechChunks=[];
-  if('speechSynthesis' in window)window.speechSynthesis.cancel();resetSpeechControls();
+  if('speechSynthesis' in window){window.speechSynthesis.cancel();if(window.speechSynthesis.paused)window.speechSynthesis.resume();}resetSpeechControls();
+}
+function clearSpeechResumeWatchdog(queue=state.speechQueue){
+  if(queue?.resumeWatchdog)clearTimeout(queue.resumeWatchdog.timer);
+  if(queue)queue.resumeWatchdog=null;
+}
+function resumeBrowserSpeech(){
+  const queue=state.speechQueue;queue.paused=false;
+  if(!state.speechUtterance){window.speechSynthesis.resume();playNextSpeechChunk();return;}
+  const pending={id:queue.id,index:queue.index,charIndex:queue.pausePosition?.charIndex??null,timer:null};queue.resumeWatchdog=pending;
+  pending.timer=setTimeout(()=>{
+    if(state.speechQueue!==queue||queue.resumeWatchdog!==pending||queue.id!==pending.id||queue.paused||queue.stopped)return;
+    if(pending.signal&&window.speechSynthesis.speaking&&!window.speechSynthesis.paused){clearSpeechResumeWatchdog(queue);return;}
+    clearSpeechResumeWatchdog(queue);queue.id+=1;state.speechUtterance=null;
+    const offset=pending.charIndex===null?0:SpeechUtils.continuationStart(state.speechChunks[pending.index].text,pending.charIndex);
+    window.speechSynthesis.cancel();if(window.speechSynthesis.paused)window.speechSynthesis.resume();playNextSpeechChunk(offset,pending.charIndex);
+  },700);
+  window.speechSynthesis.resume();
 }
 function populateSpeechVoices(container,language){
   const select=container.querySelector('[data-speech-voice]');if(!select)return;
@@ -607,12 +624,16 @@ function populateSpeechVoices(container,language){
   voices.forEach(voice=>{const option=document.createElement('option');option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang}${voice.localService?'':' · online'}${SpeechUtils.isRecommendedVoice(voice)?` · ${t('speech.recommended')}`:''}`;select.append(option);});
   const voice=SpeechUtils.selectVoice(voices,language,speechSettings.voiceURI,{manual:speechSettings.voiceSelected??Boolean(speechSettings.voiceURI)});select.value=voice?.voiceURI||'';
 }
-function playNextSpeechChunk(){
+function playNextSpeechChunk(offset=0,knownCharIndex=null){
   const queue=state.speechQueue;if(queue.stopped||queue.paused)return;
   const chunk=state.speechChunks[queue.index];if(!chunk){resetSpeechControls();state.speechChunks=[];state.speechQueue=SpeechUtils.resetQueueState(queue);return;}
-  const utterance=new SpeechSynthesisUtterance(chunk.text),voice=SpeechUtils.selectVoice(window.speechSynthesis.getVoices(),chunk.language,speechSettings.voiceURI,{manual:speechSettings.voiceSelected??Boolean(speechSettings.voiceURI)});utterance.lang=chunk.language;utterance.rate=chunk.rate;if(voice)utterance.voice=voice;
-  const queueId=queue.id;let finished=false;state.speechUtterance=utterance;
-  const advance=()=>{if(finished||state.speechQueue.id!==queueId||state.speechQueue.stopped)return;finished=true;state.speechQueue.index+=1;state.speechUtterance=null;if(state.speechQueue.paused)return;if(chunk.pauseMs===0){playNextSpeechChunk();return;}state.speechQueue.timeoutId=setTimeout(()=>{if(state.speechQueue.id===queueId){state.speechQueue.timeoutId=null;playNextSpeechChunk();}},chunk.pauseMs);};
+  const utterance=new SpeechSynthesisUtterance(chunk.text.slice(offset)),voice=SpeechUtils.selectVoice(window.speechSynthesis.getVoices(),chunk.language,speechSettings.voiceURI,{manual:speechSettings.voiceSelected??Boolean(speechSettings.voiceURI)});utterance.lang=chunk.language;utterance.rate=chunk.rate;if(voice)utterance.voice=voice;
+  const queueId=queue.id,playback={offset,charIndex:knownCharIndex};queue.playback=playback;let finished=false;state.speechUtterance=utterance;
+  const active=()=>!finished&&state.speechQueue===queue&&queue.id===queueId&&!queue.stopped&&state.speechUtterance===utterance;
+  const resumed=()=>{if(!active()||queue.paused)return;if(queue.resumeWatchdog)queue.resumeWatchdog.signal=true;if(window.speechSynthesis.speaking&&!window.speechSynthesis.paused)clearSpeechResumeWatchdog(queue);};
+  utterance.onresume=resumed;
+  utterance.onboundary=event=>{if(!active()||queue.paused||!Number.isInteger(event.charIndex)||event.charIndex<0||event.charIndex>utterance.text.length)return;const position=offset+event.charIndex;playback.charIndex=Math.max(playback.charIndex??0,position);if(!queue.resumeWatchdog||position>(queue.resumeWatchdog.charIndex??-1))resumed();};
+  const advance=()=>{if(!active())return;finished=true;clearSpeechResumeWatchdog(queue);queue.index+=1;queue.playback=null;state.speechUtterance=null;if(queue.paused)return;if(chunk.pauseMs===0){playNextSpeechChunk();return;}const timer=setTimeout(()=>{if(state.speechQueue===queue&&queue.id===queueId&&queue.timeoutId===timer&&!queue.paused){queue.timeoutId=null;playNextSpeechChunk();}},chunk.pauseMs);queue.timeoutId=timer;};
   utterance.onend=advance;utterance.onerror=event=>{if(event.error!=='canceled'&&event.error!=='interrupted')advance();};window.speechSynthesis.speak(utterance);
 }
 function bindSpeechControls(container){
@@ -627,8 +648,8 @@ function bindSpeechControls(container){
   rateSelect.value=String(speechSettings.rate);voiceSelect.onchange=()=>{speechSettings.voiceURI=voiceSelect.value;speechSettings.voiceSelected=true;localStorage.setItem(SPEECH_SETTINGS_KEY,JSON.stringify(speechSettings));stopBrowserSpeech();};rateSelect.onchange=()=>{speechSettings.rate=Number(rateSelect.value);localStorage.setItem(SPEECH_SETTINGS_KEY,JSON.stringify(speechSettings));stopBrowserSpeech();};
   play.onclick=()=>{
     if(state.speechControls===controls&&!state.speechQueue.stopped){
-      if(state.speechQueue.paused){state.speechQueue.paused=false;playNextSpeechChunk();play.textContent=`Ⅱ ${ui('暫停','Pause')}`;}
-      else{state.speechQueue.paused=true;state.speechQueue.id+=1;if(state.speechQueue.timeoutId){clearTimeout(state.speechQueue.timeoutId);state.speechQueue.timeoutId=null;}state.speechUtterance=null;window.speechSynthesis.cancel();play.textContent=`▶ ${ui('繼續','Resume')}`;}
+      if(state.speechQueue.paused){resumeBrowserSpeech();play.textContent=`Ⅱ ${ui('暫停','Pause')}`;}
+      else{state.speechQueue.paused=true;state.speechQueue.pausePosition={index:state.speechQueue.index,charIndex:state.speechQueue.playback?.charIndex??null};clearSpeechResumeWatchdog();if(state.speechQueue.timeoutId){clearTimeout(state.speechQueue.timeoutId);state.speechQueue.timeoutId=null;}if(state.speechUtterance)window.speechSynthesis.pause();play.textContent=`▶ ${ui('繼續','Resume')}`;}
       return;
     }
     const text=container.querySelector('.rewritten-speech')?.textContent.trim();if(!text)return toast(ui('目前沒有可播放的文章','There is no article to play'));

@@ -2,6 +2,21 @@ const assert=require('node:assert/strict');
 const SpeechUtils=require('../public/speech-utils.js');
 const { test } = require('node:test');
 
+test('continuation starts near a UTF-16 boundary: look back 12 characters for punctuation or space, otherwise rewind 3',()=>{
+  assert.equal(SpeechUtils.continuationStart('One two three four.',10),8);
+  assert.equal(SpeechUtils.continuationStart('今天一起練習，接著分享生活中有趣的故事。',13),7);
+  assert.equal(SpeechUtils.continuationStart('今天我們一起練習清楚表達自己的想法',10),7);
+  assert.equal(SpeechUtils.continuationStart('今天 practice English，再分享心得。',16),12);
+  assert.equal(SpeechUtils.continuationStart('One two three.',0),0);
+  assert.equal(SpeechUtils.continuationStart('One two three.',999),8);
+  assert.equal(SpeechUtils.continuationStart('Hello.',-5),0);
+  assert.equal(SpeechUtils.continuationStart('Hello.',NaN),0);
+  assert.equal(SpeechUtils.continuationStart('',20),0);
+  assert.equal(SpeechUtils.continuationStart('😀😀今天我們練習',1),0,'never split a surrogate pair');
+  assert.equal(SpeechUtils.continuationStart('😀😀今天我們練習',8),5,'rewind counts Unicode characters, output uses UTF-16 offsets');
+  assert.equal(SpeechUtils.continuationStart('開場，'+'字'.repeat(20),20),17,'distant punctuation does not replay most of the sentence');
+});
+
 test('Taiwan speech never automatically falls back to Cantonese but allows explicit manual selection',()=>{
   const hk={voiceURI:'hk',name:'Google 粤語',lang:'zh-HK'};
   const yue={voiceURI:'yue',name:'Cantonese',lang:'yue-HK'};

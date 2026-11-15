@@ -9,7 +9,7 @@ function fixture(text='First sentence. Second sentence.\n\nLast paragraph.',opti
   nodes.container.querySelector=selector=>({'.speech-actions':nodes.controls,'[data-speech-voice]':nodes.voice,'[data-speech-rate]':nodes.rate,'.rewritten-speech':nodes.article})[selector];
   const utterances=[],timers=[];
   let voices=options.voices||[];const listeners=new Map();
-  const synthesis={paused:false,cancels:0,pauses:0,resumes:0,getVoices:()=>voices,addEventListener:(name,listener)=>listeners.set(name,listener),removeEventListener:(name,listener)=>{if(listeners.get(name)===listener)listeners.delete(name);},speak:utterance=>utterances.push(utterance),cancel(){this.cancels++;if(options.cancelCallbacks){utterances.at(-1)?.onend();utterances.at(-1)?.onerror({error:'synthesis-failed'});}},pause(){this.paused=true;this.pauses++;},resume(){this.resumes++;}};
+  const synthesis={paused:false,speaking:false,cancels:0,pauses:0,resumes:0,getVoices:()=>voices,addEventListener:(name,listener)=>listeners.set(name,listener),removeEventListener:(name,listener)=>{if(listeners.get(name)===listener)listeners.delete(name);},speak(utterance){this.speaking=true;utterances.push(utterance);},cancel(){this.cancels++;this.speaking=false;if(options.cancelCallbacks){utterances.at(-1)?.onend();utterances.at(-1)?.onerror({error:'synthesis-failed'});}},pause(){this.paused=true;this.pauses++;},resume(){this.resumes++;if(options.nativeResume){this.paused=false;utterances.at(-1)?.onresume?.();}}};
   b.window.speechSynthesis=synthesis;b.window.SpeechSynthesisUtterance=b.context.SpeechSynthesisUtterance=class{constructor(text){this.text=text;}};
   b.context.setTimeout=(fn,ms)=>{const timer={fn,ms};timers.push(timer);return timer;};
   b.context.clearTimeout=timer=>{timer.canceled=true;};
@@ -26,16 +26,56 @@ test('speech advances sentences immediately and schedules only the 400ms paragra
   f.utterances[2].onend();assert.equal(f.timers.length,1);assert.equal(f.nodes.stop.disabled,true);
 });
 
-test('pause cancels without advancing and resume replays the same chunk even when native resume does nothing', () => {
-  const f=fixture(undefined,{cancelCallbacks:true});f.nodes.play.click();const old=f.utterances[0];
+test('700ms resume watchdog continues at the frozen boundary and ignores cancel callbacks and stale signals', () => {
+  const f=fixture('One two three four five six. Next sentence.',{cancelCallbacks:true});f.nodes.play.click();const old=f.utterances[0];
+  old.onboundary({charIndex:10,name:'word'});
   f.nodes.play.click();assert.equal(f.run('state.speechQueue.index'),0);assert.equal(f.run('state.speechQueue.paused'),true);
-  old.onend();for(const error of ['canceled','interrupted','synthesis-failed'])old.onerror({error});
+  old.onboundary({charIndex:20,name:'word'});
   assert.equal(f.run('state.speechQueue.index'),0);assert.equal(f.utterances.length,1);
-  f.nodes.play.click();assert.equal(f.utterances.length,2);assert.equal(f.utterances[1].text,'First sentence.');
-  assert.equal(f.synthesis.cancels,2,'start clears old playback and pause cancels the current utterance');
-  old.onend();old.onerror({error:'synthesis-failed'});assert.equal(f.run('state.speechQueue.index'),0);assert.equal(f.utterances.length,2);
-  f.utterances[1].onend();assert.equal(f.utterances[2].text,'Second sentence.');
-  assert.equal(f.synthesis.pauses,0);assert.equal(f.synthesis.resumes,0);
+  f.nodes.play.click();assert.equal(f.utterances.length,1);assert.equal(f.timers.at(-1).ms,700);
+  f.timers.at(-1).fn();assert.equal(f.utterances.length,2);assert.equal(f.utterances[1].text,'three four five six.');
+  old.onend();old.onerror({error:'synthesis-failed'});old.onboundary({charIndex:25});old.onresume();
+  assert.equal(f.run('state.speechQueue.index'),0);assert.equal(f.utterances.length,2);
+  f.utterances[1].onboundary({charIndex:11});f.nodes.play.click();f.nodes.play.click();f.timers.at(-1).fn();
+  assert.equal(f.utterances[2].text,'five six.','a second fallback uses the absolute offset in the original chunk');
+  f.utterances[2].onend();assert.equal(f.utterances[3].text,'Next sentence.');
+});
+
+test('native resume or progress cancels the watchdog, but speaking alone or an inactive resume signal does not',()=>{
+  for(const signal of ['resume','boundary','end']){
+    const f=fixture(undefined,{nativeResume:signal==='resume'});f.nodes.play.click();const u=f.utterances[0];
+    f.nodes.play.click();f.nodes.play.click();const timer=f.timers.find(t=>t.ms===700);
+    if(signal==='boundary'){f.synthesis.paused=false;u.onboundary({charIndex:4});}
+    if(signal==='end')u.onend();
+    assert.equal(timer.canceled,true,signal);timer.fn();assert.equal(f.utterances.length,signal==='end'?2:1);
+  }
+  for(const boundary of [null,0]){
+    const f=fixture();f.nodes.play.click();if(boundary!==null)f.utterances[0].onboundary({charIndex:boundary});
+    f.nodes.play.click();f.nodes.play.click();f.synthesis.paused=false;f.synthesis.speaking=false;f.utterances[0].onresume();
+    f.timers.at(-1).fn();assert.equal(f.utterances[1].text,'First sentence.');
+  }
+});
+
+test('repeated fallback without a new boundary retains the last known position instead of restarting the original chunk',()=>{
+  const f=fixture('One two three four five six.');f.nodes.play.click();f.utterances[0].onboundary({charIndex:10});
+  for(let attempt=0;attempt<2;attempt++){
+    f.nodes.play.click();f.nodes.play.click();f.timers.at(-1).fn();assert.equal(f.utterances.at(-1).text,'three four five six.');
+  }
+});
+
+test('a resume signal that precedes native flag updates is rechecked at the watchdog deadline',()=>{
+  const f=fixture();f.nodes.play.click();f.nodes.play.click();f.nodes.play.click();
+  f.synthesis.speaking=false;f.utterances[0].onresume();f.synthesis.speaking=true;f.synthesis.paused=false;
+  f.timers.at(-1).fn();assert.equal(f.utterances.length,1);
+});
+
+test('stop or settings changes while paused or waiting for resume clear every pending watchdog',()=>{
+  for(const pending of [false,true])for(const action of ['stop','voice','rate']){
+    const f=fixture();f.nodes.play.click();const old=f.utterances[0];old.onboundary({charIndex:6});f.nodes.play.click();if(pending)f.nodes.play.click();
+    if(action==='stop')f.nodes.stop.click();else f.nodes[action].onchange();
+    f.timers.forEach(timer=>timer.fn());old.onboundary({charIndex:8});old.onresume();old.onend();
+    assert.equal(f.run('state.speechChunks.length'),0);assert.equal(f.run('state.speechQueue.stopped'),true);assert.equal(f.utterances.length,1);
+  }
 });
 
 test('pause during paragraph delay and stop while paused invalidate timers callbacks and all queue content',()=>{
