@@ -9,7 +9,7 @@ function fixture(text='First sentence. Second sentence.\n\nLast paragraph.',opti
   nodes.container.querySelector=selector=>({'.speech-actions':nodes.controls,'[data-speech-voice]':nodes.voice,'[data-speech-rate]':nodes.rate,'.rewritten-speech':nodes.article})[selector];
   const utterances=[],timers=[];
   let voices=options.voices||[];const listeners=new Map();
-  const synthesis={paused:false,getVoices:()=>voices,addEventListener:(name,listener)=>listeners.set(name,listener),removeEventListener:(name,listener)=>{if(listeners.get(name)===listener)listeners.delete(name);},speak:utterance=>utterances.push(utterance),cancel(){},pause(){this.paused=true;},resume(){this.paused=false;}};
+  const synthesis={paused:false,cancels:0,pauses:0,resumes:0,getVoices:()=>voices,addEventListener:(name,listener)=>listeners.set(name,listener),removeEventListener:(name,listener)=>{if(listeners.get(name)===listener)listeners.delete(name);},speak:utterance=>utterances.push(utterance),cancel(){this.cancels++;if(options.cancelCallbacks){utterances.at(-1)?.onend();utterances.at(-1)?.onerror({error:'synthesis-failed'});}},pause(){this.paused=true;this.pauses++;},resume(){this.resumes++;}};
   b.window.speechSynthesis=synthesis;b.window.SpeechSynthesisUtterance=b.context.SpeechSynthesisUtterance=class{constructor(text){this.text=text;}};
   b.context.setTimeout=(fn,ms)=>{const timer={fn,ms};timers.push(timer);return timer;};
   b.context.clearTimeout=timer=>{timer.canceled=true;};
@@ -26,12 +26,27 @@ test('speech advances sentences immediately and schedules only the 400ms paragra
   f.utterances[2].onend();assert.equal(f.timers.length,1);assert.equal(f.nodes.stop.disabled,true);
 });
 
-test('pause resumes without replay and stop invalidates delayed timers and stale utterance callbacks', () => {
-  const f=fixture();f.nodes.play.click();f.nodes.play.click();assert.equal(f.synthesis.paused,true);
-  f.nodes.play.click();assert.equal(f.synthesis.paused,false);assert.equal(f.utterances.length,1);
-  f.utterances[0].onend();f.utterances[1].onend();const timer=f.timers[0];
-  f.nodes.stop.click();timer.fn();f.utterances[1].onend();assert.equal(f.utterances.length,2);
-  f.nodes.play.click();assert.equal(f.utterances.length,3);timer.fn();f.utterances[1].onend();assert.equal(f.utterances.length,3);
+test('pause cancels without advancing and resume replays the same chunk even when native resume does nothing', () => {
+  const f=fixture(undefined,{cancelCallbacks:true});f.nodes.play.click();const old=f.utterances[0];
+  f.nodes.play.click();assert.equal(f.run('state.speechQueue.index'),0);assert.equal(f.run('state.speechQueue.paused'),true);
+  old.onend();for(const error of ['canceled','interrupted','synthesis-failed'])old.onerror({error});
+  assert.equal(f.run('state.speechQueue.index'),0);assert.equal(f.utterances.length,1);
+  f.nodes.play.click();assert.equal(f.utterances.length,2);assert.equal(f.utterances[1].text,'First sentence.');
+  assert.equal(f.synthesis.cancels,2,'start clears old playback and pause cancels the current utterance');
+  old.onend();old.onerror({error:'synthesis-failed'});assert.equal(f.run('state.speechQueue.index'),0);assert.equal(f.utterances.length,2);
+  f.utterances[1].onend();assert.equal(f.utterances[2].text,'Second sentence.');
+  assert.equal(f.synthesis.pauses,0);assert.equal(f.synthesis.resumes,0);
+});
+
+test('pause during paragraph delay and stop while paused invalidate timers callbacks and all queue content',()=>{
+  const f=fixture();f.nodes.play.click();f.utterances[0].onend();f.utterances[1].onend();const timer=f.timers[0];
+  f.nodes.play.click();assert.equal(timer.canceled,true);assert.equal(f.run('state.speechQueue.index'),2);
+  timer.fn();assert.equal(f.utterances.length,2);
+  f.nodes.play.click();assert.equal(f.utterances[2].text,'Last paragraph.');
+  f.nodes.play.click();f.nodes.stop.click();assert.equal(f.run('state.speechChunks.length'),0);assert.equal(f.run('state.speechQueue.stopped'),true);
+  f.utterances[2].onend();timer.fn();assert.equal(f.utterances.length,3);
+  f.nodes.play.click();assert.equal(f.utterances[3].text,'First sentence.');
+  f.utterances[2].onend();f.utterances[2].onerror({error:'synthesis-failed'});timer.fn();assert.equal(f.utterances.length,4);
 });
 
 test('the selected control speed is passed unchanged into speech utterances', () => {

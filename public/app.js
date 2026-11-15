@@ -627,8 +627,8 @@ function bindSpeechControls(container){
   rateSelect.value=String(speechSettings.rate);voiceSelect.onchange=()=>{speechSettings.voiceURI=voiceSelect.value;speechSettings.voiceSelected=true;localStorage.setItem(SPEECH_SETTINGS_KEY,JSON.stringify(speechSettings));stopBrowserSpeech();};rateSelect.onchange=()=>{speechSettings.rate=Number(rateSelect.value);localStorage.setItem(SPEECH_SETTINGS_KEY,JSON.stringify(speechSettings));stopBrowserSpeech();};
   play.onclick=()=>{
     if(state.speechControls===controls&&!state.speechQueue.stopped){
-      if(state.speechQueue.paused){state.speechQueue.paused=false;if(window.speechSynthesis.paused)window.speechSynthesis.resume();else playNextSpeechChunk();play.textContent=`Ⅱ ${ui('暫停','Pause')}`;}
-      else{state.speechQueue.paused=true;if(state.speechQueue.timeoutId){clearTimeout(state.speechQueue.timeoutId);state.speechQueue.timeoutId=null;}window.speechSynthesis.pause();play.textContent=`▶ ${ui('繼續','Resume')}`;}
+      if(state.speechQueue.paused){state.speechQueue.paused=false;playNextSpeechChunk();play.textContent=`Ⅱ ${ui('暫停','Pause')}`;}
+      else{state.speechQueue.paused=true;state.speechQueue.id+=1;if(state.speechQueue.timeoutId){clearTimeout(state.speechQueue.timeoutId);state.speechQueue.timeoutId=null;}state.speechUtterance=null;window.speechSynthesis.cancel();play.textContent=`▶ ${ui('繼續','Resume')}`;}
       return;
     }
     const text=container.querySelector('.rewritten-speech')?.textContent.trim();if(!text)return toast(ui('目前沒有可播放的文章','There is no article to play'));

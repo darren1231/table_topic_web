@@ -3,32 +3,43 @@ const {prepare,complete}=require('./flows.cjs');
 
 async function mockSpeech(page,voices=[]){
   await page.addInitScript(initialVoices=>{
-    const state={utterances:[],pauses:0,resumes:0,voices:initialVoices};
+    const state={utterances:[],pauses:0,resumes:0,cancels:0,voices:initialVoices};
     const synthesis={paused:false,getVoices:()=>state.voices,addEventListener(){},removeEventListener(){},
-      speak(utterance){state.utterances.push(utterance);},cancel(){this.paused=false;},
-      pause(){this.paused=true;state.pauses++;},resume(){this.paused=false;state.resumes++;}};
+      speak(utterance){state.utterances.push(utterance);},cancel(){state.cancels++;const old=state.utterances.at(-1);old?.onend();old?.onerror({error:'interrupted'});},
+      pause(){this.paused=true;state.pauses++;},resume(){state.resumes++;}};
     Object.defineProperty(window,'speechSynthesis',{value:synthesis,configurable:true});
     window.SpeechSynthesisUtterance=class{constructor(text){this.text=text;}};window.__speechTest=state;
   },voices);
 }
 
-test('speech plays pauses and stops without allowing stale callbacks to resume playback',async({guestPage:page})=>{
+test('speech completes every chunk despite ineffective native resume and stale cancellation callbacks',async({guestPage:page})=>{
   await mockSpeech(page);await prepare(page);await complete(page);
   await page.locator('#coachReport .rewritten-speech').evaluate(node=>{node.textContent='First sentence. Second sentence.\n\nFinal paragraph.';});
   const play=page.locator('#coachReport [data-speech-play]'),stop=page.locator('#coachReport [data-speech-stop]');
   await page.locator('#coachReport [data-speech-rate]').selectOption('1');
   await play.click();await expect.poll(()=>page.evaluate(()=>window.__speechTest.utterances.length)).toBe(1);
   expect(await page.evaluate(()=>window.__speechTest.utterances[0].rate)).toBe(1);
-  await play.click();expect(await page.evaluate(()=>speechSynthesis.paused)).toBe(true);
-  await play.click();expect(await page.evaluate(()=>window.__speechTest.resumes)).toBe(1);
-  await page.evaluate(()=>window.__speechTest.utterances[0].onend());
+  const cancels=await page.evaluate(()=>window.__speechTest.cancels);
+  await play.click();expect(await page.evaluate(()=>window.__speechTest.cancels)).toBe(cancels+1);
+  await expect(play).toContainText('Resume');
+  await play.click();
   await expect.poll(()=>page.evaluate(()=>window.__speechTest.utterances.length)).toBe(2);
+  expect(await page.evaluate(()=>window.__speechTest.utterances.map(u=>u.text))).toEqual(['First sentence.','First sentence.']);
+  await page.evaluate(()=>{window.__speechTest.utterances[0].onend();window.__speechTest.utterances[0].onerror({error:'synthesis-failed'});});
+  expect(await page.evaluate(()=>window.__speechTest.utterances.length)).toBe(2);
   await page.evaluate(()=>window.__speechTest.utterances[1].onend());
+  expect(await page.evaluate(()=>window.__speechTest.utterances[2].text)).toBe('Second sentence.');
+  await page.evaluate(()=>window.__speechTest.utterances[2].onend());
+  await expect.poll(()=>page.evaluate(()=>window.__speechTest.utterances.length)).toBe(4);
+  expect(await page.evaluate(()=>window.__speechTest.utterances[3].text)).toBe('Final paragraph.');
+  await page.evaluate(()=>window.__speechTest.utterances[3].onend());await expect(stop).toBeDisabled();
+  expect(await page.evaluate(()=>({pauses:window.__speechTest.pauses,resumes:window.__speechTest.resumes}))).toEqual({pauses:0,resumes:0});
+  await play.click();await play.click();
   await stop.click();await expect(stop).toBeDisabled();
-  await page.evaluate(()=>window.__speechTest.utterances[1].onend());
-  await page.waitForTimeout(550);expect(await page.evaluate(()=>window.__speechTest.utterances.length)).toBe(2);
-  await play.click();await page.evaluate(()=>window.__speechTest.utterances[1].onend());
-  await page.waitForTimeout(550);expect(await page.evaluate(()=>window.__speechTest.utterances.length)).toBe(3);
+  await page.evaluate(()=>window.__speechTest.utterances[4].onend());
+  await page.waitForTimeout(550);expect(await page.evaluate(()=>window.__speechTest.utterances.length)).toBe(5);
+  await play.click();await page.evaluate(()=>window.__speechTest.utterances[4].onend());
+  await page.waitForTimeout(550);expect(await page.evaluate(()=>window.__speechTest.utterances.length)).toBe(6);
   await stop.click();
 });
 
