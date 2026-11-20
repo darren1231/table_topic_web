@@ -1,0 +1,7 @@
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: Wayfind (deal 2/3) · redesign: full · nav: compact top bar · signature: answer and recording workspace · states: static empty prototype · axes: light/mono/cool · wayfind: platform · imagery: none · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V4 · weakest: prototype depth, first screens only by request */
+/* Hallmark · dismissed 3 · The three columns are existing practice destinations; their single-stroke SVG icons are unboxed, not decorative feature tiles. */
+@import url("tokens.css");
+@import url("base.css");
+@import url("../layout.css");
+:root { --font-body: "Chivo Mono", "Noto Sans TC", monospace; --font-display: var(--font-body); --font-outlier: var(--font-body); --container: 1184px; --gutter: 32px; --gap-columns: 24px; --display-weight: 800; --tracking-display: 0em; --surface-radius: 0px; --input-radius: 0px; --control-weight: 800; }

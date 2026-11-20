@@ -1,0 +1,100 @@
+{
+  "genre": "modern-minimal",
+  "scope": "app",
+  "seed": "prompt-665c·7ff2698f·2026-11-15·r0",
+  "themes": [
+    {
+      "id": "A",
+      "slug": "dusk",
+      "name": "Dusk",
+      "font": "Wix Madefor Text",
+      "google": "Wix+Madefor+Text:wght@400;500",
+      "axes": "dark/grotesk-sans/cool",
+      "dial": "dusk: fog/periwinkle-apricot/glass",
+      "description": "Dusk：深石板與長春花藍，Wix Madefor Text 搭配 Noto Sans TC，沉靜且聚焦，適合長時間作答。"
+    },
+    {
+      "id": "B",
+      "slug": "wayfind",
+      "name": "Wayfind",
+      "font": "Chivo Mono",
+      "google": "Chivo+Mono:wght@400;500;800",
+      "axes": "light/mono/cool",
+      "dial": "wayfind: platform",
+      "description": "Wayfind：冷灰與鈷藍，Chivo Mono 搭配 Noto Sans TC，明確的方框與流程層次，適合快速開始練習。"
+    },
+    {
+      "id": "C",
+      "slug": "vantage",
+      "name": "Vantage",
+      "font": "Geologica",
+      "google": "Geologica:wght@300;400;500",
+      "axes": "dark/grotesk-sans/chromatic-lime",
+      "dial": "vantage: terrain/steel",
+      "description": "Vantage：藍黑與萊姆綠，Geologica 搭配 Noto Sans TC，精準的細線與低干擾介面，適合錄音與回饋工具。"
+    }
+  ],
+  "copy": {
+    "brand": "表達練習室",
+    "home": "首頁",
+    "practice": "練習",
+    "calendar": "日曆",
+    "review": "複習",
+    "settings": "設定",
+    "login": "登入 Google",
+    "title": "今天想練什麼？",
+    "lead": "選一種最適合現在的練習，踏出今天的一小步。",
+    "guide": "使用說明書",
+    "guideHint": "第一次使用？3 分鐘看懂怎麼練習",
+    "start": "開始練習",
+    "recent": "最近的練習",
+    "empty": "完成第一題後，你的練習足跡會出現在這裡。",
+    "local": "資料只保存在你的瀏覽器",
+    "notice": "登入 Google 即可使用 AI 回饋",
+    "mode": "問題練習",
+    "manuscript": "自由講稿",
+    "answerTitle": "開始即興回答",
+    "topicTitle": "今天想聊什麼？",
+    "inspiration": "給我靈感",
+    "generate": "產生題目",
+    "topicPlaceholder": "例如：旅行、勇氣、最近學到的事⋯",
+    "topic": "旅行",
+    "question": "你認為「旅行」最常被誤解的地方是什麼？",
+    "answer": "你的回答",
+    "answerHint": "可直接修改逐字稿",
+    "answerPlaceholder": "錄音後逐字稿會出現在這裡，也可以直接輸入你的回答⋯",
+    "recordHint": "點一下開始錄音",
+    "record": "開始錄音",
+    "pause": "暫停錄製",
+    "transcription": "轉錄方式",
+    "browser": "瀏覽器即時辨識",
+    "builtin": "內建教練",
+    "clear": "清空內容",
+    "analyze": "分析我的回答"
+  },
+  "modes": [
+    [
+      "mic",
+      "即興問答",
+      "每天三題，把腦中的想法說得更清楚。"
+    ],
+    [
+      "file",
+      "演講練習",
+      "整理講稿、反覆演練，讓上台更有把握。"
+    ],
+    [
+      "repeat",
+      "今日複習",
+      "趁記憶正好，把值得保留的說法練熟。"
+    ]
+  ],
+  "notes": [
+    "Static prototype by request, no JavaScript or live actions",
+    "All product text from existing zh-TW source; question uses existing template and existing topic",
+    "No invented scores, claims, logos, audio waveform or generated images",
+    "Only initial recording timer 00:00 is shown",
+    "One Lucide-style 24px linear SVG set; no emoji",
+    "Noto Sans TC is the shared CJK fallback, including fixed-width Chinese glyphs for Wayfind"
+  ]
+}
