@@ -15,6 +15,11 @@
     "habits"
   ],
   "messages": {
+    "recovery.preserved": "Damaged data or settings were found. The originals were preserved and can be exported; defaults are being used. Recovery files may contain API keys; keep them private.",
+    "recovery.blocked": "Backup could not be saved. The original remains in place and writes are blocked. Free storage space and reload.",
+    "recovery.export": "Export original recovery data",
+    "recovery.dismiss": "Dismiss notice",
+    "cloud.invalidPayload": "Cloud data is invalid. Local data was not replaced.",
     "ui.001": "Table Topics Studio",
     "ui.002": "Built-in Coach",
     "ui.003": "days",

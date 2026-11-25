@@ -12,6 +12,7 @@
   let enablingCloud = false;
   let lastRemoteUpdatedAt = '';
   let pollTimer = null;
+  let invalidRemote = false;
 
   const byId = id => document.getElementById(id);
   const t = (key, variables) => window.I18n?.translate(key, variables) || key;
@@ -62,7 +63,8 @@
     byId('signOutButton').classList.toggle('hidden', !user);
     byId('localStorageOption').classList.toggle('selected', !cloud);
     byId('cloudStorageOption').classList.toggle('selected', cloud);
-    if (!configured) setStatus(t('cloud.notConfigured'), 'warning');
+    if (invalidRemote) setStatus(t('cloud.invalidPayload'), 'error');
+    else if (!configured) setStatus(t('cloud.notConfigured'), 'warning');
     else if (cloud) setStatus(t('cloud.syncEnabled'), 'success');
     else setStatus(t('cloud.nothingUploaded'));
     window.dispatchEvent(new CustomEvent('tabletopics:auth'));
@@ -121,7 +123,14 @@
       setStatus(t('cloud.readFailed', { error: error.message }), 'error');
       return null;
     }
-    if (!data?.payload || !Object.keys(data.payload).length) return false;
+    if (!data) return false;
+    if (data.payload && !Array.isArray(data.payload) && typeof data.payload === 'object' && !Object.keys(data.payload).length) return false;
+    if (!PracticeData.validatePractice(data.payload)) {
+      invalidRemote = true;
+      setStatus(t('cloud.invalidPayload'), 'error');
+      return null;
+    }
+    invalidRemote = false;
     if (data.updated_at && lastRemoteUpdatedAt && data.updated_at <= lastRemoteUpdatedAt) return true;
     lastRemoteUpdatedAt = data.updated_at || lastRemoteUpdatedAt;
     const remote = JSON.stringify(data.payload);

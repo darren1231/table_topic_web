@@ -43,6 +43,11 @@
     </header>
     <section id="systemAiNotice" class="sync-status" role="status"><span id="systemAiNoticeText"></span> <button type="button" class="secondary" id="systemAiSigninButton"></button></section>
     <p id="tokenCheckInNotice" class="sync-status hidden" role="status" aria-live="polite"></p>
+    <section id="dataRecoveryNotice" class="sync-status hidden" role="alert">
+      <p id="dataRecoveryMessage"></p>
+      <button type="button" id="exportRecoveryButton"></button>
+      <button type="button" id="dismissRecoveryButton"></button>
+    </section>
 
     <main id="homeView" class="app-view active-view">
       <section class="home-hero">
@@ -302,6 +307,7 @@
     </div>
   </dialog>
   <dialog class="app-dialog backup-dialog" id="backupDialog">
+    <button type="button" class="hidden" id="backupRecoveryButton"></button>
     <div class="dialog-card backup-card">
       <div class="dialog-head"><div><p class="eyebrow">DATA BACKUP</p><h2>匯出與匯入</h2></div><button class="dialog-close" id="closeBackupButton" type="button" aria-label="關閉">×</button></div>
       <p class="dialog-intro">將練習紀錄、AI 回饋、日曆、複習卡、專案 Prompt 與語音設定備份成一個 JSON 檔案。</p>
@@ -355,7 +361,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
   <script src="supabase-config.js" defer></script>
   <script src="i18n.js" defer></script>
-  <script src="cloud.js" defer></script>
   <script src="coach-result-utils.js" defer></script>
   <script src="coach-parsing.js" defer></script>
   <script src="builtin-coach.js" defer></script>
@@ -363,6 +368,8 @@
   <script src="practice-stats.js" defer></script>
   <script src="review-cards.js" defer></script>
   <script src="practice-data.js" defer></script>
+  <script src="storage-recovery.js" defer></script>
+  <script src="cloud.js" defer></script>
   <script src="wake-lock.js" defer></script>
   <script src="recording-session.js" defer></script>
   <script src="system-ai.js" defer></script>

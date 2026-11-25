@@ -68,6 +68,7 @@ async function loadCloud({ local = {}, remote = null, session = userSession, con
   };
   const context = vm.createContext({
     window, document, localStorage, sessionStorage, URLSearchParams,
+    PracticeData: require('../../public/practice-data.js'),
     CustomEvent: class { constructor(type) { this.type = type; } },
     location: { origin: 'https://fixture.invalid', pathname: '/', hash: '', reload: () => { state.reloads++; } },
     setTimeout(callback, delay) { const id = ++nextId; timers.set(id, { at: now + delay, callback }); return id; },

@@ -157,21 +157,34 @@
       && strings(value, ['name', 'provider', 'model', 'endpoint', 'apiKey', 'prompt', 'transcriptionMode', 'transcriptionModel', 'transcriptionEndpoint'])
       && numbers(value, ['inputTokenRate', 'outputTokenRate']) && booleans(value, ['smartCorrection']);
   }
+  function validatePractice(practice) {
+    if (!isRecord(practice) || !safeTree(practice) || !Array.isArray(practice.history)) return false;
+    if (!choice(practice, 'version', [1, 2, 3, 4, 5]) || !practice.history.every(historyEntry) || !uniqueIds(practice.history)) return false;
+    for (const [key, check] of [['reviewCards', reviewCard], ['scripts', script], ['reviewEvents', reviewEvent], ['apiUsage', usage]]) {
+      if (!optionalList(practice, key, check) || practice[key] !== undefined && !uniqueIds(practice[key])) return false;
+    }
+    return true;
+  }
+  function validateAiSettings(settings) {
+    if (!isRecord(settings) || !safeTree(settings) || !Array.isArray(settings.projects) || !settings.projects.length) return false;
+    return settings.projects.every(project) && uniqueIds(settings.projects)
+      && (settings.activeId === undefined || settings.projects.some(project => project.id === settings.activeId));
+  }
+  function validateSpeechSettings(settings) {
+    return isRecord(settings) && safeTree(settings) && typeof settings.voiceURI === 'string'
+      && typeof settings.rate === 'number' && settings.rate >= 0.1 && settings.rate <= 10;
+  }
   function parseBackup(text) {
     const payload = JSON.parse(text);
     if (!isRecord(payload) || !safeTree(payload) || payload.format !== 'table-topics-practice-backup' || !isRecord(payload.data)
       || !choice(payload, 'version', [1]) || !strings(payload.data, ['language'])) return null;
     const { practice, aiSettings } = payload.data;
-    if (!isRecord(practice) || !Array.isArray(practice.history) || !isRecord(aiSettings)) return null;
-    if (!choice(practice, 'version', [1, 2, 3, 4, 5]) || !practice.history.every(historyEntry) || !uniqueIds(practice.history)) return null;
-    for (const [key, check] of [['reviewCards', reviewCard], ['scripts', script], ['reviewEvents', reviewEvent], ['apiUsage', usage]]) {
-      if (!optionalList(practice, key, check) || practice[key] !== undefined && !uniqueIds(practice[key])) return null;
-    }
+    if (!validatePractice(practice) || !validateAiSettings(aiSettings)) return null;
     const projects = aiSettings.projects;
     if (!Array.isArray(projects) || !projects.length || !projects.every(project) || !uniqueIds(projects)) return null;
     if (aiSettings.activeId === undefined) aiSettings.activeId = projects[0].id;
     if (!projects.some(project => project.id === aiSettings.activeId)) return null;
     return { payload, count: practice.history.length, hasKeys: projects.some(project => Boolean(project.apiKey)) };
   }
-  return { ensureDataSchema, buildBackup, backupFilename, parseBackup };
+  return { ensureDataSchema, buildBackup, backupFilename, parseBackup, validatePractice, validateAiSettings, validateSpeechSettings };
 });

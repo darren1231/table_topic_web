@@ -32,8 +32,15 @@ const VERSION_HISTORY = [
 ];
 const DEFAULT_PROMPT = '你是一位專業、溫暖且具體的即興表達教練。題目要有深度但容易理解；分析時請根據結構、內容具體度、流暢度評分，指出優點並提供可立即實行的改善建議。使用者使用什麼語言，就用相同語言回答。';
 const DEFAULT_PROMPT_EN = 'You are a professional, warm, and specific impromptu-speaking coach. Create thoughtful but accessible questions. Score structure, specificity, and fluency; identify strengths and give immediately actionable improvements. Always respond in the practice language.';
-let aiSettings = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || 'null') || { activeId:'builtin', projects:[{id:'builtin',name:'內建教練',provider:'builtin',model:'',endpoint:'',apiKey:'',prompt:DEFAULT_PROMPT}] };
-let speechSettings = JSON.parse(localStorage.getItem(SPEECH_SETTINGS_KEY) || 'null') || {voiceURI:'',rate:.9};
+const dataRecovery = StorageRecovery.create({ storage: localStorage });
+let aiSettings = dataRecovery.read(AI_CONFIG_KEY, { validate: PracticeData.validateAiSettings,
+  fallback: () => ({ activeId: 'builtin', projects: [
+    { id: 'builtin', name: '內建教練', provider: 'builtin', model: '', endpoint: '', apiKey: '', prompt: DEFAULT_PROMPT }
+  ] }) });
+let speechSettings = dataRecovery.read(SPEECH_SETTINGS_KEY, { validate: PracticeData.validateSpeechSettings,
+  fallback: () => ({ voiceURI: '', rate: 0.9 }) });
+const recoveryNotice = StorageRecovery.createNotice({ document, recovery: dataRecovery, t,
+  download: text => downloadBackupBlob(new Blob([text], { type: 'application/json' }), 'table-topics-recovery.json') });
 
 function applyUiLanguage() {
   I18n.setLocale(state.language);
@@ -92,7 +99,7 @@ function setPracticeMode(mode){
 const questionTemplates = new Proxy({}, { get: (_, locale) => I18n.questionTemplates(locale) });
 
 let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{title:'',text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], speechUtterance:null, speechControls:null, speechChunks:[], speechQueue:SpeechUtils.createQueueState(), currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
-let saved = JSON.parse(localStorage.getItem(CONFIG.storageKey) || '{"history":[]}');
+let saved = dataRecovery.read(CONFIG.storageKey, { validate: PracticeData.validatePractice, fallback: () => ({ history: [] }) });
 
 function shuffle(items) { return BuiltinCoach.shuffle(items); }
 function localDateKey(date = new Date()) { return PracticeStats.localDateKey(date); }
@@ -104,7 +111,8 @@ function ensureDataSchema(){
   persist();
 }
 function persist() {
-  localStorage.setItem(CONFIG.storageKey, JSON.stringify(saved));
+  if (dataRecovery.isWriteBlocked(CONFIG.storageKey)) return;
+  dataRecovery.write(CONFIG.storageKey, JSON.stringify(saved));
   window.tableTopicsCloud?.scheduleSync(saved);
 }
 function buildBackup(includeApiKeys=false){
@@ -655,7 +663,9 @@ function openHistoryDetail(index) {
   $('#historyDialog').showModal();
 }
 
-function persistAISettings(){localStorage.setItem(AI_CONFIG_KEY,JSON.stringify(aiSettings));}
+function persistAISettings() {
+  if (!dataRecovery.isWriteBlocked(AI_CONFIG_KEY)) dataRecovery.write(AI_CONFIG_KEY, JSON.stringify(aiSettings));
+}
 function providerDefaults(provider){return provider==='openai'?{model:'gpt-5.4-mini',endpoint:'https://api.openai.com/v1/responses',transcriptionModel:'gpt-4o-mini-transcribe',transcriptionEndpoint:'https://api.openai.com/v1/audio/transcriptions'}:provider==='anthropic'?{model:'claude-sonnet-4-5',endpoint:'https://api.anthropic.com/v1/messages',transcriptionModel:'',transcriptionEndpoint:''}:provider==='compatible'?{model:'openai/gpt-4.1',endpoint:'https://models.github.ai/inference/chat/completions',transcriptionModel:'whisper-1',transcriptionEndpoint:''}:{model:'',endpoint:'',transcriptionModel:'',transcriptionEndpoint:''};}
 const OPENAI_PRICING_URL='https://developers.openai.com/api/docs/pricing?latest-pricing=batch';
 const CLAUDE_PRICING_URL='https://platform.claude.com/docs/en/about-claude/pricing';
@@ -1143,6 +1153,7 @@ async function transcribeScriptParagraph(blob,paragraphId,project){const paragra
 function initScriptMode(){renderScriptProjects();$('#newScriptButton').onclick=newScript;$('#scriptSearchInput').oninput=e=>{state.scriptSearch=e.target.value;renderScriptProjects();};$('#scriptStatusFilter').onchange=e=>{state.scriptStatus=e.target.value;renderScriptProjects();};['scriptTitleInput','scriptLanguageInput','scriptTopicInput','scriptPurposeInput','scriptAudienceInput','scriptToneInput','scriptMinutesInput','scriptTagsInput'].forEach(id=>{$(`#${id}`).oninput=saveScriptBrief;$(`#${id}`).onchange=()=>{saveScriptBrief();renderScriptProjects();};});$('#addScriptParagraphButton').onclick=()=>addScriptParagraph();$('#fullScriptReviewButton').onclick=runFullScriptReview;$('#archiveScriptButton').onclick=()=>{const script=currentScript();if(script)setScriptStatus(script.id,script.status==='archived'?'active':'archived');};$('#trashScriptButton').onclick=()=>{const script=currentScript();if(script&&confirm(ui('確定把這篇講稿移到垃圾桶嗎？','Move this manuscript to trash?')))setScriptStatus(script.id,'trashed');};}
 
 function init() {
+  recoveryNotice.initialize();
   initSystemAi();
   ensureDataSchema();
   if(!CONFIG.languages[state.language])state.language='zh-TW';

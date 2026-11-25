@@ -5,6 +5,17 @@ const payload = name => ({ history: [{ id: name }], projects: [{ id: 'project' }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const uploaded = env => env.state.uploads.map(upload => upload.row.payload);
 
+test('invalid remote practice never overwrites local data, reloads or uploads defaults', async () => {
+  for (const invalid of [{ history: [null] }, { history: 'wrong' }, [], 'text', { history: [], reviewCards: [null] }]) {
+    const raw = JSON.stringify(payload('local'));
+    const env = await loadCloud({ local: { [MODE_KEY]: 'cloud', [DATA_KEY]: raw }, remote: { payload: invalid } });
+    assert.equal(env.localStorage.getItem(DATA_KEY), raw);
+    assert.equal(env.state.reloads, 0);
+    assert.equal(env.state.uploads.length, 0);
+    assert.equal(env.node('syncStatus').textContent, 'cloud.invalidPayload');
+  }
+});
+
 for (const [name, raw, expected] of [
   ['valid JSON', JSON.stringify(payload('local')), payload('local')],
   ['invalid JSON', '{broken', { history: [] }],
