@@ -131,9 +131,12 @@ async function exportBackupDrive(){
   const file=new File([blob],filename,{type:'application/json'});
   try{if(navigator.share&&navigator.canShare?.({files:[file]})){await navigator.share({title:'Table Topics backup',text:ui('請將完整備份儲存到 Google Drive','Save this full backup to Google Drive'),files:[file]});toast(ui('備份已交給 Google Drive 分享流程','Backup sent to the Google Drive sharing flow'));return;}downloadBackupBlob(blob,filename);window.open('https://drive.google.com/drive/my-drive','_blank','noopener');toast(ui('已下載備份並開啟 Google Drive，請上傳剛下載的檔案','Backup downloaded and Google Drive opened. Upload the downloaded file.'));}catch(error){if(error.name!=='AbortError')toast(`${ui('Google Drive 匯出失敗','Google Drive export failed')}: ${error.message}`);}
 }
-async function importBackupFile(file){
-  try{const parsed=PracticeData.parseBackup(await file.text());if(!parsed)throw new Error(ui('不是有效的 Table Topics 備份檔','This is not a valid Table Topics backup file'));const {payload,count,hasKeys}=parsed;if(!confirm(ui(`確定匯入 ${count} 筆練習資料並取代目前所有資料嗎？${hasKeys?' 此檔案包含 API Key。':''}`,`Import ${count} practices and replace all current data?${hasKeys?' This file contains API keys.':''}`)))return;localStorage.setItem(CONFIG.storageKey,JSON.stringify(payload.data.practice));localStorage.setItem(AI_CONFIG_KEY,JSON.stringify(payload.data.aiSettings));if(CONFIG.languages[payload.data.language])localStorage.setItem(UI_LANGUAGE_KEY,payload.data.language);const cloudUpdated=await window.tableTopicsCloud?.replaceData?.(payload.data.practice);if(cloudUpdated===false){toast(ui('資料已匯入本機，但雲端更新失敗；請保持此頁開啟並重試','Imported locally, but cloud update failed. Keep this page open and try again.'));return;}toast(ui(window.tableTopicsCloud?.isEnabled?.()?'匯入完成，雲端資料已更新':'匯入完成，正在重新載入',window.tableTopicsCloud?.isEnabled?.()?'Import complete. Cloud data updated.':'Import complete. Reloading…'));setTimeout(()=>location.reload(),700);}catch(error){toast(`${ui('匯入失敗','Import failed')}: ${error.message}`);}finally{$('#importBackupInput').value='';}
-}
+const backupImporter = BackupImport.create({ document, storage: localStorage, readBackup: PracticeData.requireBackup,
+  getCloud: () => window.tableTopicsCloud,
+  keys: { practice: CONFIG.storageKey, ai: AI_CONFIG_KEY, language: UI_LANGUAGE_KEY },
+  supportsLanguage: language => Boolean(CONFIG.languages[language]), confirm: message => confirm(message),
+  toast, reload: () => location.reload(), schedule: (callback, delay) => setTimeout(callback, delay), t, ui });
+function importBackupFile(file) { return backupImporter.importFile(file); }
 function initBackup(){
   $('#backupButton').onclick=()=>{closeSettingsMenu();updateBackupSummary();$('#backupDialog').showModal();};$('#closeBackupButton').onclick=()=>$('#backupDialog').close();$('#exportLocalButton').onclick=exportBackupLocal;$('#exportDriveButton').onclick=exportBackupDrive;$('#importBackupButton').onclick=()=>$('#importBackupInput').click();$('#importBackupInput').onchange=event=>{const file=event.target.files?.[0];if(file)importBackupFile(file);};
 }

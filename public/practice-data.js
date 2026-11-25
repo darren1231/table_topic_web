@@ -1,7 +1,7 @@
 (function(root,factory){
-  if(typeof module==='object'&&module.exports)module.exports=factory(require('./practice-stats.js'));
-  else root.PracticeData=factory(root.PracticeStats);
-})(typeof globalThis!=='undefined'?globalThis:this,function(PracticeStats){
+  if(typeof module==='object'&&module.exports)module.exports=factory(require('./practice-stats.js'), require('./practice-display.js'));
+  else root.PracticeData=factory(root.PracticeStats, root.PracticeDisplay);
+})(typeof globalThis!=='undefined'?globalThis:this,function(PracticeStats, PracticeDisplay){
   const { localDateKey, inferLanguage } = PracticeStats;
   // Legacy startup API intentionally normalizes its owned data in place.
   // Imported data is validated before this function can touch it.
@@ -11,6 +11,8 @@
       if (!Array.isArray(saved[key])) saved[key] = [];
     }
     saved.version = 5;
+    const display = PracticeDisplay.normalize(saved);
+    for (const key of ['history', 'apiUsage']) saved[key].forEach((entry, index) => Object.assign(entry, display[key][index]));
     saved.history.forEach((entry, index) => {
       entry.id ||= `legacy_${entry.date || 'date'}_${index}`;
       entry.date ||= localDateKey();
@@ -157,14 +159,22 @@
       && strings(value, ['name', 'provider', 'model', 'endpoint', 'apiKey', 'prompt', 'transcriptionMode', 'transcriptionModel', 'transcriptionEndpoint'])
       && numbers(value, ['inputTokenRate', 'outputTokenRate']) && booleans(value, ['smartCorrection']);
   }
-  function validatePractice(practice) {
-    if (!isRecord(practice) || !safeTree(practice) || !Array.isArray(practice.history)) return false;
-    if (!choice(practice, 'version', [1, 2, 3, 4, 5]) || !practice.history.every(historyEntry) || !uniqueIds(practice.history)) return false;
-    for (const [key, check] of [['reviewCards', reviewCard], ['scripts', script], ['reviewEvents', reviewEvent], ['apiUsage', usage]]) {
-      if (!optionalList(practice, key, check) || practice[key] !== undefined && !uniqueIds(practice[key])) return false;
+  function practiceIssue(practice) {
+    if (!isRecord(practice) || !safeTree(practice) || !choice(practice, 'version', [1, 2, 3, 4, 5])) return { category: 'practice' };
+    const display = PracticeDisplay.normalize(practice);
+    for (const [key, check] of [['history', historyEntry], ['reviewCards', reviewCard], ['scripts', script], ['reviewEvents', reviewEvent], ['apiUsage', usage]]) {
+      if (display[key] === undefined && key !== 'history') continue;
+      if (!Array.isArray(display[key])) return { category: key };
+      const seen = new Set();
+      for (let index = 0; index < display[key].length; index++) {
+        const row = display[key][index];
+        if (!check(row) || row.id !== undefined && (typeof row.id !== 'string' || !row.id.trim() || seen.has(row.id))) return { category: key, index: index + 1 };
+        if (row.id !== undefined) seen.add(row.id);
+      }
     }
-    return true;
+    return null;
   }
+  function validatePractice(practice) { return practiceIssue(practice) === null; }
   function validateAiSettings(settings) {
     if (!isRecord(settings) || !safeTree(settings) || !Array.isArray(settings.projects) || !settings.projects.length) return false;
     return settings.projects.every(project) && uniqueIds(settings.projects)
@@ -174,17 +184,26 @@
     return isRecord(settings) && safeTree(settings) && typeof settings.voiceURI === 'string'
       && typeof settings.rate === 'number' && settings.rate >= 0.1 && settings.rate <= 10;
   }
-  function parseBackup(text) {
+  function parseBackup(text, { throwOnInvalid = false } = {}) {
+    function invalid(category, index) {
+      if (!throwOnInvalid) return null;
+      throw Object.assign(new Error('Invalid backup'), {
+        messageKey: index ? `backup.invalid.${category}` : 'backup.invalid.collection',
+        variables: { category, index }, category,
+      });
+    }
     const payload = JSON.parse(text);
     if (!isRecord(payload) || !safeTree(payload) || payload.format !== 'table-topics-practice-backup' || !isRecord(payload.data)
-      || !choice(payload, 'version', [1]) || !strings(payload.data, ['language'])) return null;
+      || !choice(payload, 'version', [1]) || !strings(payload.data, ['language'])) return invalid('backup');
     const { practice, aiSettings } = payload.data;
-    if (!validatePractice(practice) || !validateAiSettings(aiSettings)) return null;
+    const issue = practiceIssue(practice);
+    if (issue) return invalid(issue.category, issue.index);
+    if (!validateAiSettings(aiSettings)) return invalid('aiSettings');
+    payload.data.practice = PracticeDisplay.normalize(practice);
     const projects = aiSettings.projects;
-    if (!Array.isArray(projects) || !projects.length || !projects.every(project) || !uniqueIds(projects)) return null;
     if (aiSettings.activeId === undefined) aiSettings.activeId = projects[0].id;
-    if (!projects.some(project => project.id === aiSettings.activeId)) return null;
     return { payload, count: practice.history.length, hasKeys: projects.some(project => Boolean(project.apiKey)) };
   }
-  return { ensureDataSchema, buildBackup, backupFilename, parseBackup, validatePractice, validateAiSettings, validateSpeechSettings };
+  const requireBackup = text => parseBackup(text, { throwOnInvalid: true });
+  return { ensureDataSchema, buildBackup, backupFilename, parseBackup, requireBackup, validatePractice, validateAiSettings, validateSpeechSettings };
 });

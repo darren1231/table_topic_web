@@ -28,7 +28,8 @@ test('invalid nested backups leave local data and the open page unchanged withou
   malformed[2].data.practice.scripts = [{ id: 's', paragraphs: [null] }];
   for (const value of malformed) {
     await upload(page, value);
-    await expect(page.locator('#toast')).toHaveText('Import failed: This is not a valid Table Topics backup file');
+    await expect(page.locator('#toast')).toContainText('Import failed:');
+    await expect(page.locator('#toast')).toContainText('Invalid');
     expect(await page.evaluate(() => ({ ...localStorage }))).toEqual(previous);
     await expect(page.locator('#backupDialog')).toBeVisible();
     await expect(page.locator('#importBackupInput')).toHaveValue('');
@@ -39,6 +40,8 @@ test('invalid nested backups leave local data and the open page unchanged withou
 
 test('legacy backup restores and reexports translation metadata and manuscript defaults', async ({ guestPage: page }) => {
   const value = backup();
+  value.data.practice.history[0].metrics = require('../test/fixtures/legacy-coach-results.json')[0].metrics;
+  value.data.practice.history[0].score = '72';
   const card = { id: 'translation-one', sourceType: 'translation', language: 'ja-JP', before: '明天見', after: 'また明日',
     translationStyle: 'conversational', translationNote: '用於朋友間道別。', explanationLanguage: 'zh-TW',
     dueAt: '2026-11-09T00:00:00Z', tags: [], repetitions: 0, intervalDays: 0, easeFactor: 2.3, lapses: 0 };
@@ -62,4 +65,19 @@ test('legacy backup restores and reexports translation metadata and manuscript d
   const exported = JSON.parse(await require('node:fs/promises').readFile(await download.path(), 'utf8'));
   expect(exported.data.practice.reviewCards[0]).toMatchObject(card);
   expect(exported.data.practice.history[0].id).toBe('legacy_2026-11-09_0');
+  expect(exported.data.practice.history[0].metrics.improvements[0].detail).toBe('Open with a clear position');
+  expect(exported.data.practice.history[0].score).toBe(72);
+});
+
+test('invalid third review card reports its exact category and position without writing', async ({ guestPage: page }) => {
+  const value = backup();
+  value.data.practice.reviewCards = [
+    { id: 'one', language: 'en-US', before: 'a', after: 'b', dueAt: '2026-11-10T00:00:00Z' },
+    { id: 'two', language: 'en-US', before: 'a', after: 'b', dueAt: '2026-11-10T00:00:00Z' }, null,
+  ];
+  await openMenu(page, 'backupButton');
+  const original = await page.evaluate(() => localStorage.getItem('tableTopicsPractice.v1'));
+  await upload(page, value);
+  await expect(page.locator('#toast')).toHaveText('Import failed: Invalid Review cards item 3.');
+  expect(await page.evaluate(() => localStorage.getItem('tableTopicsPractice.v1'))).toBe(original);
 });

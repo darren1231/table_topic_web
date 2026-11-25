@@ -86,6 +86,7 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
   b.context.SystemAI = require('../../public/system-ai.js');
   b.context.TokenUI = require('../../public/token-ui.js');
   b.context.FeedbackUI = require('../../public/feedback-ui.js');
+  b.context.BackupImport = require('../../public/backup-import.js');
   b.context.StorageRecovery = require('../../public/storage-recovery.js');
   b.context.UsageStats = require('../../public/usage-stats.js');
   b.balanceCalls = [];
@@ -105,6 +106,7 @@ function app({ signedIn = true, fetch = async () => { throw new Error('Unexpecte
   b.run(fs.readFileSync(path.join(publicDir, 'html-utils.js'), 'utf8'), { filename: path.join(publicDir, 'html-utils.js') });
   b.run(fs.readFileSync(path.join(publicDir, 'practice-stats.js'), 'utf8'), { filename: path.join(publicDir, 'practice-stats.js') });
   b.run(fs.readFileSync(path.join(publicDir, 'review-cards.js'), 'utf8'), { filename: path.join(publicDir, 'review-cards.js') });
+  b.context.PracticeDisplay = require('../../public/practice-display.js');
   b.run(fs.readFileSync(path.join(publicDir, 'practice-data.js'), 'utf8'), { filename: path.join(publicDir, 'practice-data.js') });
   b.run(fs.readFileSync(path.join(publicDir, 'coach-parsing.js'), 'utf8'), { filename: path.join(publicDir, 'coach-parsing.js') });
   b.run(fs.readFileSync(path.join(publicDir, 'builtin-coach.js'), 'utf8'), { filename: path.join(publicDir, 'builtin-coach.js') });

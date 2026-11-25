@@ -13,7 +13,7 @@ function fixedApi() {
     constructor(...args) { super(...(args.length ? args : [now])); }
     static now() { return new Date(now).getTime(); }
   } });
-  for (const file of ['practice-stats.js', 'practice-data.js']) vm.runInContext(fs.readFileSync(path.join(publicDir, file), 'utf8'), context);
+  for (const file of ['practice-stats.js', 'practice-display.js', 'practice-data.js']) vm.runInContext(fs.readFileSync(path.join(publicDir, file), 'utf8'), context);
   return context.PracticeData;
 }
 
@@ -119,7 +119,7 @@ test('backup parsing preserves JSON syntax errors and rejects only the existing 
 });
 
 test('F06 rejects invalid history entries and unusable AI project selections before import', () => {
-  for (const history of [[null], [false], [[]], [{ question: {} }]]) {
+  for (const history of [[null], [false], [[]], [{ id: {} }]]) {
     assert.equal(api().parseBackup(JSON.stringify(importPayload({ history }))), null);
   }
   for (const projects of [[], [null], [[]], [{ id: '' }], [{ id: 'a' }, { id: 'a' }]]) {
@@ -156,8 +156,6 @@ test('backup parsing validates supplied collections and nested manuscript and co
     { scripts: [{ id: 's', paragraphs: [{ id: 'p', analyses: [{ suggestions: {} }] }] }] },
     { scripts: [{ id: 's', fullReviews: [{ recommendations: [null] }] }] },
     { reviewEvents: [null] }, { apiUsage: [false] },
-    { history: [{ date: '2026-11-10', metrics: { comparisons: [null] } }] },
-    { history: [{ date: '2026-11-10', metrics: { grammarCorrections: {} } }] },
   ];
   for (const fields of invalid) {
     const payload = importPayload();
@@ -238,7 +236,7 @@ test('backup validation checks nested renderer inputs and translation text bound
     { scoreDetails: [{ before: {}, after: 50 }] },
   ]) {
     payload.data.practice.history = [{ metrics }];
-    assert.equal(api().parseBackup(JSON.stringify(payload)), null);
+    assert.ok(api().parseBackup(JSON.stringify(payload)));
   }
   payload.data.practice.history = [];
   for (const fields of [{ before: '文'.repeat(301) }, { after: '文'.repeat(1201) }, { translationNote: '' }]) {
@@ -333,7 +331,7 @@ test('invalid import shapes and JSON preserve existing failure UI without writin
     assert.deepEqual(b.confirmations, []);
     assert.deepEqual(b.cloudWrites, []);
     assert.ok(b.get('#toast').textContent.startsWith('Import failed: '));
-    if (text.includes('wrong')) assert.equal(b.get('#toast').textContent, 'Import failed: This is not a valid Table Topics backup file');
+    if (text.includes('wrong')) assert.ok(b.get('#toast').textContent.includes('Backup'));
     assert.equal(b.get('#importBackupInput').value, '');
   }
 });
