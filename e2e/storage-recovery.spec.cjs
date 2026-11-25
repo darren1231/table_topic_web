@@ -1,5 +1,42 @@
 const fs = require('node:fs/promises');
-const { test, expect } = require('./fixtures.cjs');
+const { test, expect, session } = require('./fixtures.cjs');
+
+test('cloud startup restores valid remote data after corrupt local data without uploading an empty history', async ({ page, context, sandbox }) => {
+  const remote = { history: [{ id: 'cloud-history', date: '2026-11-10', topic: 'Cloud', question: 'Why?', answer: 'Preserved remotely.' }] };
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let reads = 0;
+  sandbox.handleUserData(async request => {
+    if (request.method() === 'GET') {
+      reads++;
+      if (reads === 1) await held;
+      return { body: { payload: remote, updated_at: '2026-11-10T04:00:00Z' } };
+    }
+    return { body: {} };
+  });
+  await context.addInitScript(value => {
+    if (!localStorage.getItem('cloud-recovery-seeded')) {
+      localStorage.setItem('tableTopicsPractice.v1', '{broken');
+      localStorage.setItem('tableTopicsStorageMode', 'cloud');
+      localStorage.setItem('sb-e2e-auth-token', JSON.stringify(value));
+      localStorage.setItem('cloud-recovery-seeded', '1');
+    }
+  }, session);
+  await page.clock.install();
+  await page.goto('/');
+  await expect(page.locator('#suggestions button')).toHaveCount(5);
+  await expect.poll(() => reads).toBeGreaterThan(0);
+  await page.clock.runFor(1200);
+  expect(sandbox.calls.filter(call => call.path === '/rest/v1/user_data' && call.body)).toHaveLength(0);
+  release();
+  await expect(page.locator('#historyList .history-item')).toHaveCount(1);
+  await page.evaluate(() => window.tableTopicsCloud.ready);
+  const restored = await page.evaluate(() => JSON.parse(localStorage.getItem('tableTopicsPractice.v1')));
+  expect(restored.history[0]).toMatchObject(remote.history[0]);
+  for (const call of sandbox.calls.filter(call => call.path === '/rest/v1/user_data' && call.body)) {
+    expect(JSON.parse(call.body).payload.history.length).toBeGreaterThan(0);
+  }
+});
 
 for (const [name, entries] of [
   ['broken JSON', { 'tableTopicsPractice.v1': '{broken', 'tableTopicsAIProjects.v1': '{bad', 'tableTopicsSpeechSettings.v1': '{oops' }],

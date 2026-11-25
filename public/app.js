@@ -99,7 +99,7 @@ function setPracticeMode(mode){
 const questionTemplates = new Proxy({}, { get: (_, locale) => I18n.questionTemplates(locale) });
 
 let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{title:'',text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], speechUtterance:null, speechControls:null, speechChunks:[], speechQueue:SpeechUtils.createQueueState(), currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
-let saved = dataRecovery.read(CONFIG.storageKey, { validate: PracticeData.validatePractice, fallback: () => ({ history: [] }) });
+let saved = dataRecovery.read(CONFIG.storageKey, { validate: PracticeData.validateStartupPractice, fallback: () => ({ history: [] }) });
 
 function shuffle(items) { return BuiltinCoach.shuffle(items); }
 function localDateKey(date = new Date()) { return PracticeStats.localDateKey(date); }

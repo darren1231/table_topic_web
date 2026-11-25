@@ -3,6 +3,13 @@
   else root.PracticeData=factory(root.PracticeStats, root.PracticeDisplay);
 })(typeof globalThis!=='undefined'?globalThis:this,function(PracticeStats, PracticeDisplay){
   const { localDateKey, inferLanguage } = PracticeStats;
+  function repair(record, key, value) {
+    if (record[key] !== undefined && JSON.stringify(record[key]) !== JSON.stringify(value)) {
+      if (!isRecord(record._startupOriginals)) record._startupOriginals = {};
+      if (!Object.hasOwn(record._startupOriginals, key)) record._startupOriginals[key] = record[key];
+    }
+    record[key] = value;
+  }
   // Legacy startup API intentionally normalizes its owned data in place.
   // Imported data is validated before this function can touch it.
   function ensureDataSchema(saved) {
@@ -15,11 +22,12 @@
     for (const key of ['history', 'apiUsage']) saved[key].forEach((entry, index) => Object.assign(entry, display[key][index]));
     saved.history.forEach((entry, index) => {
       entry.id ||= `legacy_${entry.date || 'date'}_${index}`;
-      entry.date ||= localDateKey();
+      if (!day(entry.date)) repair(entry, 'date', localDateKey());
       entry.language ||= inferLanguage(entry);
       entry.completedAt ||= `${entry.date}T12:00:00`;
     });
     saved.reviewCards.forEach(card => {
+      if (!Number.isFinite(new Date(card.dueAt).getTime())) repair(card, 'dueAt', new Date().toISOString());
       card.status ||= 'active';
       card.tags = Array.isArray(card.tags) ? card.tags : [];
       card.updatedAt ||= card.createdAt || new Date().toISOString();
@@ -49,10 +57,11 @@
     });
     return saved;
   }
-  function buildBackup(saved,aiSettings,language,includeApiKeys=false){
-    const projects=JSON.parse(JSON.stringify(aiSettings));
-    if(!includeApiKeys)projects.projects?.forEach(project=>{project.apiKey='';});
-    return {format:'table-topics-practice-backup',version:1,exportedAt:new Date().toISOString(),includesApiKeys:includeApiKeys,data:{practice:JSON.parse(JSON.stringify(saved)),aiSettings:projects,language}};
+  function buildBackup(saved, aiSettings, language, includeApiKeys = false) {
+    const projects = JSON.parse(JSON.stringify(aiSettings));
+    if (!includeApiKeys) projects.projects?.forEach(project => { project.apiKey = ''; });
+    return { format: 'table-topics-practice-backup', version: 1, exportedAt: new Date().toISOString(), includesApiKeys: includeApiKeys,
+      data: { practice: JSON.parse(JSON.stringify(saved)), aiSettings: projects, language } };
   }
   function backupFilename(){return `table-topics-backup-${localDateKey()}.json`;}
   function isRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
@@ -175,6 +184,23 @@
     return null;
   }
   function validatePractice(practice) { return practiceIssue(practice) === null; }
+  // Startup repairs owned data; import/cloud validation remains deliberately stricter.
+  function validateStartupPractice(practice) {
+    if (!isRecord(practice) || !safeTree(practice)) return false;
+    for (const key of ['history', 'reviewCards', 'scripts', 'reviewEvents', 'apiUsage']) {
+      if (practice[key] !== undefined && (!Array.isArray(practice[key]) || !practice[key].every(isRecord))) return false;
+    }
+    for (const script of practice.scripts || []) {
+      if (!Array.isArray(script.paragraphs)) continue; // Startup can supply the old missing collection defaults.
+      if (!script.paragraphs.every(isRecord)) return false;
+      for (const paragraph of script.paragraphs) {
+        for (const key of ['versions', 'analyses']) {
+          if (Array.isArray(paragraph[key]) && !paragraph[key].every(isRecord)) return false;
+        }
+      }
+    }
+    return true;
+  }
   function validateAiSettings(settings) {
     if (!isRecord(settings) || !safeTree(settings) || !Array.isArray(settings.projects) || !settings.projects.length) return false;
     return settings.projects.every(project) && uniqueIds(settings.projects)
@@ -205,5 +231,6 @@
     return { payload, count: practice.history.length, hasKeys: projects.some(project => Boolean(project.apiKey)) };
   }
   const requireBackup = text => parseBackup(text, { throwOnInvalid: true });
-  return { ensureDataSchema, buildBackup, backupFilename, parseBackup, requireBackup, validatePractice, validateAiSettings, validateSpeechSettings };
+  return { ensureDataSchema, buildBackup, backupFilename, parseBackup, requireBackup,
+    validatePractice, validateStartupPractice, validateAiSettings, validateSpeechSettings };
 });

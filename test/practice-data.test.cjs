@@ -49,15 +49,15 @@ test('schema migration recovers English review grammar and normalizes manuscript
       { language: 'zh-TW', before: '你好', grammarRule: 'keep', updatedAt: 'old-time' }],
     scripts: [{ paragraphs: [{ text: 'Draft', versions: null, analyses: false }], fullReviews: null, tags: 'old' }],
   };
-  api().ensureDataSchema(data);
-  assert.deepEqual(data.reviewCards[0], {
+  fixedApi().ensureDataSchema(data);
+  assert.deepEqual(plain(data.reviewCards[0]), {
     sourceHistoryId: 'source', language: 'en-US', before: 'I agree!', tags: [], createdAt: now, updatedAt: now,
-    status: 'active', isGrammarCorrect: false, grammarIssue: 'Capitalization', grammarExplanation: 'Capitalize I',
+    status: 'active', dueAt: now, isGrammarCorrect: false, grammarIssue: 'Capitalization', grammarExplanation: 'Capitalize I',
     grammarRule: 'Use I', grammarExample: 'I agree.',
   });
   assert.equal(data.reviewCards[1].grammarRule, 'keep');
   assert.equal(data.reviewCards[1].updatedAt, 'old-time');
-  assert.deepEqual(data.scripts, [{ status: 'active', tags: [], fullReviews: [], paragraphs: [{ text: 'Draft', versions: [], analyses: [] }] }]);
+  assert.deepEqual(plain(data.scripts), [{ status: 'active', tags: [], fullReviews: [], paragraphs: [{ text: 'Draft', versions: [], analyses: [] }] }]);
 });
 
 test('schema defaults use the existing local date and current timestamp when legacy fields are absent', () => {

@@ -76,4 +76,11 @@ test('actual app generation paths produce a backup that can be restored', async 
   const restored = data.parseBackup(b.run('JSON.stringify(buildBackup())'));
   assert.ok(restored);
   assert.deepEqual(restored.payload.data.practice, original);
+  // Startup is a repair path, not a strict import of a foreign document.
+  original.history.push({ ...original.history[0] });
+  delete original.reviewCards[0].dueAt;
+  const restarted = app({ signedIn: false, storageEntries: [['tableTopicsPractice.v1', JSON.stringify(original)]] });
+  assert.equal(restarted.run('dataRecovery.hadRecovery()'), false);
+  assert.equal(restarted.run('saved.history.length'), 2);
+  assert.equal(restarted.run('saved.scripts[0].paragraphs[0].analyses.length'), 1);
 });

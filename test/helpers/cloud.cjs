@@ -50,7 +50,7 @@ async function loadCloud({ local = {}, remote = null, session = userSession, con
         select(columns) {
           return { eq(column, value) {
             state.reads.push({ columns, column, value });
-            return { maybeSingle: async () => ({ data: copy(state.remote), error: state.readError }) };
+            return { maybeSingle: async () => state.readRemote ? state.readRemote() : ({ data: copy(state.remote), error: state.readError }) };
           } };
         },
         upsert(row, options) {

@@ -34,6 +34,21 @@ test('valid legacy startup data is retained without a recovery notice or extra w
   assert.equal(recovery.hadRecovery(), false);
 });
 
+test('startup keeps repairable duplicate IDs and missing schedules while import stays strict', () => {
+  const original = { history: [{ id: 'old', date: '2026-11-10' }, { id: 'old', date: '2026-11-10' }],
+    reviewCards: [{ id: 'card', before: 'Old', after: 'New', language: 'en-US' }],
+    scripts: [{ id: 'script', paragraphs: [{ text: 'Draft', versions: null, analyses: false }] }] };
+  const { recovery } = environment([['practice', JSON.stringify(original)]]);
+  const loaded = recovery.read('practice', { validate: data.validateStartupPractice, fallback: () => ({ history: [] }) });
+  assert.equal(recovery.hadRecovery(), false);
+  data.ensureDataSchema(loaded);
+  assert.equal(loaded.history.length, 2);
+  assert.equal(loaded.reviewCards[0].before, 'Old');
+  assert.ok(Number.isFinite(Date.parse(loaded.reviewCards[0].dueAt)));
+  assert.deepEqual(loaded.scripts[0].paragraphs[0].versions, []);
+  assert.equal(data.validatePractice(original), false);
+});
+
 test('backup collisions preserve both originals and failed backup writes protect the primary value', () => {
   const { recovery, storage, values } = environment([['key', '{bad'], ['key.corrupt.123', 'older']]);
   recovery.read('key', { validate: data.validatePractice, fallback: () => ({ history: [] }) });

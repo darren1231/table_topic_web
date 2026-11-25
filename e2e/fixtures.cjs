@@ -20,6 +20,7 @@ const test = base.extend({
       /^Argument 1 \('root'\) to Document.createTreeWalker must be an instance of Node$/,
     ];
     const api = new Map(), rpc = new Map(), calls = [];
+    let userDataHandler = null;
     const watch = page => {
       page.on('pageerror', error => errors.push(error.message));
       page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -31,6 +32,10 @@ const test = base.extend({
       if (url.hostname === 'cdn.jsdelivr.net' && url.pathname === '/npm/@supabase/supabase-js@2') return route.continue();
       if (url.hostname.endsWith('.supabase.co')) {
         calls.push({ path: url.pathname, body: route.request().postData() });
+        if (url.pathname === '/rest/v1/user_data' && userDataHandler) {
+          const result = await userDataHandler(route.request());
+          return json(result.body, result.status);
+        }
         if (url.pathname === '/auth/v1/user') return json(user);
         if (url.pathname === '/auth/v1/token') return json(session);
         if (url.pathname === '/auth/v1/logout') return json({});
@@ -67,6 +72,7 @@ const test = base.extend({
     });
     const sandbox = {
       calls,
+      handleUserData(handler) { userDataHandler = handler; },
       mockApi(name, body, status = 200) { api.set(`/api/ai/${name}`, { body, status }); },
       mockToken(name, body, status = 200) { api.set(`/api/tokens/${name}`, { body, status }); },
       handleToken(name, handler) { api.set(`/api/tokens/${name}`, handler); },
@@ -110,4 +116,4 @@ const test = base.extend({
   },
 });
 
-module.exports = { test, expect };
+module.exports = { test, expect, session };

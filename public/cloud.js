@@ -5,6 +5,12 @@
   const config = window.SUPABASE_CONFIG || {};
   const configured = Boolean(config.url && config.anonKey && window.supabase?.createClient);
   const client = configured ? window.supabase.createClient(config.url, config.anonKey) : null;
+  // Capture this before app.js can replace damaged local data with startup defaults.
+  const hadInvalidLocal = (() => {
+    const raw = localStorage.getItem(DATA_KEY);
+    if (raw === null) return false;
+    try { return !PracticeData.validateStartupPractice(JSON.parse(raw)); } catch { return true; }
+  })();
   let session = null;
   let syncing = false;
   let timer = null;
@@ -13,6 +19,19 @@
   let lastRemoteUpdatedAt = '';
   let pollTimer = null;
   let invalidRemote = false;
+  let remoteChecked = false;
+  let reloadPending = false;
+
+  function setSession(next) {
+    if (session?.user?.id !== next?.user?.id) {
+      remoteChecked = false;
+      reloadPending = false;
+      lastRemoteUpdatedAt = '';
+      clearTimeout(timer);
+      syncAgain = null;
+    }
+    session = next;
+  }
 
   const byId = id => document.getElementById(id);
   const t = (key, variables) => window.I18n?.translate(key, variables) || key;
@@ -71,7 +90,7 @@
   }
 
   async function push(payload = readLocalPayload()) {
-    if (!cloudEnabled()) return false;
+    if (!cloudEnabled() || !remoteChecked || reloadPending) return false;
     if (syncing) {
       syncAgain = JSON.parse(JSON.stringify(payload));
       return false;
@@ -118,19 +137,25 @@
 
   async function pullRemote({ reload = true } = {}) {
     if (!cloudEnabled()) return false;
+    remoteChecked = false;
+    const owner = session?.user?.id;
     const { data, error } = await client.from('user_data').select('payload, updated_at').eq('user_id', session.user.id).maybeSingle();
+    if (owner !== session?.user?.id || !cloudEnabled()) return null;
     if (error) {
       setStatus(t('cloud.readFailed', { error: error.message }), 'error');
       return null;
     }
-    if (!data) return false;
-    if (data.payload && !Array.isArray(data.payload) && typeof data.payload === 'object' && !Object.keys(data.payload).length) return false;
+    if (!data || data.payload && !Array.isArray(data.payload) && typeof data.payload === 'object' && !Object.keys(data.payload).length) {
+      remoteChecked = true;
+      return false;
+    }
     if (!PracticeData.validatePractice(data.payload)) {
       invalidRemote = true;
       setStatus(t('cloud.invalidPayload'), 'error');
       return null;
     }
     invalidRemote = false;
+    remoteChecked = true;
     if (data.updated_at && lastRemoteUpdatedAt && data.updated_at <= lastRemoteUpdatedAt) return true;
     lastRemoteUpdatedAt = data.updated_at || lastRemoteUpdatedAt;
     const remote = JSON.stringify(data.payload);
@@ -142,13 +167,14 @@
       // is especially disruptive on mobile, where visibility changes are common.
       const signature = remoteSignature(data.updated_at, remote);
       const alreadyApplied = sessionStorage.getItem(APPLIED_REMOTE_KEY) === signature;
-      if (alreadyApplied) {
+      if (alreadyApplied && !hadInvalidLocal) {
         sessionStorage.removeItem(APPLIED_REMOTE_KEY);
         await push(readLocalPayload());
         return true;
       }
       localStorage.setItem(DATA_KEY, remote);
       if (reload) {
+        reloadPending = true;
         sessionStorage.setItem(APPLIED_REMOTE_KEY, signature);
         sessionStorage.setItem('tableTopicsCloudNotice', t('cloud.loadedLatest'));
         location.reload();
@@ -158,14 +184,18 @@
   }
 
   async function enableCloud() {
-    if (!session || enablingCloud) return;
+    if (!session || enablingCloud) return false;
     enablingCloud = true;
+    remoteChecked = false;
+    clearTimeout(timer);
+    syncAgain = null;
     localStorage.setItem(MODE_KEY, 'cloud');
     updateUi();
     const foundRemote = await pullRemote();
-    if (foundRemote === false) await push();
+    const succeeded = foundRemote === false ? await push() : foundRemote === true && !reloadPending;
     enablingCloud = false;
     updateUi();
+    return succeeded;
   }
 
   async function signIn() {
@@ -188,7 +218,7 @@
   async function signOut() {
     localStorage.setItem(MODE_KEY, 'local');
     await client?.auth.signOut();
-    session = null;
+    setSession(null);
     updateUi();
   }
 
@@ -199,15 +229,15 @@
       if (!client) return null;
       try {
         const { data, error } = await client.auth.getSession();
-        session = error ? null : data?.session || null;
+        setSession(error ? null : data?.session || null);
       } catch {
-        session = null;
+        setSession(null);
       }
       updateUi();
       return session?.user ? session.access_token || null : null;
     },
     scheduleSync(payload) {
-      if (!cloudEnabled()) return;
+      if (!cloudEnabled() || !remoteChecked || reloadPending) return;
       clearTimeout(timer);
       timer = setTimeout(() => push(payload), 900);
     },
@@ -223,7 +253,7 @@
     byId('googleSignInButton').onclick = signIn;
     byId('enableCloudButton').onclick = enableCloud;
     byId('useLocalButton').onclick = useLocal;
-    byId('syncNowButton').onclick = () => push();
+    byId('syncNowButton').onclick = () => remoteChecked ? push() : enableCloud();
     byId('signOutButton').onclick = signOut;
     let authErrorMessage = '';
     if (sessionStorage.getItem('tableTopicsCloudNotice')) {
@@ -236,9 +266,9 @@
       const { data, error } = await client.auth.getSession();
       if (callbackError) authErrorMessage = t('cloud.signInFailed', { error: decodeURIComponent(callbackError.replace(/\+/g,' ')) });
       else if (error) authErrorMessage = t('cloud.sessionFailed', { error: error.message });
-      session = data.session;
+      setSession(data.session);
       client.auth.onAuthStateChange((event, nextSession) => {
-        session = nextSession;
+        setSession(nextSession);
         updateUi();
         if (nextSession && currentMode() === 'cloud' && ['SIGNED_IN', 'INITIAL_SESSION'].includes(event)) {
           setTimeout(enableCloud, 0);
