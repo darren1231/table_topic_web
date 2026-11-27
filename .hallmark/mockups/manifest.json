@@ -1,0 +1,83 @@
+{
+  "comparison": ".hallmark/mockups/index.html",
+  "pngs": [
+    {
+      "path": ".hallmark/mockups/A-home-1440.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "940627fba86a4dc775ee4355ea11cfd69d1b8452f58094f3ebca5e98564997cd"
+    },
+    {
+      "path": ".hallmark/mockups/A-home-375.png",
+      "width": 375,
+      "height": 828,
+      "sha256": "df2aabe04278acfb1cdd1aa6d92e3eacfc4ded614dbe6b48b2ccd80eb35dcbe5"
+    },
+    {
+      "path": ".hallmark/mockups/A-practice-1440.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "1d783da63675f4c624bdeaa8aad0d9a7b145f5fc41e9acdb51b6c4113c36e7d5"
+    },
+    {
+      "path": ".hallmark/mockups/A-practice-375.png",
+      "width": 375,
+      "height": 800,
+      "sha256": "9d0ac83aa5f6ad9e8f6ffec3efeeb9746e3973683d071a123a53d9fc41d73354"
+    },
+    {
+      "path": ".hallmark/mockups/B-home-1440.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "9b4cdb3fe493fbe85f3c11988aad61a2ab321fe1708c1e85a570711d03988eba"
+    },
+    {
+      "path": ".hallmark/mockups/B-home-375.png",
+      "width": 375,
+      "height": 872,
+      "sha256": "bde5ac6e5dbbd334c6daa6772b0cecc5a145f9370d075fe09d1e5d517bbb2d02"
+    },
+    {
+      "path": ".hallmark/mockups/B-practice-1440.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "80115c81de0e4aec00df0a5941ded0434d637afb77e0a9f2f7ca8427f5971880"
+    },
+    {
+      "path": ".hallmark/mockups/B-practice-375.png",
+      "width": 375,
+      "height": 800,
+      "sha256": "6b730877307f3987a15d0f03a40cce689bf8459dbfecd9eb71890e0664eba2a4"
+    },
+    {
+      "path": ".hallmark/mockups/C-home-1440.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "4bc49df592cb4aa6e492e99451e349a3c2da2dc23ce3e60044e9bb8c3b8fede8"
+    },
+    {
+      "path": ".hallmark/mockups/C-home-375.png",
+      "width": 375,
+      "height": 812,
+      "sha256": "b734f9509c18d65c64e1d18aeca4c84c2f043b4320bc71135cd3d64a78a6d658"
+    },
+    {
+      "path": ".hallmark/mockups/C-practice-1440.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "1be78b6acf4471442e4c8b6938ec4998c609669d496cacd4fe62442aa1d9000b"
+    },
+    {
+      "path": ".hallmark/mockups/C-practice-375.png",
+      "width": 375,
+      "height": 800,
+      "sha256": "64ef8ea4210ad31cf88baeeccb995cd1efbf972f438f7f385802052987ed205a"
+    }
+  ],
+  "floor": 0,
+  "reflex": 0,
+  "staticScreens": 6,
+  "viewportCases": 12,
+  "sourceCopyVerified": true,
+  "functionsWired": false
+}

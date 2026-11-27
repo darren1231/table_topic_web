@@ -1,0 +1,21 @@
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: comparison record · nav: linked image grid · signature: four-column comparison · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V4 · weakest: small previews, every image links to full size */
+:root { --paper: oklch(95.5% .006 250); --ink: oklch(20% .02 250); --muted: oklch(42% .02 250); --rule: oklch(77% .02 250); --font-body: system-ui,sans-serif; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; }
+* { box-sizing: border-box; }
+html, body { overflow-x: clip; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.6 var(--font-body); }
+main { max-width: 1920px; margin: auto; padding: var(--space-lg); }
+h1 { font-size: 28px; }
+h1, h2, h3 { min-width: 0; overflow-wrap: break-word; }
+h2 { font-size: 20px; }
+h3 { font-size: 16px; margin-top: var(--space-xl); }
+a { color: inherit; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+.comparison { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: var(--space-lg); margin-top: var(--space-xl); }
+.compare-column { min-width: 0; border-top: 1px solid var(--rule); }
+.compare-column > p { min-height: 130px; font-size: 14px; color: var(--muted); }
+img { display: block; width: 100%; height: auto; margin-block: var(--space-md); }
+.phone { max-width: 375px; margin-inline: auto; }
+summary { cursor: pointer; padding-block: var(--space-md); }
+@media(max-width:900px) { .comparison { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:550px) { .comparison { grid-template-columns: minmax(0,1fr); } .compare-column > p { min-height: 0; } }
