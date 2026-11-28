@@ -15,6 +15,12 @@
     "habits"
   ],
   "messages": {
+    "backup.import.localFailed": "Local import failed. Original data restored; memory unchanged.",
+    "backup.import.rollbackFailed": "Local import failed and some storage could not be restored. Keep this page open and export the original data; do not reload.",
+    "backup.import.pending": "Imported locally; cloud sync is pending. Retry is available. A timed-out request may have reached the cloud; no remote rollback occurred.",
+    "backup.import.synced": "Imported locally and synced to the cloud.",
+    "backup.import.local": "Imported locally.",
+    "backup.import.retry": "Retry cloud sync",
     "backup.invalid.json": "The backup is not valid JSON.",
     "backup.category.backup": "Backup",
     "backup.category.practice": "Practice data",

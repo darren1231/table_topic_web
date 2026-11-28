@@ -1,4 +1,4 @@
-const { test, expect } = require('./fixtures.cjs');
+const { test, expect, session } = require('./fixtures.cjs');
 const { prepare, openMenu } = require('./flows.cjs');
 
 test.beforeEach(async ({ guestPage }) => prepare(guestPage));
@@ -13,6 +13,72 @@ function backup() {
 async function upload(page, value) {
   await page.locator('#importBackupInput').setInputFiles({
     name: 'practice.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(value)),
+  });
+}
+
+for (const key of ['tableTopicsPractice.v1', 'tableTopicsAIProjects.v1', 'tableTopicsLanguage.v1']) {
+  test(`failed local write ${key} preserves all keys and the running memory`, async ({ guestPage: page }) => {
+    await openMenu(page, 'backupButton');
+    const previous = await page.evaluate(() => ({ ...localStorage }));
+    await page.evaluate(target => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (key === target) { Storage.prototype.setItem = original; throw new DOMException('Fixture quota', 'QuotaExceededError'); }
+        return original.call(this, key, value);
+      };
+    }, key);
+    page.once('dialog', dialog => dialog.accept());
+    await upload(page, backup());
+    await expect(page.locator('#toast')).toContainText('Original data restored; memory unchanged.');
+    expect(await page.evaluate(() => ({ ...localStorage }))).toEqual(previous);
+    await expect(page.locator('#backupDialog')).toBeVisible();
+    await page.evaluate(() => persist());
+    expect(await page.evaluate(() => ({ ...localStorage }))).toEqual(previous);
+  });
+}
+
+for (const failure of ['rejection', 'timeout']) {
+  test(`cloud ${failure} keeps the local commit visible and allows retry without stale uploads`, async ({ guestPage: page, sandbox }) => {
+    let failing = true, release;
+    const remote = await page.evaluate(() => JSON.parse(localStorage.getItem('tableTopicsPractice.v1')));
+    const held = new Promise(resolve => { release = resolve; });
+    sandbox.allowConsoleError(/403|Forbidden/);
+    sandbox.handleUserData(async request => {
+      if (request.method() === 'GET') return { body: { payload: remote, updated_at: '2026-11-10T04:00:00Z' } };
+      if (failing && failure === 'timeout') await held;
+      return failing && failure === 'rejection' ? { body: { message: 'denied' }, status: 403 } : { body: {} };
+    });
+    await page.evaluate(value => {
+      localStorage.setItem('sb-e2e-auth-token', JSON.stringify(value));
+      localStorage.setItem('tableTopicsStorageMode', 'cloud');
+    }, session);
+    // A matching remote row avoids holding a separate startup upload in this timeout test.
+    failing = false;
+    await page.reload();
+    await page.evaluate(() => window.tableTopicsCloud.ready);
+    failing = true;
+    await page.clock.install();
+    await openMenu(page, 'backupButton');
+    const before = sandbox.calls.length;
+    const writes = () => sandbox.calls.slice(before).filter(call => call.path === '/rest/v1/user_data' && call.body);
+    page.once('dialog', dialog => dialog.accept());
+    await upload(page, backup());
+    await expect(page.locator('#backupDialog')).not.toBeVisible();
+    await expect(page.locator('#historyList .history-item')).toHaveCount(1);
+    await expect.poll(() => writes().length).toBeGreaterThan(0);
+    if (failure === 'timeout') await page.clock.runFor(16000);
+    await expect(page.locator('#importCommitStatus')).toContainText('Imported locally; cloud sync is pending.');
+    await expect(page.locator('#retryImportSyncButton')).toBeEnabled();
+    await page.evaluate(() => persist());
+    await page.clock.runFor(1000);
+    expect(writes().length).toBeGreaterThan(0);
+    for (const call of writes()) expect(JSON.parse(call.body).payload.history[0].topic).toBe('Legacy');
+    failing = false; release();
+    await page.locator('#retryImportSyncButton').click();
+    await page.clock.runFor(100);
+    await expect(page.locator('#importCommitStatus')).toHaveText('Imported locally and synced to the cloud.');
+    await expect(page.locator('#retryImportSyncButton')).not.toBeVisible();
+    for (const call of writes()) expect(JSON.parse(call.body).payload.history[0].topic).toBe('Legacy');
   });
 }
 

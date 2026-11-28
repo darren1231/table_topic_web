@@ -2,6 +2,7 @@
   const MODE_KEY = 'tableTopicsStorageMode';
   const DATA_KEY = 'tableTopicsPractice.v1';
   const APPLIED_REMOTE_KEY = 'tableTopicsAppliedRemote';
+  const IMPORT_PENDING_KEY = 'tableTopicsImportPending.v1';
   const config = window.SUPABASE_CONFIG || {};
   const configured = Boolean(config.url && config.anonKey && window.supabase?.createClient);
   const client = configured ? window.supabase.createClient(config.url, config.anonKey) : null;
@@ -21,9 +22,40 @@
   let invalidRemote = false;
   let remoteChecked = false;
   let reloadPending = false;
+  let dataRevision = 0, importing = false, restoredOwner = null;
+  let pendingOwner = null, importPending = false;
+  try {
+    const marker = JSON.parse(localStorage.getItem(IMPORT_PENDING_KEY) || 'null');
+    if (marker) { importPending = true; pendingOwner = marker.owner; }
+  } catch {}
+
+  function markImportPending() {
+    const owner = session?.user?.id || null;
+    if (!importPending || pendingOwner !== owner) localStorage.setItem(IMPORT_PENDING_KEY, JSON.stringify({ owner }));
+    importPending = true; pendingOwner = owner;
+  }
+  function beginImport() {
+    const previous = { raw: localStorage.getItem(IMPORT_PENDING_KEY), pending: importPending, owner: pendingOwner };
+    dataRevision++; importing = true;
+    clearTimeout(timer); syncAgain = null;
+    if (restoredOwner === session?.user?.id) remoteChecked = true;
+    return {
+      commit() {
+        if (cloudEnabled()) markImportPending();
+        importing = false;
+      },
+      cancel() {
+        dataRevision++; importing = false;
+        importPending = previous.pending; pendingOwner = previous.owner;
+        if (previous.raw === null) localStorage.removeItem(IMPORT_PENDING_KEY);
+        else localStorage.setItem(IMPORT_PENDING_KEY, previous.raw);
+      }
+    };
+  }
 
   function setSession(next) {
     if (session?.user?.id !== next?.user?.id) {
+      dataRevision++; restoredOwner = null;
       remoteChecked = false;
       reloadPending = false;
       lastRemoteUpdatedAt = '';
@@ -82,20 +114,23 @@
     byId('signOutButton').classList.toggle('hidden', !user);
     byId('localStorageOption').classList.toggle('selected', !cloud);
     byId('cloudStorageOption').classList.toggle('selected', cloud);
-    if (invalidRemote) setStatus(t('cloud.invalidPayload'), 'error');
+    if (importPending) setStatus(t('backup.import.pending'), 'warning');
+    else if (invalidRemote) setStatus(t('cloud.invalidPayload'), 'error');
     else if (!configured) setStatus(t('cloud.notConfigured'), 'warning');
     else if (cloud) setStatus(t('cloud.syncEnabled'), 'success');
     else setStatus(t('cloud.nothingUploaded'));
     window.dispatchEvent(new CustomEvent('tabletopics:auth'));
   }
 
-  async function push(payload = readLocalPayload()) {
-    if (!cloudEnabled() || !remoteChecked || reloadPending) return false;
+  async function push(payload = readLocalPayload(), imported = false) {
+    if (!cloudEnabled() || !remoteChecked || reloadPending || importing) return false;
+    if (importPending && (!imported || pendingOwner !== session?.user?.id)) return false;
     if (syncing) {
       syncAgain = JSON.parse(JSON.stringify(payload));
       return false;
     }
     syncing = true;
+    const revision = dataRevision, owner = session?.user?.id;
     setStatus(t('cloud.syncing'));
     const updatedAt = new Date().toISOString();
     let error = null;
@@ -110,45 +145,62 @@
     } finally {
       syncing = false;
     }
+    if (revision !== dataRevision || owner !== session?.user?.id) return false;
     if (error) setStatus(t('cloud.syncFailed', { error: error.message }), 'error');
     else {
       lastRemoteUpdatedAt = updatedAt;
       setStatus(t('cloud.synced', { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }), 'success');
+      if (imported && JSON.stringify(payload) === JSON.stringify(readLocalPayload())) {
+        localStorage.removeItem(IMPORT_PENDING_KEY);
+        importPending = false; pendingOwner = null;
+      }
     }
     if (syncAgain) {
       const nextPayload = syncAgain;
       syncAgain = null;
       await push(nextPayload);
     }
-    return !error;
+    return !error && (!imported || !importPending);
   }
 
   async function replaceCloudData(payload) {
-    localStorage.setItem(DATA_KEY, JSON.stringify(payload));
+    // Local keys and memory have already committed; this adapter only synchronizes.
     if (!cloudEnabled()) return true;
+    if (importPending && pendingOwner !== session?.user?.id) return false;
+    markImportPending();
     clearTimeout(timer);
     syncAgain = null;
+    const revision = dataRevision;
     while (syncing) await new Promise(resolve => setTimeout(resolve, 50));
+    if (revision !== dataRevision) return false;
+    if (!remoteChecked) {
+      const found = await pullRemote({ apply: false });
+      if (found === null || revision !== dataRevision) return false;
+    }
     setStatus(t('cloud.importSyncing'));
-    const succeeded = await push(payload);
+    const succeeded = await push(readLocalPayload(), true);
     if (!succeeded) setStatus(t('cloud.importFailed'), 'error');
     return succeeded;
   }
 
-  async function pullRemote({ reload = true } = {}) {
+  async function pullRemote({ reload = true, apply = true } = {}) {
     if (!cloudEnabled()) return false;
+    if (importing || importPending && apply) return null;
     remoteChecked = false;
     const owner = session?.user?.id;
+    const revision = dataRevision;
     const { data, error } = await client.from('user_data').select('payload, updated_at').eq('user_id', session.user.id).maybeSingle();
-    if (owner !== session?.user?.id || !cloudEnabled()) return null;
+    if (owner !== session?.user?.id || !cloudEnabled() || revision !== dataRevision || importing) return null;
     if (error) {
       setStatus(t('cloud.readFailed', { error: error.message }), 'error');
       return null;
     }
     if (!data || data.payload && !Array.isArray(data.payload) && typeof data.payload === 'object' && !Object.keys(data.payload).length) {
       remoteChecked = true;
+      restoredOwner = owner;
       return false;
     }
+    if (!apply) { remoteChecked = true; restoredOwner = owner; return true; }
     if (!PracticeData.validatePractice(data.payload)) {
       invalidRemote = true;
       setStatus(t('cloud.invalidPayload'), 'error');
@@ -156,6 +208,7 @@
     }
     invalidRemote = false;
     remoteChecked = true;
+    restoredOwner = owner;
     if (data.updated_at && lastRemoteUpdatedAt && data.updated_at <= lastRemoteUpdatedAt) return true;
     lastRemoteUpdatedAt = data.updated_at || lastRemoteUpdatedAt;
     const remote = JSON.stringify(data.payload);
@@ -191,6 +244,12 @@
     syncAgain = null;
     localStorage.setItem(MODE_KEY, 'cloud');
     updateUi();
+    if (importPending) {
+      enablingCloud = false;
+      const succeeded = await replaceCloudData(readLocalPayload());
+      updateUi();
+      return succeeded;
+    }
     const foundRemote = await pullRemote();
     const succeeded = foundRemote === false ? await push() : foundRemote === true && !reloadPending;
     enablingCloud = false;
@@ -237,10 +296,14 @@
       return session?.user ? session.access_token || null : null;
     },
     scheduleSync(payload) {
-      if (!cloudEnabled() || !remoteChecked || reloadPending) return;
+      if (!cloudEnabled() || !remoteChecked || reloadPending || importing || importPending) return;
       clearTimeout(timer);
-      timer = setTimeout(() => push(payload), 900);
+      const revision = dataRevision;
+      const snapshot = JSON.parse(JSON.stringify(payload));
+      timer = setTimeout(() => { if (revision === dataRevision) return push(snapshot); }, 900);
     },
+    beginImport,
+    hasPendingImport: () => importPending,
     replaceData: replaceCloudData,
     isEnabled: cloudEnabled,
     refreshUi: updateUi
@@ -253,7 +316,7 @@
     byId('googleSignInButton').onclick = signIn;
     byId('enableCloudButton').onclick = enableCloud;
     byId('useLocalButton').onclick = useLocal;
-    byId('syncNowButton').onclick = () => remoteChecked ? push() : enableCloud();
+    byId('syncNowButton').onclick = () => importPending ? replaceCloudData(readLocalPayload()) : remoteChecked ? push() : enableCloud();
     byId('signOutButton').onclick = signOut;
     let authErrorMessage = '';
     if (sessionStorage.getItem('tableTopicsCloudNotice')) {

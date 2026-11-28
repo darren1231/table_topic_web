@@ -5,6 +5,87 @@ const payload = name => ({ history: [{ id: name }], projects: [{ id: 'project' }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const uploaded = env => env.state.uploads.map(upload => upload.row.payload);
 
+test('import discards an in-flight upload queue and serializes the committed replacement after it', async () => {
+  const old = payload('old'), imported = payload('imported');
+  const env = await loadCloud({ local: { [DATA_KEY]: JSON.stringify(old) } });
+  await env.click('enableCloudButton'); env.state.uploads.length = 0;
+  let finish;
+  env.state.upsert = () => new Promise(resolve => { finish = resolve; });
+  const running = env.click('syncNowButton');
+  env.api.scheduleSync(payload('queued-old')); await env.advance(900);
+  const lease = env.api.beginImport();
+  env.localStorage.setItem(DATA_KEY, JSON.stringify(imported)); lease.commit();
+  const replacement = env.api.replaceData(imported);
+  env.state.upsert = async () => ({ error: null }); finish({ error: null });
+  await running; await env.advance(50);
+  assert.equal(await replacement, true);
+  assert.deepEqual(uploaded(env), [old, imported]);
+});
+
+test('pending import survives restart and never pulls older remote data over the committed local snapshot', async () => {
+  const imported = payload('imported');
+  const env = await loadCloud({ local: { [MODE_KEY]: 'cloud', [DATA_KEY]: JSON.stringify(imported),
+    'tableTopicsImportPending.v1': JSON.stringify({ owner: userSession.user.id }) },
+    remote: { payload: payload('old'), updated_at: '2099-01-01T00:00:00Z' } });
+  assert.deepEqual(JSON.parse(env.localStorage.getItem(DATA_KEY)), imported);
+  assert.deepEqual(uploaded(env), [imported]);
+  assert.equal(env.state.reloads, 0);
+  assert.equal(env.api.hasPendingImport(), false);
+});
+
+test('edits during an import upload remain pending until the latest local snapshot is retried', async () => {
+  const imported = payload('imported'), edited = payload('edited');
+  const env = await loadCloud(); await env.click('enableCloudButton');
+  const lease = env.api.beginImport();
+  env.localStorage.setItem(DATA_KEY, JSON.stringify(imported)); lease.commit();
+  let finish;
+  env.state.upsert = () => new Promise(resolve => { finish = resolve; });
+  const running = env.api.replaceData(imported);
+  env.localStorage.setItem(DATA_KEY, JSON.stringify(edited));
+  env.api.scheduleSync(edited);
+  finish({ error: null });
+  assert.equal(await running, false);
+  assert.equal(env.api.hasPendingImport(), true);
+  env.state.upsert = async () => ({ error: null });
+  assert.equal(await env.api.replaceData(edited), true);
+  assert.deepEqual(uploaded(env).at(-1), edited);
+});
+
+test('import invalidates old sync timers and prevents a late pull from restoring the previous practice', async () => {
+  const old = payload('old'), imported = payload('imported');
+  const env = await loadCloud({ local: { [DATA_KEY]: JSON.stringify(old) } });
+  await env.click('enableCloudButton'); env.state.uploads.length = 0;
+  env.api.scheduleSync(old);
+  let finish;
+  env.state.readRemote = () => new Promise(resolve => { finish = resolve; });
+  env.visibility();
+  const lease = env.api.beginImport();
+  env.localStorage.setItem(DATA_KEY, JSON.stringify(imported)); lease.commit();
+  finish({ data: { payload: old, updated_at: '2099-01-01T00:00:00Z' }, error: null });
+  await tick();
+  assert.deepEqual(JSON.parse(env.localStorage.getItem(DATA_KEY)), imported);
+  assert.equal(await env.api.replaceData(imported), true);
+  await env.advance(900);
+  assert.deepEqual(uploaded(env), [imported]);
+});
+
+test('a rejected import stays pending across polling and can retry the current local snapshot', async () => {
+  const old = payload('old'), imported = payload('imported');
+  const env = await loadCloud({ local: { [DATA_KEY]: JSON.stringify(old) } });
+  await env.click('enableCloudButton');
+  env.state.upsert = async () => ({ error: { message: 'denied' } });
+  const lease = env.api.beginImport();
+  env.localStorage.setItem(DATA_KEY, JSON.stringify(imported)); lease.commit();
+  assert.equal(await env.api.replaceData(imported), false);
+  assert.equal(env.api.hasPendingImport(), true);
+  env.state.remote = { payload: old, updated_at: '2099-01-01T00:00:00Z' };
+  env.poll(); await tick();
+  assert.deepEqual(JSON.parse(env.localStorage.getItem(DATA_KEY)), imported);
+  env.state.upsert = async () => ({ error: null });
+  assert.equal(await env.api.replaceData(JSON.parse(env.localStorage.getItem(DATA_KEY))), true);
+  assert.equal(env.api.hasPendingImport(), false);
+});
+
 test('a stale applied-remote marker cannot upload corrupt local defaults over a valid remote', async () => {
   const timestamp = '2026-11-10T01:00:00Z', remote = payload('remote-retained');
   const env = await loadCloud({ local: { [MODE_KEY]: 'cloud', [DATA_KEY]: '{broken' },
@@ -211,13 +292,14 @@ test('cloud read and upload errors report failure without replacing local data',
   assert.equal(env.node('syncStatus').className, 'sync-status error');
 });
 
-test('cloud unconfigured local mode never uploads and replaceData writes local storage', async () => {
+test('cloud unconfigured adapter never uploads or changes locally committed storage', async () => {
   const env = await loadCloud({ configured: false });
   assert.equal(env.api.isEnabled(), false);
   assert.equal(env.node('syncStatus').textContent, 'cloud.notConfigured');
-  assert.equal(await env.api.replaceData(payload('imported')), true);
+  env.localStorage.setItem(DATA_KEY, JSON.stringify(payload('committed')));
+  assert.equal(await env.api.replaceData(payload('ignored')), true);
   env.api.scheduleSync(payload('ignored'));
   await env.advance(900);
-  assert.deepEqual(JSON.parse(env.localStorage.getItem(DATA_KEY)), payload('imported'));
+  assert.deepEqual(JSON.parse(env.localStorage.getItem(DATA_KEY)), payload('committed'));
   assert.deepEqual(uploaded(env), []);
 });

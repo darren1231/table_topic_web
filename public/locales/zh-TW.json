@@ -15,6 +15,12 @@
     "習慣"
   ],
   "messages": {
+    "backup.import.localFailed": "本機匯入失敗，已還原原資料；記憶體未變更。",
+    "backup.import.rollbackFailed": "本機匯入失敗，部分儲存無法還原。請保留此頁並匯出原資料，勿重新整理。",
+    "backup.import.pending": "本機已匯入，雲端尚未同步。可重試；逾時可能已寫入遠端，並未回滾雲端。",
+    "backup.import.synced": "本機已匯入，雲端已同步。",
+    "backup.import.local": "本機已匯入。",
+    "backup.import.retry": "重試雲端同步",
     "backup.invalid.json": "備份檔不是有效的 JSON。",
     "backup.category.backup": "備份檔",
     "backup.category.practice": "練習資料",

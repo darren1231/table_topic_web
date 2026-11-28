@@ -135,9 +135,16 @@ const backupImporter = BackupImport.create({ document, storage: localStorage, re
   getCloud: () => window.tableTopicsCloud,
   keys: { practice: CONFIG.storageKey, ai: AI_CONFIG_KEY, language: UI_LANGUAGE_KEY },
   supportsLanguage: language => Boolean(CONFIG.languages[language]), confirm: message => confirm(message),
-  toast, reload: () => location.reload(), schedule: (callback, delay) => setTimeout(callback, delay), t, ui });
+  preparePractice: PracticeData.ensureDataSchema, getLanguage: () => state.language,
+  prepareAiSettings: settings => SystemAI.prepareSettings(settings, t),
+  onCommit: data => { saved = data.practice; aiSettings = data.aiSettings; state.language = data.language; },
+  refresh: () => {
+    renderSuggestions(); renderHistory(); updateStats(); updateReviewBadge(); renderProjectSettings(); navigateTo(state.currentView);
+  },
+  toast, schedule: (callback, delay) => setTimeout(callback, delay), t, ui });
 function importBackupFile(file) { return backupImporter.importFile(file); }
 function initBackup(){
+  backupImporter.initialize();
   $('#backupButton').onclick=()=>{closeSettingsMenu();updateBackupSummary();$('#backupDialog').showModal();};$('#closeBackupButton').onclick=()=>$('#backupDialog').close();$('#exportLocalButton').onclick=exportBackupLocal;$('#exportDriveButton').onclick=exportBackupDrive;$('#importBackupButton').onclick=()=>$('#importBackupInput').click();$('#importBackupInput').onchange=event=>{const file=event.target.files?.[0];if(file)importBackupFile(file);};
 }
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2200); }
