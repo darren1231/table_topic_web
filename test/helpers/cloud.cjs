@@ -50,7 +50,7 @@ async function loadCloud({ local = {}, remote = null, session = userSession, con
         select(columns) {
           return { eq(column, value) {
             state.reads.push({ columns, column, value });
-            return { maybeSingle: async () => ({ data: copy(state.remote), error: state.readError }) };
+            return { maybeSingle: async () => state.readRemote ? state.readRemote() : ({ data: copy(state.remote), error: state.readError }) };
           } };
         },
         upsert(row, options) {
@@ -68,6 +68,7 @@ async function loadCloud({ local = {}, remote = null, session = userSession, con
   };
   const context = vm.createContext({
     window, document, localStorage, sessionStorage, URLSearchParams,
+    PracticeData: require('../../public/practice-data.js'),
     CustomEvent: class { constructor(type) { this.type = type; } },
     location: { origin: 'https://fixture.invalid', pathname: '/', hash: '', reload: () => { state.reloads++; } },
     setTimeout(callback, delay) { const id = ++nextId; timers.set(id, { at: now + delay, callback }); return id; },

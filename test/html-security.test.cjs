@@ -104,13 +104,15 @@ test('script paragraphs, versions, analyses and full reviews encode all content 
 test('malicious backup data remains inert after import and a fresh app reload', async () => {
   const b = fixture();
   const backup = { format: 'table-topics-practice-backup', data: { language: 'en-US',
-    practice: { history: [{ id: attack, date: '2026-11-10', topic: attack, question: attack, answer: attack, score: attack }],
-      reviewCards: [{ id: attack, status: attack, before: attack, after: attack, intervalDays: attack }] },
+    practice: { history: [{ id: attack, date: '2026-11-10', topic: attack, question: attack, answer: attack, score: 50 }],
+      reviewCards: [{ id: attack, status: 'active', before: attack, after: attack, language: 'en-US',
+        dueAt: '2026-11-10T00:00:00Z', intervalDays: 0 }] },
     aiSettings: { activeId: 'builtin', projects: [{ id: 'builtin', provider: 'builtin', name: attack }] } } };
   b.context.backupFile = { text: async () => JSON.stringify(backup) };
   b.context.confirm = () => true;
   b.window.tableTopicsCloud.replaceData = async () => true;
   await b.run('importBackupFile(backupFile)');
+  assert.equal(JSON.parse(b.storage.get('tableTopicsPractice.v1')).history[0].answer, attack);
   const reloaded = fixture(false, b.storage);
   reloaded.run('renderHistory();state.libraryStatus="all";renderReviewLibrary();');
   await safeHtml(reloaded.get('#historyList').innerHTML);

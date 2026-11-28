@@ -13,7 +13,7 @@ function fixedApi() {
     constructor(...args) { super(...(args.length ? args : [now])); }
     static now() { return new Date(now).getTime(); }
   } });
-  for (const file of ['practice-stats.js', 'practice-data.js']) vm.runInContext(fs.readFileSync(path.join(publicDir, file), 'utf8'), context);
+  for (const file of ['practice-stats.js', 'practice-display.js', 'practice-data.js']) vm.runInContext(fs.readFileSync(path.join(publicDir, file), 'utf8'), context);
   return context.PracticeData;
 }
 
@@ -49,21 +49,21 @@ test('schema migration recovers English review grammar and normalizes manuscript
       { language: 'zh-TW', before: '你好', grammarRule: 'keep', updatedAt: 'old-time' }],
     scripts: [{ paragraphs: [{ text: 'Draft', versions: null, analyses: false }], fullReviews: null, tags: 'old' }],
   };
-  api().ensureDataSchema(data);
-  assert.deepEqual(data.reviewCards[0], {
+  fixedApi().ensureDataSchema(data);
+  assert.deepEqual(plain(data.reviewCards[0]), {
     sourceHistoryId: 'source', language: 'en-US', before: 'I agree!', tags: [], createdAt: now, updatedAt: now,
-    status: 'active', isGrammarCorrect: false, grammarIssue: 'Capitalization', grammarExplanation: 'Capitalize I',
+    status: 'active', dueAt: now, isGrammarCorrect: false, grammarIssue: 'Capitalization', grammarExplanation: 'Capitalize I',
     grammarRule: 'Use I', grammarExample: 'I agree.',
   });
   assert.equal(data.reviewCards[1].grammarRule, 'keep');
   assert.equal(data.reviewCards[1].updatedAt, 'old-time');
-  assert.deepEqual(data.scripts, [{ status: 'active', tags: [], fullReviews: [], paragraphs: [{ text: 'Draft', versions: [], analyses: [] }] }]);
+  assert.deepEqual(plain(data.scripts), [{ status: 'active', tags: [], fullReviews: [], paragraphs: [{ text: 'Draft', versions: [], analyses: [] }] }]);
 });
 
 test('schema defaults use the existing local date and current timestamp when legacy fields are absent', () => {
   const data = { history: [{}], reviewCards: [{ language: 'en-US' }], scripts: [{}] };
   fixedApi().ensureDataSchema(data);
-  assert.deepEqual(plain(data.history), [{ id: 'legacy_date_0', language: 'unknown', completedAt: '2026-11-10T12:00:00' }]);
+  assert.deepEqual(plain(data.history), [{ id: 'legacy_date_0', date: '2026-11-10', language: 'unknown', completedAt: '2026-11-10T12:00:00' }]);
   assert.equal(data.reviewCards[0].updatedAt, now);
   assert.deepEqual(plain(data.scripts), [{ status: 'active', tags: [], paragraphs: [], fullReviews: [] }]);
 });
@@ -118,15 +118,142 @@ test('backup parsing preserves JSON syntax errors and rejects only the existing 
   }
 });
 
-test('KNOWN ISSUE F06: empty projects and null history entries pass the current import shape check', () => {
-  // KNOWN ISSUE: F06 — validation checks array types, not project count or individual history entries.
-  const empty = api().parseBackup(JSON.stringify(importPayload({ projects: [] })));
-  assert.deepEqual(empty.payload.data.aiSettings.projects, []);
-  assert.equal(empty.hasKeys, false);
-  const withNull = api().parseBackup(JSON.stringify(importPayload({ history: [null] })));
-  assert.equal(withNull.count, 1);
-  assert.deepEqual(withNull.payload.data.practice.history, [null]);
-  assert.throws(() => api().ensureDataSchema(withNull.payload.data.practice), TypeError);
+test('F06 rejects invalid history entries and unusable AI project selections before import', () => {
+  for (const history of [[null], [false], [[]], [{ id: {} }]]) {
+    assert.equal(api().parseBackup(JSON.stringify(importPayload({ history }))), null);
+  }
+  for (const projects of [[], [null], [[]], [{ id: '' }], [{ id: 'a' }, { id: 'a' }]]) {
+    assert.equal(api().parseBackup(JSON.stringify(importPayload({ projects }))), null);
+  }
+  const dangling = importPayload();
+  dangling.data.aiSettings.activeId = 'missing';
+  assert.equal(api().parseBackup(JSON.stringify(dangling)), null);
+});
+
+test('legacy settings without activeId select the first project without discarding custom fields', () => {
+  const payload = importPayload();
+  delete payload.data.aiSettings.activeId;
+  payload.data.practice.custom = { note: 'keep' };
+  const parsed = api().parseBackup(JSON.stringify(payload));
+  assert.equal(parsed.payload.data.aiSettings.activeId, 'imported');
+  assert.deepEqual(parsed.payload.data.practice.custom, { note: 'keep' });
+});
+
+function translationCard(overrides = {}) {
+  return { id: 'translation-one', sourceType: 'translation', language: 'ja-JP', before: '原句', after: '訳文',
+    dueAt: now, createdAt: now, translationStyle: 'conversational', translationNote: '日常會話',
+    explanationLanguage: 'zh-TW', tags: [], ...overrides };
+}
+
+test('backup parsing validates supplied collections and nested manuscript and coach records', () => {
+  const invalid = [
+    { reviewCards: null }, { reviewCards: [null] }, { reviewCards: [translationCard({ before: {} })] },
+    { reviewCards: [translationCard({ tags: [null] })] }, { reviewCards: [translationCard({ dueAt: 'not-a-date' })] },
+    { reviewCards: [translationCard({ repetitions: -1 })] }, { reviewCards: [translationCard({ status: 'broken' })] },
+    { reviewCards: [translationCard(), translationCard()] },
+    { scripts: {} }, { scripts: [null] }, { scripts: [{ id: 's', paragraphs: [null] }] },
+    { scripts: [{ id: 's', paragraphs: [{ id: 'p', text: 'draft', versions: [null] }] }] },
+    { scripts: [{ id: 's', paragraphs: [{ id: 'p', analyses: [{ suggestions: {} }] }] }] },
+    { scripts: [{ id: 's', fullReviews: [{ recommendations: [null] }] }] },
+    { reviewEvents: [null] }, { apiUsage: [false] },
+  ];
+  for (const fields of invalid) {
+    const payload = importPayload();
+    Object.assign(payload.data.practice, fields);
+    assert.equal(api().parseBackup(JSON.stringify(payload)), null, JSON.stringify(fields));
+  }
+});
+
+test('translation metadata has bounded text and stable styles without requiring it on old cards', () => {
+  for (const fields of [
+    { translationStyle: 'unknown' }, { translationNote: 12 }, { translationNote: '文'.repeat(201) },
+    { explanationLanguage: [] }, { translationStyle: null },
+  ]) {
+    const payload = importPayload();
+    payload.data.practice.reviewCards = [translationCard(fields)];
+    assert.equal(api().parseBackup(JSON.stringify(payload)), null);
+  }
+  const payload = importPayload();
+  payload.data.practice.reviewCards = [translationCard({ translationNote: '😀'.repeat(200) })];
+  const result = api().parseBackup(JSON.stringify(payload));
+  assert.deepEqual(result.payload.data.practice.reviewCards, payload.data.practice.reviewCards);
+});
+
+test('backup import rejects unsafe keys, unsupported versions and wrong settings types', () => {
+  const invalid = [
+    payload => { payload.version = 2; },
+    payload => { payload.data.practice.version = 6; },
+    payload => { payload.data.aiSettings.projects[0].apiKey = {}; },
+    payload => { payload.data.aiSettings.projects[0].smartCorrection = 'false'; },
+    payload => { payload.data.aiSettings.projects[0].inputTokenRate = -1; },
+    payload => { payload.data.language = []; },
+    payload => { payload.data.practice.history = [{ date: '2026-02-30' }]; },
+    payload => { payload.data.practice.custom = JSON.parse('{"__proto__":{"polluted":true}}'); },
+  ];
+  for (const mutate of invalid) {
+    const payload = importPayload(); mutate(payload);
+    assert.equal(api().parseBackup(JSON.stringify(payload)), null);
+  }
+  assert.equal({}.polluted, undefined);
+});
+
+test('legacy and translation backups survive export, import and normalization without losing data', () => {
+  const payload = importPayload({ history: [{ date: '2026-11-09', question: '題目', answer: '回答' }] });
+  delete payload.version;
+  delete payload.data.aiSettings.activeId;
+  const oldCard = { id: 'old-card', language: 'en-US', before: 'old', after: 'new', dueAt: now };
+  payload.data.practice.reviewCards = [oldCard, translationCard()];
+  payload.data.practice.scripts = [{ id: 's', title: '稿', paragraphs: [{ id: 'p', text: '內文' }] }];
+  payload.data.practice.custom = { futureNote: 'keep' };
+  const parsed = api().parseBackup(JSON.stringify(payload));
+  const practice = api().ensureDataSchema(parsed.payload.data.practice);
+  assert.equal(practice.history[0].id, 'legacy_2026-11-09_0');
+  assert.deepEqual(practice.reviewCards[0].tags, []);
+  assert.equal(practice.reviewCards[1].translationNote, '日常會話');
+  assert.equal(practice.reviewCards[1].grammarIssue, undefined);
+  assert.deepEqual(practice.scripts[0].paragraphs[0].versions, []);
+  assert.deepEqual(practice.scripts[0].paragraphs[0].analyses, []);
+  const backup = api().buildBackup(practice, parsed.payload.data.aiSettings, 'zh-TW');
+  const restored = api().parseBackup(JSON.stringify(backup));
+  assert.deepEqual(restored.payload.data.practice, practice);
+  assert.deepEqual(restored.payload.data.practice.custom, { futureNote: 'keep' });
+  assert.equal(restored.payload.data.aiSettings.activeId, 'imported');
+});
+
+test('normalization fills missing history dates and never backfills grammar onto translation cards', () => {
+  const data = { history: [{ id: 'source', metrics: { comparisons: [
+    { before: '原句', grammarIssue: 'Not translation guidance' },
+  ] } }], reviewCards: [translationCard({ sourceHistoryId: 'source', language: 'en-US' })] };
+  fixedApi().ensureDataSchema(data);
+  assert.equal(data.history[0].date, '2026-11-10');
+  assert.equal(data.reviewCards[0].grammarIssue, undefined);
+});
+
+test('backup validation checks nested renderer inputs and translation text bounds', () => {
+  const payload = importPayload();
+  for (const metrics of [
+    { improvements: {} }, { improvements: [null] }, { scoreDetails: {} },
+    { scoreDetails: [{ before: {}, after: 50 }] },
+  ]) {
+    payload.data.practice.history = [{ metrics }];
+    assert.ok(api().parseBackup(JSON.stringify(payload)));
+  }
+  payload.data.practice.history = [];
+  for (const fields of [{ before: '文'.repeat(301) }, { after: '文'.repeat(1201) }, { translationNote: '' }]) {
+    payload.data.practice.reviewCards = [translationCard(fields)];
+    assert.equal(api().parseBackup(JSON.stringify(payload)), null);
+  }
+});
+
+test('backup parsing rejects manuscript records that would fail when edited or rendered', () => {
+  for (const script of [
+    { id: 's', paragraphs: [{}] },
+    { id: 's', paragraphs: [{ id: 'p', text: 'Draft', versions: [{}] }] },
+    { id: 's', paragraphs: [{ id: 'p', text: 'Draft', analyses: [{ suggestions: [{}] }] }] },
+  ]) {
+    const payload = importPayload(); payload.data.practice.scripts = [script];
+    assert.equal(api().parseBackup(JSON.stringify(payload)), null);
+  }
 });
 
 test('app schema and backup adapters use current state and keep persistence outside the data module', () => {
@@ -194,7 +321,9 @@ test('canceling import leaves local data intact and does not replace cloud data 
 });
 
 test('invalid import shapes and JSON preserve existing failure UI without writing or confirming', async () => {
-  for (const text of [JSON.stringify({ format: 'wrong' }), '{invalid-json']) {
+  const malformed = importPayload({ history: [null] });
+  const invalidCard = importPayload(); invalidCard.data.practice.reviewCards = [translationCard({ after: {} })];
+  for (const text of [JSON.stringify({ format: 'wrong' }), '{invalid-json', JSON.stringify(malformed), JSON.stringify(invalidCard)]) {
     const b = importApp();
     const previous = [...b.storage];
     await b.import(text);
@@ -202,7 +331,7 @@ test('invalid import shapes and JSON preserve existing failure UI without writin
     assert.deepEqual(b.confirmations, []);
     assert.deepEqual(b.cloudWrites, []);
     assert.ok(b.get('#toast').textContent.startsWith('Import failed: '));
-    if (text.includes('wrong')) assert.equal(b.get('#toast').textContent, 'Import failed: This is not a valid Table Topics backup file');
+    if (text.includes('wrong')) assert.ok(b.get('#toast').textContent.includes('Backup'));
     assert.equal(b.get('#importBackupInput').value, '');
   }
 });

@@ -5,6 +5,45 @@ const payload = name => ({ history: [{ id: name }], projects: [{ id: 'project' }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const uploaded = env => env.state.uploads.map(upload => upload.row.payload);
 
+test('a stale applied-remote marker cannot upload corrupt local defaults over a valid remote', async () => {
+  const timestamp = '2026-11-10T01:00:00Z', remote = payload('remote-retained');
+  const env = await loadCloud({ local: { [MODE_KEY]: 'cloud', [DATA_KEY]: '{broken' },
+    sessionValues: { [APPLIED_KEY]: timestamp }, remote: { payload: remote, updated_at: timestamp } });
+  assert.deepEqual(JSON.parse(env.localStorage.getItem(DATA_KEY)), remote);
+  assert.deepEqual(uploaded(env), []);
+});
+
+test('recovered empty startup data cannot upload before cloud restore or while reload is pending', async () => {
+  const env = await loadCloud({ local: { [DATA_KEY]: '{broken' } });
+  const data = require('../public/practice-data.js');
+  const recovery = require('../public/storage-recovery.js').create({ storage: env.localStorage });
+  const fallback = recovery.read(DATA_KEY, { validate: data.validatePractice, fallback: () => ({ history: [] }) });
+  const remote = payload('kept-in-cloud');
+  let finish;
+  env.state.readRemote = () => new Promise(resolve => { finish = resolve; });
+  const enabling = env.click('enableCloudButton');
+  env.api.scheduleSync(fallback);
+  await env.advance(900);
+  assert.deepEqual(uploaded(env), []);
+  finish({ data: { payload: remote, updated_at: '2026-11-10T01:00:00Z' }, error: null });
+  await enabling;
+  assert.deepEqual(JSON.parse(env.localStorage.getItem(DATA_KEY)), remote);
+  env.api.scheduleSync(fallback);
+  await env.advance(900);
+  assert.deepEqual(uploaded(env), []);
+});
+
+test('invalid remote practice never overwrites local data, reloads or uploads defaults', async () => {
+  for (const invalid of [{ history: [null] }, { history: 'wrong' }, [], 'text', { history: [], reviewCards: [null] }]) {
+    const raw = JSON.stringify(payload('local'));
+    const env = await loadCloud({ local: { [MODE_KEY]: 'cloud', [DATA_KEY]: raw }, remote: { payload: invalid } });
+    assert.equal(env.localStorage.getItem(DATA_KEY), raw);
+    assert.equal(env.state.reloads, 0);
+    assert.equal(env.state.uploads.length, 0);
+    assert.equal(env.node('syncStatus').textContent, 'cloud.invalidPayload');
+  }
+});
+
 for (const [name, raw, expected] of [
   ['valid JSON', JSON.stringify(payload('local')), payload('local')],
   ['invalid JSON', '{broken', { history: [] }],
@@ -163,6 +202,9 @@ test('cloud read and upload errors report failure without replacing local data',
   await env.click('enableCloudButton');
   assert.deepEqual(uploaded(env), []);
   assert.deepEqual(JSON.parse(env.localStorage.getItem(DATA_KEY)), payload('local'));
+  env.state.readError = null;
+  env.visibility();
+  await tick(); // A successful read must reopen the upload gate before testing an upload failure.
   env.state.upsert = async () => { throw new Error('fixture upload failure'); };
   assert.equal(await env.click('syncNowButton'), false);
   assert.equal(env.node('syncStatus').textContent, 'cloud.syncFailed');

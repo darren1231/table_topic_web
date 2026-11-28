@@ -32,8 +32,15 @@ const VERSION_HISTORY = [
 ];
 const DEFAULT_PROMPT = '你是一位專業、溫暖且具體的即興表達教練。題目要有深度但容易理解；分析時請根據結構、內容具體度、流暢度評分，指出優點並提供可立即實行的改善建議。使用者使用什麼語言，就用相同語言回答。';
 const DEFAULT_PROMPT_EN = 'You are a professional, warm, and specific impromptu-speaking coach. Create thoughtful but accessible questions. Score structure, specificity, and fluency; identify strengths and give immediately actionable improvements. Always respond in the practice language.';
-let aiSettings = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || 'null') || { activeId:'builtin', projects:[{id:'builtin',name:'內建教練',provider:'builtin',model:'',endpoint:'',apiKey:'',prompt:DEFAULT_PROMPT}] };
-let speechSettings = JSON.parse(localStorage.getItem(SPEECH_SETTINGS_KEY) || 'null') || {voiceURI:'',rate:.9};
+const dataRecovery = StorageRecovery.create({ storage: localStorage });
+let aiSettings = dataRecovery.read(AI_CONFIG_KEY, { validate: PracticeData.validateAiSettings,
+  fallback: () => ({ activeId: 'builtin', projects: [
+    { id: 'builtin', name: '內建教練', provider: 'builtin', model: '', endpoint: '', apiKey: '', prompt: DEFAULT_PROMPT }
+  ] }) });
+let speechSettings = dataRecovery.read(SPEECH_SETTINGS_KEY, { validate: PracticeData.validateSpeechSettings,
+  fallback: () => ({ voiceURI: '', rate: 0.9 }) });
+const recoveryNotice = StorageRecovery.createNotice({ document, recovery: dataRecovery, t,
+  download: text => downloadBackupBlob(new Blob([text], { type: 'application/json' }), 'table-topics-recovery.json') });
 
 function applyUiLanguage() {
   I18n.setLocale(state.language);
@@ -92,7 +99,7 @@ function setPracticeMode(mode){
 const questionTemplates = new Proxy({}, { get: (_, locale) => I18n.questionTemplates(locale) });
 
 let state = { language: localStorage.getItem(UI_LANGUAGE_KEY)||'zh-TW', practiceMode:'question', modeDrafts:{question:{topic:'',questions:[],index:0,text:''},manuscript:{title:'',text:''}}, topic: '', questions: [], index: 0, isRecording: false, isPaused: false, isTranscribing:false, discardAudio:false, seconds: 0, timerId: null, recognition: null, recognitionRestartTimer:null, browserFinalText:'', mediaRecorder:null, mediaStream:null, audioChunks:[], speechUtterance:null, speechControls:null, speechChunks:[], speechQueue:SpeechUtils.createQueueState(), currentHistoryId:null, currentView:'practice', calendarMonth:new Date(new Date().getFullYear(),new Date().getMonth(),1), calendarLanguage:'all', trendLanguage:'all', trendPeriod:'10', reviewLanguage:'all', reviewRevealed:false, libraryPage:1, libraryPageSize:20, librarySearch:'', libraryStatus:'active', libraryDateType:'createdAt', libraryDateFrom:'', libraryDateTo:'', librarySort:'dueAsc', librarySelected:new Set() };
-let saved = JSON.parse(localStorage.getItem(CONFIG.storageKey) || '{"history":[]}');
+let saved = dataRecovery.read(CONFIG.storageKey, { validate: PracticeData.validateStartupPractice, fallback: () => ({ history: [] }) });
 
 function shuffle(items) { return BuiltinCoach.shuffle(items); }
 function localDateKey(date = new Date()) { return PracticeStats.localDateKey(date); }
@@ -104,7 +111,8 @@ function ensureDataSchema(){
   persist();
 }
 function persist() {
-  localStorage.setItem(CONFIG.storageKey, JSON.stringify(saved));
+  if (dataRecovery.isWriteBlocked(CONFIG.storageKey)) return;
+  dataRecovery.write(CONFIG.storageKey, JSON.stringify(saved));
   window.tableTopicsCloud?.scheduleSync(saved);
 }
 function buildBackup(includeApiKeys=false){
@@ -123,9 +131,12 @@ async function exportBackupDrive(){
   const file=new File([blob],filename,{type:'application/json'});
   try{if(navigator.share&&navigator.canShare?.({files:[file]})){await navigator.share({title:'Table Topics backup',text:ui('請將完整備份儲存到 Google Drive','Save this full backup to Google Drive'),files:[file]});toast(ui('備份已交給 Google Drive 分享流程','Backup sent to the Google Drive sharing flow'));return;}downloadBackupBlob(blob,filename);window.open('https://drive.google.com/drive/my-drive','_blank','noopener');toast(ui('已下載備份並開啟 Google Drive，請上傳剛下載的檔案','Backup downloaded and Google Drive opened. Upload the downloaded file.'));}catch(error){if(error.name!=='AbortError')toast(`${ui('Google Drive 匯出失敗','Google Drive export failed')}: ${error.message}`);}
 }
-async function importBackupFile(file){
-  try{const parsed=PracticeData.parseBackup(await file.text());if(!parsed)throw new Error(ui('不是有效的 Table Topics 備份檔','This is not a valid Table Topics backup file'));const {payload,count,hasKeys}=parsed;if(!confirm(ui(`確定匯入 ${count} 筆練習資料並取代目前所有資料嗎？${hasKeys?' 此檔案包含 API Key。':''}`,`Import ${count} practices and replace all current data?${hasKeys?' This file contains API keys.':''}`)))return;localStorage.setItem(CONFIG.storageKey,JSON.stringify(payload.data.practice));localStorage.setItem(AI_CONFIG_KEY,JSON.stringify(payload.data.aiSettings));if(CONFIG.languages[payload.data.language])localStorage.setItem(UI_LANGUAGE_KEY,payload.data.language);const cloudUpdated=await window.tableTopicsCloud?.replaceData?.(payload.data.practice);if(cloudUpdated===false){toast(ui('資料已匯入本機，但雲端更新失敗；請保持此頁開啟並重試','Imported locally, but cloud update failed. Keep this page open and try again.'));return;}toast(ui(window.tableTopicsCloud?.isEnabled?.()?'匯入完成，雲端資料已更新':'匯入完成，正在重新載入',window.tableTopicsCloud?.isEnabled?.()?'Import complete. Cloud data updated.':'Import complete. Reloading…'));setTimeout(()=>location.reload(),700);}catch(error){toast(`${ui('匯入失敗','Import failed')}: ${error.message}`);}finally{$('#importBackupInput').value='';}
-}
+const backupImporter = BackupImport.create({ document, storage: localStorage, readBackup: PracticeData.requireBackup,
+  getCloud: () => window.tableTopicsCloud,
+  keys: { practice: CONFIG.storageKey, ai: AI_CONFIG_KEY, language: UI_LANGUAGE_KEY },
+  supportsLanguage: language => Boolean(CONFIG.languages[language]), confirm: message => confirm(message),
+  toast, reload: () => location.reload(), schedule: (callback, delay) => setTimeout(callback, delay), t, ui });
+function importBackupFile(file) { return backupImporter.importFile(file); }
 function initBackup(){
   $('#backupButton').onclick=()=>{closeSettingsMenu();updateBackupSummary();$('#backupDialog').showModal();};$('#closeBackupButton').onclick=()=>$('#backupDialog').close();$('#exportLocalButton').onclick=exportBackupLocal;$('#exportDriveButton').onclick=exportBackupDrive;$('#importBackupButton').onclick=()=>$('#importBackupInput').click();$('#importBackupInput').onchange=event=>{const file=event.target.files?.[0];if(file)importBackupFile(file);};
 }
@@ -655,7 +666,9 @@ function openHistoryDetail(index) {
   $('#historyDialog').showModal();
 }
 
-function persistAISettings(){localStorage.setItem(AI_CONFIG_KEY,JSON.stringify(aiSettings));}
+function persistAISettings() {
+  if (!dataRecovery.isWriteBlocked(AI_CONFIG_KEY)) dataRecovery.write(AI_CONFIG_KEY, JSON.stringify(aiSettings));
+}
 function providerDefaults(provider){return provider==='openai'?{model:'gpt-5.4-mini',endpoint:'https://api.openai.com/v1/responses',transcriptionModel:'gpt-4o-mini-transcribe',transcriptionEndpoint:'https://api.openai.com/v1/audio/transcriptions'}:provider==='anthropic'?{model:'claude-sonnet-4-5',endpoint:'https://api.anthropic.com/v1/messages',transcriptionModel:'',transcriptionEndpoint:''}:provider==='compatible'?{model:'openai/gpt-4.1',endpoint:'https://models.github.ai/inference/chat/completions',transcriptionModel:'whisper-1',transcriptionEndpoint:''}:{model:'',endpoint:'',transcriptionModel:'',transcriptionEndpoint:''};}
 const OPENAI_PRICING_URL='https://developers.openai.com/api/docs/pricing?latest-pricing=batch';
 const CLAUDE_PRICING_URL='https://platform.claude.com/docs/en/about-claude/pricing';
@@ -1143,6 +1156,7 @@ async function transcribeScriptParagraph(blob,paragraphId,project){const paragra
 function initScriptMode(){renderScriptProjects();$('#newScriptButton').onclick=newScript;$('#scriptSearchInput').oninput=e=>{state.scriptSearch=e.target.value;renderScriptProjects();};$('#scriptStatusFilter').onchange=e=>{state.scriptStatus=e.target.value;renderScriptProjects();};['scriptTitleInput','scriptLanguageInput','scriptTopicInput','scriptPurposeInput','scriptAudienceInput','scriptToneInput','scriptMinutesInput','scriptTagsInput'].forEach(id=>{$(`#${id}`).oninput=saveScriptBrief;$(`#${id}`).onchange=()=>{saveScriptBrief();renderScriptProjects();};});$('#addScriptParagraphButton').onclick=()=>addScriptParagraph();$('#fullScriptReviewButton').onclick=runFullScriptReview;$('#archiveScriptButton').onclick=()=>{const script=currentScript();if(script)setScriptStatus(script.id,script.status==='archived'?'active':'archived');};$('#trashScriptButton').onclick=()=>{const script=currentScript();if(script&&confirm(ui('確定把這篇講稿移到垃圾桶嗎？','Move this manuscript to trash?')))setScriptStatus(script.id,'trashed');};}
 
 function init() {
+  recoveryNotice.initialize();
   initSystemAi();
   ensureDataSchema();
   if(!CONFIG.languages[state.language])state.language='zh-TW';

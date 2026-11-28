@@ -1,0 +1,166 @@
+[
+  {
+    "name": "published legacy display arrays",
+    "source": "d1ec565:app.js normalizeCoachResult",
+    "metrics": {
+      "overall": 72,
+      "structure": 70,
+      "detail": 73,
+      "fluency": 74,
+      "improvements": [
+        "Open with a clear position",
+        "Add an example"
+      ],
+      "comparisons": [],
+      "scoreDetails": [
+        {
+          "name": "Structure",
+          "before": 70,
+          "after": 90,
+          "beforeNote": "",
+          "afterNote": ""
+        }
+      ],
+      "summary": "A useful start.",
+      "rewritten": "",
+      "grammarCorrections": [],
+      "improvedOverall": 90
+    }
+  },
+  {
+    "name": "accepted model aliases and string scores",
+    "source": "d1ec565:app.js normalizeCoachResult",
+    "metrics": {
+      "overallScore": "72",
+      "structureScore": "70/100",
+      "accuracy": "73%",
+      "fluencyScore": "74",
+      "scores": [
+        {
+          "category": "Structure",
+          "originalScore": "70",
+          "improvedScore": "90"
+        }
+      ],
+      "grammar_corrections": [
+        {
+          "original": "i agree",
+          "corrected": "I agree",
+          "is_correct": true
+        }
+      ],
+      "improvements": [
+        "Keep the opening short"
+      ],
+      "rewrittenSpeech": "A clearer answer.",
+      "overall": 72,
+      "structure": 70,
+      "detail": 73,
+      "fluency": 74,
+      "comparisons": [
+        {
+          "label": "Sentence 1",
+          "before": "i agree",
+          "after": "I agree",
+          "isGrammarCorrect": true,
+          "grammarIssue": "",
+          "grammarExplanation": "",
+          "grammarRule": "",
+          "grammarExample": ""
+        }
+      ],
+      "rewritten": "A clearer answer.",
+      "grammarCorrections": [
+        {
+          "original": "i agree",
+          "corrected": "I agree",
+          "isCorrect": true,
+          "issue": "",
+          "explanation": "",
+          "rule": "",
+          "example": "",
+          "index": 0
+        }
+      ],
+      "scoreDetails": [
+        {
+          "name": "Structure",
+          "before": 70,
+          "after": 90,
+          "beforeNote": "",
+          "afterNote": ""
+        }
+      ],
+      "improvedOverall": 90
+    }
+  },
+  {
+    "name": "extracted builtin coach result",
+    "source": "0027975:public/builtin-coach.js createLocalProvider.analyze",
+    "metrics": {
+      "overall": 62,
+      "structure": 61,
+      "detail": 58,
+      "fluency": 68,
+      "strength": "You moved into the topic quickly and made your main idea easy to identify.",
+      "improve": "Use signposts such as “first,” “for example,” and “finally” to guide your listener.",
+      "summary": "Your answer addresses the topic and communicates a clear personal point. Stronger organization, concrete evidence, and a memorable closing line would make it more persuasive.",
+      "improvements": [
+        {
+          "title": "State your position first",
+          "detail": "Answer the question directly in the opening sentence so listeners immediately know your direction."
+        },
+        {
+          "title": "Make the reasoning concrete",
+          "detail": "Support each main reason with one person, scene, number, or personal experience."
+        },
+        {
+          "title": "Finish with impact",
+          "detail": "Return to the opening point in a short, vivid closing sentence."
+        }
+      ],
+      "comparisons": [
+        {
+          "label": "Sentence 1",
+          "before": "I am agree because people is kind.",
+          "after": "I agree because people are kind.",
+          "grammarIssue": "“Agree” is a verb, so it does not take “am.” “People” is plural and takes “are.”",
+          "grammarExplanation": "The corrected sentence follows the standard form shown above.",
+          "grammarRule": "“Agree” is a verb, so it does not take “am.”",
+          "grammarExample": "I agree because people are kind.",
+          "isGrammarCorrect": false
+        }
+      ],
+      "grammarCorrections": [],
+      "rewritten": "In my view, this question needs to be understood from two different perspectives.\n\nFirst, we should recognize the possible risks. Any powerful technology can create serious consequences when it is not managed responsibly. Progress therefore needs to be matched by safety and accountability.\n\nAt the same time, it can also create valuable opportunities. Used wisely, it may solve existing problems and give society more choices for the future.\n\nUltimately, the question is not simply whether it represents hope or danger. The real challenge is learning to pursue its benefits while managing its risks responsibly.",
+      "scoreDetails": [
+        {
+          "name": "Clarity of position",
+          "before": 56,
+          "after": 92
+        },
+        {
+          "name": "Grammar accuracy",
+          "before": 60,
+          "after": 94
+        },
+        {
+          "name": "Word choice",
+          "before": 55,
+          "after": 90
+        },
+        {
+          "name": "Structure",
+          "before": 61,
+          "after": 93
+        },
+        {
+          "name": "Closing impact",
+          "before": 57,
+          "after": 94
+        }
+      ],
+      "improvedOverall": 92
+    }
+  }
+]
