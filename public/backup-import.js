@@ -4,9 +4,10 @@
 })(globalThis, function () {
   function create({ document, storage, readBackup, getCloud, keys, supportsLanguage, confirm, toast, schedule, t, ui,
     onCommit, refresh = () => {}, preparePractice = value => value, getLanguage = () => 'zh-TW',
-    prepareAiSettings = value => value, cancel = clearTimeout, timeoutMs = 15000 }) {
+    prepareAiSettings = value => value, authEvents, cancel = clearTimeout, timeoutMs = 15000 }) {
     let busy = false, pending = false, initialized = false, messageKey = '', revision = 0;
     let stopWait = null;
+    let owner = null;
     const byId = id => document.getElementById(id);
     function render() {
       byId('importCommitStatus').textContent = messageKey ? t(messageKey) : '';
@@ -18,6 +19,19 @@
       byId('languageSelect').value = getLanguage();
     }
     function report(key) { messageKey = key; render(); toast(t(key)); }
+    function identityChanged() {
+      const next = getCloud()?.getUserId?.() || null;
+      if (owner === next) {
+        if (!busy && pending && !getCloud()?.hasPendingImport?.()) {
+          pending = false; messageKey = 'backup.import.synced'; render();
+        }
+        return;
+      }
+      owner = next; revision++; stopWait?.(); stopWait = null; busy = false;
+      pending = Boolean(getCloud()?.hasPendingImport?.());
+      messageKey = pending ? 'backup.import.pending' : '';
+      render();
+    }
     function commitLocal(data, complete) {
       const writes = [[keys.practice, JSON.stringify(data.practice)], [keys.ai, JSON.stringify(data.aiSettings)]];
       if (supportsLanguage(data.language)) writes.push([keys.language, data.language]);
@@ -85,8 +99,9 @@
         pending = Boolean(cloud?.isEnabled?.());
         refresh();
         byId('backupDialog').close();
-        if (pending) pending = !await synchronize(cloud);
+        const succeeded = pending ? await synchronize(cloud) : false;
         if (ticket !== revision) return;
+        if (pending) pending = !succeeded;
         report(pending ? 'backup.import.pending' : cloud?.isEnabled?.() ? 'backup.import.synced' : 'backup.import.local');
       } catch (error) {
         if (ticket !== revision) return;
@@ -105,9 +120,11 @@
       initialize() {
         if (initialized) return;
         initialized = true;
+        owner = getCloud()?.getUserId?.() || null;
         pending = Boolean(getCloud()?.hasPendingImport?.());
         if (pending) messageKey = 'backup.import.pending';
         byId('retryImportSyncButton').addEventListener('click', retry);
+        authEvents?.addEventListener('tabletopics:auth', identityChanged);
         render();
         const ticket = revision;
         getCloud()?.ready?.then(() => {
@@ -119,6 +136,7 @@
       },
       dispose() {
         byId('retryImportSyncButton').removeEventListener('click', retry);
+        authEvents?.removeEventListener('tabletopics:auth', identityChanged);
         initialized = false; busy = false; revision++; stopWait?.(); stopWait = null;
       }
     };

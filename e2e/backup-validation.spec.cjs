@@ -16,6 +16,20 @@ async function upload(page, value) {
   });
 }
 
+test('importing an English backup from Chinese immediately applies the whole language workflow', async ({ guestPage: page }) => {
+  await page.locator('#languageSelect').selectOption('zh-TW');
+  await expect(page.locator('#todayLabel')).toContainText('11月');
+  await openMenu(page, 'backupButton');
+  page.once('dialog', dialog => dialog.accept());
+  await upload(page, backup());
+  await expect(page.locator('#backupDialog')).not.toBeVisible();
+  await expect(page.locator('#homeView h1')).toHaveText('What would you like to practice?');
+  await expect(page.locator('#languageSelect')).toHaveValue('en-US');
+  await expect(page.locator('#todayLabel')).toContainText('November');
+  await expect(page.locator('#suggestions button').first()).toHaveText('travel');
+  await expect(page.locator('#importCommitStatus')).toHaveText('Imported locally.');
+});
+
 for (const key of ['tableTopicsPractice.v1', 'tableTopicsAIProjects.v1', 'tableTopicsLanguage.v1']) {
   test(`failed local write ${key} preserves all keys and the running memory`, async ({ guestPage: page }) => {
     await openMenu(page, 'backupButton');

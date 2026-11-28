@@ -132,14 +132,15 @@ async function exportBackupDrive(){
   try{if(navigator.share&&navigator.canShare?.({files:[file]})){await navigator.share({title:'Table Topics backup',text:ui('請將完整備份儲存到 Google Drive','Save this full backup to Google Drive'),files:[file]});toast(ui('備份已交給 Google Drive 分享流程','Backup sent to the Google Drive sharing flow'));return;}downloadBackupBlob(blob,filename);window.open('https://drive.google.com/drive/my-drive','_blank','noopener');toast(ui('已下載備份並開啟 Google Drive，請上傳剛下載的檔案','Backup downloaded and Google Drive opened. Upload the downloaded file.'));}catch(error){if(error.name!=='AbortError')toast(`${ui('Google Drive 匯出失敗','Google Drive export failed')}: ${error.message}`);}
 }
 const backupImporter = BackupImport.create({ document, storage: localStorage, readBackup: PracticeData.requireBackup,
-  getCloud: () => window.tableTopicsCloud,
+  getCloud: () => window.tableTopicsCloud, authEvents: window,
   keys: { practice: CONFIG.storageKey, ai: AI_CONFIG_KEY, language: UI_LANGUAGE_KEY },
   supportsLanguage: language => Boolean(CONFIG.languages[language]), confirm: message => confirm(message),
   preparePractice: PracticeData.ensureDataSchema, getLanguage: () => state.language,
   prepareAiSettings: settings => SystemAI.prepareSettings(settings, t),
   onCommit: data => { saved = data.practice; aiSettings = data.aiSettings; state.language = data.language; },
   refresh: () => {
-    renderSuggestions(); renderHistory(); updateStats(); updateReviewBadge(); renderProjectSettings(); navigateTo(state.currentView);
+    changePracticeLanguage(state.language, { persistLanguage: false });
+    updateReviewBadge(); renderProjectSettings(); navigateTo(state.currentView);
   },
   toast, schedule: (callback, delay) => setTimeout(callback, delay), t, ui });
 function importBackupFile(file) { return backupImporter.importFile(file); }
@@ -1088,9 +1089,11 @@ function trendEntries(){return PracticeStats.trendEntries(saved.history,state.tr
 function trendSvg(entries,series){const width=900,height=310,pad={l:48,r:24,t:24,b:48},innerW=width-pad.l-pad.r,innerH=height-pad.t-pad.b,x=i=>pad.l+(entries.length===1?innerW/2:i*innerW/(entries.length-1)),y=value=>finiteNumber(pad.t+(100-finiteNumber(value))*innerH/100);const grid=[0,25,50,75,100].map(v=>`<g><line x1="${pad.l}" y1="${y(v)}" x2="${width-pad.r}" y2="${y(v)}"/><text x="${pad.l-10}" y="${y(v)+4}" text-anchor="end">${v}</text></g>`).join('');const lines=series.map(item=>{const points=entries.map((entry,i)=>`${x(i)},${y(item.value(entry))}`).join(' '),dots=entries.map((entry,i)=>`<circle cx="${x(i)}" cy="${y(item.value(entry))}" r="4"><title>${escapeHtml(entry.date)} · ${escapeHtml(item.label)} ${finiteNumber(item.value(entry))}</title></circle>`).join('');return `<g class="chart-series ${safeClass(item.className,['series-overall','series-average','series-structure','series-detail','series-fluency'])}"><polyline points="${points}"/>${dots}</g>`;}).join('');const labels=entries.map((entry,i)=>entries.length>12&&i%Math.ceil(entries.length/8)!==0&&i!==entries.length-1?'':`<text class="chart-date" x="${x(i)}" y="${height-17}" text-anchor="middle">${escapeHtml(String(entry.date??'').slice(5).replace('-','/'))}</text>`).join('');return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><g class="chart-grid">${grid}</g>${lines}${labels}</svg>`;}
 function renderScoreTrends(){const entries=trendEntries(),chart=$('#scoreTrendChart'),metricChart=$('#metricTrendChart');if(!entries.length){$('#trendSummary').innerHTML='';const empty=`<div class="trend-empty"><span>↗</span><h2>${ui('還沒有可以繪製的成績','No scores to chart yet')}</h2><p>${ui('完成一次練習並取得 AI 評分後，成長曲線就會從這裡開始。','Complete a scored practice to start your growth chart.')}</p><button class="primary" type="button" data-start-practice>${ui('開始第一次練習','Start practicing')}</button></div>`;chart.innerHTML=empty;metricChart.innerHTML=empty;document.querySelectorAll('[data-start-practice]').forEach(b=>b.onclick=()=>startPracticeFlow('question'));return;}const scores=entries.map(x=>finiteNumber(x.score)),average=finiteNumber(Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)),first=scores[0],latest=scores.at(-1),change=finiteNumber(latest-first),best=Math.max(...scores);$('#trendSummary').innerHTML=[[latest,ui('最新分數','Latest score')],[`${change>=0?'+':''}${change}`,ui('期間成長','Change')],[average,ui('平均分數','Average')],[best,ui('最佳表現','Personal best')]].map(([v,n],i)=>`<article class="stat-card ${i===1?(change>=0?'positive':'negative'):''}"><b>${typeof v==='number'?finiteNumber(v):escapeHtml(v)}</b><span>${escapeHtml(n)}</span></article>`).join('');chart.innerHTML=trendSvg(entries,[{label:ui('整體分數','Overall'),className:'series-overall',value:x=>finiteNumber(x.score)},{label:ui('平均分數','Average'),className:'series-average',value:()=>average}]);metricChart.innerHTML=trendSvg(entries,[{label:ui('結構清晰','Structure'),className:'series-structure',value:x=>x.metrics?.structure??x.score},{label:ui('內容具體','Detail'),className:'series-detail',value:x=>x.metrics?.detail??x.score},{label:ui('表達流暢','Fluency'),className:'series-fluency',value:x=>x.metrics?.fluency??x.score}]);chart.setAttribute('aria-label',ui(`最近 ${entries.length} 次練習，最新 ${latest} 分，平均 ${average} 分`,`Last ${entries.length} practices: latest ${latest}, average ${average}`));}
 
-function changePracticeLanguage(language,{announce=false}={}){
+function changePracticeLanguage(language,{announce=false,persistLanguage=true}={}){
   if(!CONFIG.languages[language])return;
-  state.language=language;localStorage.setItem(UI_LANGUAGE_KEY,state.language);$('#languageSelect').value=state.language;
+  state.language=language;
+  if(persistLanguage)localStorage.setItem(UI_LANGUAGE_KEY,state.language);
+  $('#languageSelect').value=state.language;
   I18n.setLocale(state.language);
   window.tableTopicsCloud?.refreshUi?.();
   if(state.isRecording)pauseRecording();

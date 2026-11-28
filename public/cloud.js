@@ -62,6 +62,12 @@
       clearTimeout(timer);
       syncAgain = null;
     }
+    // Pending(A) survives sign-out and restoring A. Signing in as B ends that
+    // retry state: the shared local payload can now change through B's normal sync.
+    if (importPending && next?.user?.id && pendingOwner !== next.user.id) {
+      localStorage.removeItem(IMPORT_PENDING_KEY);
+      importPending = false; pendingOwner = null;
+    }
     session = next;
   }
 

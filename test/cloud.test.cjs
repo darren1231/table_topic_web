@@ -5,6 +5,53 @@ const payload = name => ({ history: [{ id: name }], projects: [{ id: 'project' }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const uploaded = env => env.state.uploads.map(upload => upload.row.payload);
 
+test('startup as B ignores A pending marker without deleting the local payload', async () => {
+  const local = payload('retained-local');
+  const env = await loadCloud({ session: { user: { id: 'account-B' } }, local: {
+    [MODE_KEY]: 'cloud', [DATA_KEY]: JSON.stringify(local),
+    'tableTopicsImportPending.v1': JSON.stringify({ owner: 'account-A' }),
+  } });
+  assert.equal(env.api.hasPendingImport(), false);
+  assert.deepEqual(JSON.parse(env.localStorage.getItem(DATA_KEY)), local);
+  assert.deepEqual(uploaded(env), [local]);
+  assert.equal(env.state.uploads[0].row.user_id, 'account-B');
+});
+
+test('signing out retains A pending marker and restoring A still protects its local import', async () => {
+  const env = await loadCloud(); await env.click('enableCloudButton');
+  const imported = payload('pending-for-A');
+  const lease = env.api.beginImport();
+  env.localStorage.setItem(DATA_KEY, JSON.stringify(imported)); lease.commit();
+  await env.click('signOutButton');
+  assert.equal(env.api.hasPendingImport(), true);
+  env.state.session = userSession; env.state.authChanged('SIGNED_IN', userSession);
+  assert.equal(env.api.hasPendingImport(), true);
+  assert.deepEqual(JSON.parse(env.localStorage.getItem(DATA_KEY)), imported);
+});
+
+test('switching from pending A to B retires the old marker and allows B to synchronize normally', async () => {
+  const env = await loadCloud(); await env.click('enableCloudButton');
+  const imported = payload('imported-for-A');
+  const lease = env.api.beginImport();
+  env.localStorage.setItem(DATA_KEY, JSON.stringify(imported)); lease.commit();
+  env.state.upsert = async () => ({ error: { message: 'denied' } });
+  assert.equal(await env.api.replaceData(imported), false);
+  const nextSession = { user: { id: 'account-B', user_metadata: {} } };
+  env.state.upsert = async () => ({ error: null }); env.state.uploads.length = 0;
+  env.state.session = nextSession;
+  env.state.authChanged('SIGNED_IN', nextSession);
+  await env.advance(0);
+  assert.equal(env.api.hasPendingImport(), false);
+  assert.equal(env.localStorage.getItem('tableTopicsImportPending.v1'), null);
+  assert.notEqual(env.node('syncStatus').textContent, 'backup.import.pending');
+  assert.equal(env.state.uploads.at(-1).row.user_id, 'account-B');
+  const edited = payload('edited-by-B');
+  env.localStorage.setItem(DATA_KEY, JSON.stringify(edited)); env.api.scheduleSync(edited);
+  await env.advance(900);
+  assert.deepEqual(uploaded(env).at(-1), edited);
+  assert.equal(env.state.uploads.at(-1).row.user_id, 'account-B');
+});
+
 test('import discards an in-flight upload queue and serializes the committed replacement after it', async () => {
   const old = payload('old'), imported = payload('imported');
   const env = await loadCloud({ local: { [DATA_KEY]: JSON.stringify(old) } });

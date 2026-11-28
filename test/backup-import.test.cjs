@@ -19,11 +19,12 @@ function fixture({ failKey, cloudResult = true } = {}) {
     values.set(key, value);
   } };
   const cloud = { isEnabled: () => true, replaceData: async () => { cloudCalls++; return cloudResult; } };
+  const authEvents = new EventTarget();
   const importer = create({ document, storage, keys, readBackup: () => ({ payload: { data: imported }, count: 1, hasKeys: false }),
-    getCloud: () => cloud, supportsLanguage: () => true, getLanguage: () => 'en-US', confirm: () => true,
+    getCloud: () => cloud, authEvents, supportsLanguage: () => true, getLanguage: () => 'en-US', confirm: () => true,
     onCommit: value => commits.push(value), refresh() {}, toast: message => messages.push(message), t: key => key,
     ui: (zh, en) => en, schedule(fn) { const id = ++timerId; timers.set(id, fn); return id; }, cancel: id => timers.delete(id), timeoutMs: 10 });
-  return { importer, document, values, old, commits, messages, timers, cloud, imported, cloudCalls: () => cloudCalls,
+  return { importer, document, authEvents, values, old, commits, messages, timers, cloud, imported, cloudCalls: () => cloudCalls,
     import: () => importer.importFile({ text: async () => '{}' }) };
 }
 
@@ -107,9 +108,29 @@ test('restored pending notice reflects cloud initialization completing its retry
   f.cloud.hasPendingImport = () => pending;
   f.cloud.ready = new Promise(resolve => { finish = resolve; });
   f.importer.initialize();
+  f.cloud.getUserId = () => 'A';
+  f.authEvents.dispatchEvent(new Event('tabletopics:auth'));
   assert.equal(f.document.getElementById('importCommitStatus').textContent, 'backup.import.pending');
   pending = false; finish();
+  f.authEvents.dispatchEvent(new Event('tabletopics:auth'));
   await Promise.resolve();
   assert.equal(f.document.getElementById('importCommitStatus').textContent, 'backup.import.synced');
+  f.importer.dispose();
+});
+
+test('switching accounts clears the old import notice and ignores its late success', async () => {
+  const f = fixture();
+  let owner = 'A', pending = true, finish;
+  f.cloud.getUserId = () => owner;
+  f.cloud.hasPendingImport = () => pending;
+  f.cloud.replaceData = () => new Promise(resolve => { finish = resolve; });
+  f.importer.initialize();
+  const running = f.import();
+  for (let index = 0; index < 8; index++) await Promise.resolve();
+  owner = 'B'; pending = false;
+  f.authEvents.dispatchEvent(new Event('tabletopics:auth'));
+  finish(true); await running;
+  assert.equal(f.document.getElementById('importCommitStatus').textContent, '');
+  assert.deepEqual(f.messages, []);
   f.importer.dispose();
 });
