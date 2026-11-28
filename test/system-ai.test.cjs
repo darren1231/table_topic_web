@@ -2,6 +2,17 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const api = () => require('../public/system-ai.js');
 
+test('import preparation adds managed defaults without mutating settings or replacing custom managed prompts', () => {
+  const settings = { activeId: 'legacy', projects: [{ id: 'managed_builtin', provider: 'builtin', prompt: 'Custom' }] };
+  const before = structuredClone(settings);
+  const prepared = api().prepareSettings(settings, key => key);
+  assert.deepEqual(settings, before);
+  assert.equal(prepared.projects.length, 2);
+  assert.equal(prepared.projects[0].prompt, 'Custom');
+  assert.equal(prepared.projects[1].id, 'managed_system');
+  assert.deepEqual(api().prepareSettings(prepared, key => key), prepared);
+});
+
 test('recorder options request 32 kbps audio and preserve an optional MIME type', () => {
   assert.deepEqual(api().recorderOptions(), { audioBitsPerSecond: 32000 });
   assert.deepEqual(api().recorderOptions(''), { audioBitsPerSecond: 32000 });

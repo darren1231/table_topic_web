@@ -41,6 +41,7 @@ function browser({ storageEntries = [], now, createElement = tag => new Element(
   const localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
   const messages = JSON.parse(fs.readFileSync(path.join(publicDir, 'locales/en-US.json'), 'utf8')).messages;
   const window = {
+    scrollTo() {},
     addEventListener(name, listener) { events.set(name, [...(events.get(name) || []), listener]); },
     dispatchEvent(event) { for (const listener of events.get(event.type) || []) listener(event); },
   };
@@ -48,12 +49,13 @@ function browser({ storageEntries = [], now, createElement = tag => new Element(
     window, document: { visibilityState: 'visible', querySelector: get, querySelectorAll: () => [], getElementById: id => get(`#${id}`), createElement,
       addEventListener(name, listener) { const key = `document:${name}`; events.set(key, [...(events.get(key) || []), listener]); },
       dispatchEvent(event) { for (const listener of events.get(`document:${event.type}`) || []) listener(event); } },
-    localStorage, sessionStorage: localStorage, console, Blob, FormData, Response, Request, URL, Intl,
+    localStorage, sessionStorage: localStorage, console, Blob, FormData, Response, Request, URL, URLSearchParams, Intl,
     CustomEvent: class { constructor(type, options = {}) { this.type = type; this.detail = options.detail; } },
     setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
     location: { hash: '', origin: 'https://app.example.invalid', pathname: '/' },
     I18n: { ready: new Promise(() => {}), fromSource: (source, english) => english || source,
       setLocale() {}, apply() {},
+      topics: () => ['Work', 'Life', 'Travel', 'Learning', 'Friends'],
       questionTemplates: () => [topic => `Question about ${topic}`],
       translate(key, variables = {}) { return Object.entries(variables).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), messages[key] || key); } },
     SpeechUtils: require('../../public/speech-utils.js'), CoachResultUtils: require('../../public/coach-result-utils.js'),

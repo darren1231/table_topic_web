@@ -284,6 +284,7 @@ function importApp({ confirmed = true, cloudResult = true } = {}) {
   b.context.confirm = message => { confirmations.push(message); return confirmed; };
   b.context.setTimeout = (callback, delay) => { timers.push({ callback, delay }); return timers.length; };
   b.context.location.reload = () => { reloads++; };
+  b.window.tableTopicsCloud.isEnabled = () => true;
   b.window.tableTopicsCloud.replaceData = async data => { cloudWrites.push(plain(data)); return cloudResult; };
   b.get('#importBackupInput').value = 'selected-backup.json';
   return { ...b, confirmations, cloudWrites, timers, reads: () => reads, reloads: () => reloads,
@@ -291,20 +292,22 @@ function importApp({ confirmed = true, cloudResult = true } = {}) {
   };
 }
 
-test('import UI still reads once, confirms, writes local data and schedules reload after cloud replacement', async () => {
+test('import UI publishes committed normalized data before syncing, with no reload', async () => {
   const b = importApp();
   const payload = importPayload({ history: [{ id: 'imported-practice' }], projects: [{ id: 'imported', apiKey: 'import-placeholder' }] });
   await b.import(JSON.stringify(payload));
   assert.equal(b.reads(), 1);
   assert.deepEqual(b.confirmations, ['Import 1 practices and replace all current data? This file contains API keys.']);
-  assert.deepEqual(JSON.parse(b.storage.get('tableTopicsPractice.v1')), payload.data.practice);
-  assert.deepEqual(JSON.parse(b.storage.get('tableTopicsAIProjects.v1')), payload.data.aiSettings);
+  const committed = JSON.parse(b.storage.get('tableTopicsPractice.v1'));
+  assert.equal(committed.history[0].id, 'imported-practice');
+  assert.deepEqual(plain(b.run('saved')), committed);
+  assert.deepEqual(plain(b.run('aiSettings')), JSON.parse(b.storage.get('tableTopicsAIProjects.v1')));
+  assert.equal(b.run('state.language'), 'en-US');
+  assert.deepEqual(JSON.parse(b.storage.get('tableTopicsAIProjects.v1')).projects[0], payload.data.aiSettings.projects[0]);
   assert.equal(b.storage.get('tableTopicsLanguage.v1'), 'en-US');
-  assert.deepEqual(b.cloudWrites, [payload.data.practice]);
+  assert.deepEqual(b.cloudWrites, [committed]);
   assert.equal(b.reloads(), 0);
-  const reload = b.timers.find(timer => timer.delay === 700);
-  assert.ok(reload); reload.callback();
-  assert.equal(b.reloads(), 1);
+  assert.equal(b.timers.some(timer => timer.delay === 700), false);
   assert.equal(b.get('#importBackupInput').value, '');
 });
 
@@ -336,14 +339,14 @@ test('invalid import shapes and JSON preserve existing failure UI without writin
   }
 });
 
-test('KNOWN ISSUE: failed cloud import leaves overwritten local data and the old in-memory practice', async () => {
+test('F05 cloud failure keeps committed memory and storage aligned; later persist cannot restore old data', async () => {
   const b = importApp({ cloudResult: false });
-  const previous = JSON.parse(b.run('JSON.stringify(saved)'));
   const payload = importPayload({ history: [{ id: 'imported-practice' }] });
   await b.import(JSON.stringify(payload));
-  // KNOWN ISSUE: localStorage is overwritten before cloud replacement succeeds, without rollback or updating saved.
-  assert.deepEqual(JSON.parse(b.storage.get('tableTopicsPractice.v1')), payload.data.practice);
-  assert.deepEqual(JSON.parse(b.run('JSON.stringify(saved)')), previous);
+  const committed = JSON.parse(b.storage.get('tableTopicsPractice.v1'));
+  assert.deepEqual(plain(b.run('saved')), committed);
+  b.run('persist()');
+  assert.deepEqual(JSON.parse(b.storage.get('tableTopicsPractice.v1')), committed);
   assert.equal(b.timers.some(timer => timer.delay === 700), false);
-  assert.equal(b.get('#toast').textContent, 'Imported locally, but cloud update failed. Keep this page open and try again.');
+  assert.ok(b.get('#toast').textContent.includes('Imported locally; cloud sync is pending.'));
 });

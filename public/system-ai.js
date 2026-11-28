@@ -77,5 +77,16 @@
     };
   }
 
-  return { selectProvider, interpretResponse, isAudioTooLarge, recorderOptions, createClient };
+  function prepareSettings(settings, t) {
+    const projects = settings.projects.map(project => ({ ...project }));
+    for (const provider of ['builtin', 'system']) {
+      const id = `managed_${provider}`;
+      if (!projects.some(project => project.id === id && project.provider === provider)) {
+        projects.push({ id, provider, name: t(provider === 'system' ? 'systemAi.name' : 'systemAi.builtin'),
+          prompt: t('systemAi.defaultPrompt'), transcriptionMode: 'browser', smartCorrection: true });
+      }
+    }
+    return { ...settings, projects };
+  }
+  return { selectProvider, interpretResponse, isAudioTooLarge, recorderOptions, createClient, prepareSettings };
 });

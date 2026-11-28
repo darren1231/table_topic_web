@@ -21,6 +21,12 @@
     "「{topic}」について、よく誤解されていることは何だと思いますか？"
   ],
   "messages": {
+    "backup.import.localFailed": "端末への取り込みに失敗しました。元のデータに戻し、メモリは変更していません。",
+    "backup.import.rollbackFailed": "復元できない保存領域があります。このページを開いたまま元のデータを書き出し、再読み込みしないでください。",
+    "backup.import.pending": "端末に取り込み済み、クラウドは未同期です。再試行できます。タイムアウトしても送信済みの可能性があり、クラウドは取り消していません。",
+    "backup.import.synced": "端末への取り込みとクラウド同期が完了しました。",
+    "backup.import.local": "端末に取り込みました。",
+    "backup.import.retry": "クラウド同期を再試行",
     "backup.invalid.json": "バックアップは有効な JSON ではありません。",
     "backup.category.backup": "バックアップ",
     "backup.category.practice": "練習データ",
